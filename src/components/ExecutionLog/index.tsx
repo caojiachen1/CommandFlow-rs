@@ -7,9 +7,9 @@ interface ExecutionLogProps {
 
 const levelTone = {
   info: 'text-slate-500 dark:text-slate-400',
-  success: 'text-emerald-600 dark:text-emerald-400 border-l-2 border-emerald-500 pl-2 bg-emerald-500/5',
-  warn: 'text-amber-600 dark:text-amber-400 border-l-2 border-amber-500 pl-2 bg-amber-500/5',
-  error: 'text-rose-600 dark:text-rose-400 border-l-2 border-rose-500 pl-2 bg-rose-500/5',
+  success: 'text-emerald-600 dark:text-emerald-400',
+  warn: 'text-amber-600 dark:text-amber-400',
+  error: 'text-rose-600 dark:text-rose-400',
 }
 
 export default function ExecutionLog({ expanded, onToggle }: ExecutionLogProps) {
@@ -46,21 +46,19 @@ export default function ExecutionLog({ expanded, onToggle }: ExecutionLogProps) 
         </div>
       </button>
       {expanded && (
-        <div className="h-[280px] overflow-y-auto p-4 pt-0 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
-          <div className="rounded-lg border border-slate-200 bg-white p-2 text-[11px] shadow-inner scrollbar-thin scrollbar-thumb-slate-200 dark:border-neutral-800 dark:bg-neutral-900 dark:scrollbar-thumb-slate-800">
-            {logs.length === 0 && (
-              <div className="flex h-full items-center justify-center text-slate-400 italic font-medium opacity-50">
-                等待系统活动...
-              </div>
-            )}
-            <div className="space-y-1.5 font-mono">
-              {logs.map((log) => (
-                <div key={log.id} className={`${levelTone[log.level]} rounded-md p-1.5`}>
-                  <span className="mr-2 opacity-40 text-[10px]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
-                  <span>{log.message}</span>
-                </div>
-              ))}
+        <div className="h-[280px] overflow-y-auto px-4 pb-4 pt-0 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+          {logs.length === 0 && (
+            <div className="flex h-full items-center justify-center text-slate-400 italic font-medium opacity-50">
+              等待系统活动...
             </div>
+          )}
+          <div className="space-y-1 font-mono text-[11px]">
+            {logs.map((log) => (
+              <div key={log.id} className={`${levelTone[log.level]} flex items-center`}>
+                <span className="mr-2 shrink-0 opacity-40 text-[10px]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+                <span className="truncate">{log.message}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
