@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import FlowEditor from './components/FlowEditor'
 import NodePanel from './components/NodePanel'
 import PropertyPanel from './components/PropertyPanel'
@@ -39,6 +39,10 @@ function App() {
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleFlowEditorPaneClick = useCallback(() => {
+    setActiveMenu(null)
   }, [])
 
   const handleMenuAction = (item: string) => {
@@ -124,7 +128,7 @@ function App() {
 
       <main className="flex flex-1 grid-cols-[280px_1fr_320px] overflow-hidden lg:grid">
         <NodePanel />
-        <FlowEditor />
+        <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
         <div className="flex flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
           <PropertyPanel />
           <div className="h-[1px] w-full bg-slate-200 dark:bg-neutral-800" />

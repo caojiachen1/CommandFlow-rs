@@ -44,7 +44,7 @@ const allowedKinds: NodeKind[] = [
 
 const isNodeKind = (value: string): value is NodeKind => allowedKinds.includes(value as NodeKind)
 
-function InnerFlowEditor() {
+function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   const {
     nodes,
     edges,
@@ -131,9 +131,10 @@ function InnerFlowEditor() {
     setSelectedNode(node.id)
   }, [setSelectedNode])
 
-  const onPaneClick = useCallback(() => {
+  const handlePaneClick = useCallback(() => {
     setSelectedNode(null)
-  }, [setSelectedNode])
+    onPaneClick?.()
+  }, [setSelectedNode, onPaneClick])
 
   const onPaneMouseMove = useCallback(
     (event: React.MouseEvent<Element>) => {
@@ -157,7 +158,7 @@ function InnerFlowEditor() {
         onConnect={onConnect}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeClick={onNodeClick}
-        onPaneClick={onPaneClick}
+        onPaneClick={handlePaneClick}
         onPaneMouseMove={onPaneMouseMove}
         fitView
         panOnDrag
@@ -185,11 +186,11 @@ function InnerFlowEditor() {
   )
 }
 
-export default function FlowEditor() {
+export default function FlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   return (
     <section className="h-full flex-1 relative z-0">
       <ReactFlowProvider>
-        <InnerFlowEditor />
+        <InnerFlowEditor onPaneClick={onPaneClick} />
       </ReactFlowProvider>
     </section>
   )
