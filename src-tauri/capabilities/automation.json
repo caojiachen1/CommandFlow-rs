@@ -1,0 +1,11 @@
+{
+  "identifier": "automation",
+  "description": "Desktop automation capability",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "dialog:default",
+    "fs:default"
+  ]
+}

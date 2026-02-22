@@ -1,0 +1,34 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="64" y1="64" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="140" y1="160" x2="372" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <filter id="shadow" x="40" y="40" width="432" height="432" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0B1120" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="384" height="384" rx="92" fill="url(#bg)"/>
+  <rect x="64" y="64" width="384" height="384" rx="92" stroke="#E2E8F0" stroke-opacity="0.18" stroke-width="2"/>
+
+  <g filter="url(#shadow)">
+    <path d="M152 184C152 166.327 166.327 152 184 152H260C277.673 152 292 166.327 292 184V206H252V196C252 189.373 246.627 184 240 184H196C189.373 184 184 189.373 184 196V316C184 322.627 189.373 328 196 328H240C246.627 328 252 322.627 252 316V306H292V328C292 345.673 277.673 360 260 360H184C166.327 360 152 345.673 152 328V184Z" fill="white"/>
+    <path d="M322 176H362C379.673 176 394 190.327 394 208V304C394 321.673 379.673 336 362 336H322C304.327 336 290 321.673 290 304V208C290 190.327 304.327 176 322 176ZM328 216C321.373 216 316 221.373 316 228V284C316 290.627 321.373 296 328 296H356C362.627 296 368 290.627 368 284V228C368 221.373 362.627 216 356 216H328Z" fill="white"/>
+  </g>
+
+  <g>
+    <circle cx="170" cy="132" r="16" fill="url(#accent)"/>
+    <circle cx="342" cy="132" r="16" fill="url(#accent)"/>
+    <circle cx="170" cy="380" r="16" fill="url(#accent)"/>
+    <circle cx="342" cy="380" r="16" fill="url(#accent)"/>
+    <path d="M186 132H326" stroke="#67E8F9" stroke-opacity="0.9" stroke-width="8" stroke-linecap="round"/>
+    <path d="M170 148V364" stroke="#67E8F9" stroke-opacity="0.6" stroke-width="6" stroke-linecap="round" stroke-dasharray="10 12"/>
+    <path d="M342 148V364" stroke="#C4B5FD" stroke-opacity="0.6" stroke-width="6" stroke-linecap="round" stroke-dasharray="10 12"/>
+    <path d="M186 380H326" stroke="#C4B5FD" stroke-opacity="0.9" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
