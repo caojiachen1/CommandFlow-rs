@@ -23,6 +23,18 @@ enum NextDirective {
 
 impl WorkflowExecutor {
     pub async fn execute(&self, graph: &WorkflowGraph) -> CommandResult<()> {
+        let mut noop = |_node: &WorkflowNode| {};
+        self.execute_with_progress(graph, &mut noop).await
+    }
+
+    pub async fn execute_with_progress<F>(
+        &self,
+        graph: &WorkflowGraph,
+        on_node_start: &mut F,
+    ) -> CommandResult<()>
+    where
+        F: FnMut(&WorkflowNode),
+    {
         if graph.nodes.is_empty() {
             return Err(CommandFlowError::Validation(
                 "workflow has no executable nodes".to_string(),
@@ -67,7 +79,8 @@ impl WorkflowExecutor {
         let mut ctx = ExecutionContext::default();
         for start in starts {
             if visited_entry.insert(start.to_string()) {
-                self.execute_from_node(start, graph, &node_map, &mut ctx).await?;
+                self.execute_from_node(start, graph, &node_map, &mut ctx, on_node_start)
+                    .await?;
             }
         }
 
@@ -80,6 +93,7 @@ impl WorkflowExecutor {
         graph: &WorkflowGraph,
         node_map: &HashMap<&str, &WorkflowNode>,
         ctx: &mut ExecutionContext,
+        on_node_start: &mut impl FnMut(&WorkflowNode),
     ) -> CommandResult<()> {
         let mut current_id = start_id.to_string();
         let mut guard_steps = 0usize;
@@ -89,6 +103,8 @@ impl WorkflowExecutor {
             let node = node_map.get(current_id.as_str()).ok_or_else(|| {
                 CommandFlowError::Validation(format!("node '{}' not found", current_id))
             })?;
+
+            on_node_start(node);
 
             let directive = self.execute_single_node(node, ctx).await?;
 

@@ -1,6 +1,7 @@
 use crate::automation::executor::WorkflowExecutor;
 use crate::workflow::graph::WorkflowGraph;
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinateInfo {
@@ -10,15 +11,31 @@ pub struct CoordinateInfo {
     pub mode: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeProgressPayload {
+    pub node_id: String,
+}
+
 #[tauri::command]
 pub async fn health_check() -> Result<String, String> {
     Ok("ok".to_string())
 }
 
 #[tauri::command]
-pub async fn run_workflow(graph: WorkflowGraph) -> Result<String, String> {
+pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String, String> {
     let executor = WorkflowExecutor::default();
-    executor.execute(&graph).await.map_err(|e| e.to_string())?;
+    let mut emit_progress = |node: &crate::workflow::node::WorkflowNode| {
+        let _ = app.emit(
+            "workflow-node-started",
+            NodeProgressPayload {
+                node_id: node.id.clone(),
+            },
+        );
+    };
+    executor
+        .execute_with_progress(&graph, &mut emit_progress)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok("workflow finished".to_string())
 }
 

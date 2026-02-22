@@ -10,6 +10,7 @@ import { useSettingsStore } from './stores/settingsStore'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
+import { listen } from '@tauri-apps/api/event'
 import { runWorkflow, stopWorkflow } from './utils/execution'
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
@@ -67,6 +68,29 @@ function App() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) {
+      return
+    }
+
+    let unlisten: (() => void) | null = null
+    void listen<{ node_id: string }>('workflow-node-started', (event) => {
+      const nodeId = event.payload?.node_id
+      if (!nodeId) return
+      setSelectedNode(nodeId)
+    })
+      .then((cleanup) => {
+        unlisten = cleanup
+      })
+      .catch((error) => {
+        addLog('warn', `监听执行进度失败：${String(error)}`)
+      })
+
+    return () => {
+      unlisten?.()
+    }
+  }, [addLog, setSelectedNode])
 
   const handleFlowEditorPaneClick = useCallback(() => {
     setActiveMenu(null)
