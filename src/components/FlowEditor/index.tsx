@@ -7,7 +7,7 @@ import {
   type NodeMouseHandler,
   useReactFlow,
 } from '@xyflow/react'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { NodeKind } from '../../types/workflow'
@@ -18,6 +18,7 @@ import KeyPressNode from '../../nodes/KeyPressNode'
 import LoopNode from '../../nodes/LoopNode'
 import ScreenshotNode from '../../nodes/ScreenshotNode'
 import VariableNode from '../../nodes/VariableNode'
+import PropertyModal from '../PropertyModal'
 
 const allowedKinds: NodeKind[] = [
   'hotkeyTrigger',
@@ -131,6 +132,13 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     setSelectedNode(node.id)
   }, [setSelectedNode])
 
+  const [modalOpen, setModalOpen] = useState(false)
+
+  const onNodeDoubleClick: NodeMouseHandler = useCallback((_, node) => {
+    setSelectedNode(node.id)
+    setModalOpen(true)
+  }, [setSelectedNode])
+
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null)
     onPaneClick?.()
@@ -158,6 +166,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         onConnect={onConnect}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={handlePaneClick}
         onPaneMouseMove={onPaneMouseMove}
         fitView
@@ -181,6 +190,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
           showInteractive={false}
           position="bottom-right"
         />
+        <PropertyModal open={modalOpen} onClose={() => setModalOpen(false)} />
       </ReactFlow>
     </div>
   )

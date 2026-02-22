@@ -1,7 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import FlowEditor from './components/FlowEditor'
 import NodePanel from './components/NodePanel'
-import PropertyPanel from './components/PropertyPanel'
 import Toolbar from './components/Toolbar'
 import StatusBar from './components/StatusBar'
 import CoordinatePicker from './components/CoordinatePicker'
@@ -29,7 +28,6 @@ function App() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [expandedPanels, setExpandedPanels] = useState({
-    property: true,
     variable: true,
     log: true,
   })
@@ -157,11 +155,12 @@ function App() {
         <NodePanel />
         <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
         <div className="flex flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
-          <PropertyPanel expanded={expandedPanels.property} onToggle={() => togglePanel('property')} />
-          <div className="h-[1px] w-full bg-slate-200 dark:bg-neutral-800" />
-          <VariablePanel expanded={expandedPanels.variable} onToggle={() => togglePanel('variable')} />
-          <div className="h-[1px] w-full bg-slate-200 dark:bg-neutral-800" />
-          <ExecutionLog expanded={expandedPanels.log} onToggle={() => togglePanel('log')} />
+          <div className="flex h-1/2 flex-col border-b border-slate-200 dark:border-neutral-800">
+            <VariablePanel expanded={expandedPanels.variable} onToggle={() => togglePanel('variable')} />
+          </div>
+          <div className="flex h-1/2 flex-col">
+            <ExecutionLog expanded={expandedPanels.log} onToggle={() => togglePanel('log')} />
+          </div>
         </div>
       </main>
 

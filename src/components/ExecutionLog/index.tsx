@@ -16,11 +16,11 @@ export default function ExecutionLog({ expanded, onToggle }: ExecutionLogProps) 
   const { logs, clearLogs } = useExecutionStore()
 
   return (
-    <section className="flex flex-col border-b border-slate-200 dark:border-neutral-800">
+    <section className="flex h-full flex-col">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between p-4 hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors"
+        className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50/50 p-3 hover:bg-slate-100/50 dark:border-neutral-800 dark:bg-neutral-900/30 dark:hover:bg-slate-800/30 transition-colors"
       >
         <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">执行日志</h2>
         <div className="flex items-center gap-2">
@@ -46,7 +46,7 @@ export default function ExecutionLog({ expanded, onToggle }: ExecutionLogProps) 
         </div>
       </button>
       {expanded && (
-        <div className="h-[280px] overflow-y-auto px-4 pb-4 pt-0 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+        <div className="flex-1 overflow-y-auto px-3 pb-3 pt-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
           {logs.length === 0 && (
             <div className="flex h-full items-center justify-center text-slate-400 italic font-medium opacity-50">
               等待系统活动...
