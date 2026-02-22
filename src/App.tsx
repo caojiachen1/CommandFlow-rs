@@ -147,10 +147,10 @@ function App() {
         <NodePanel />
         <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
         <div className="flex flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
-          <div className="flex h-1/2 min-h-0 flex-col border-b border-slate-200 dark:border-neutral-800">
+          <div className="flex h-1/3 min-h-0 flex-col border-b border-slate-200 dark:border-neutral-800">
             <VariablePanel />
           </div>
-          <div className="flex h-1/2 min-h-0 flex-col">
+          <div className="flex h-2/3 min-h-0 flex-col">
             <ExecutionLog />
           </div>
         </div>
