@@ -12,14 +12,19 @@ import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { runWorkflow, stopWorkflow } from './utils/execution'
 import { toBackendGraph } from './utils/workflowBridge'
-import type { WorkflowFile } from './types/workflow'
+import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
 const menuGroups = {
   文件: ['新建', '打开', '保存', '另存为'],
   编辑: ['撤销', '重做', '复制', '粘贴'],
   视图: ['放大', '缩小', '重置缩放'],
-  运行: ['运行', '停止', '单步'],
+  运行: ['运行', '停止', '单步', '连续单步'],
   帮助: ['文档', '快捷键'],
+}
+
+interface StepRuntimeContext {
+  variables: Map<string, unknown>
+  loopRemaining: Map<string, number>
 }
 
 function App() {
@@ -32,12 +37,22 @@ function App() {
     importWorkflow,
     copySelectedNode,
     pasteCopiedNode,
+    selectedNodeId,
+    nodes,
+    edges,
+    setSelectedNode,
   } = useWorkflowStore()
   const { running, setRunning, addLog } = useExecutionStore()
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [lastFileName, setLastFileName] = useState<string>('workflow.json')
   const menuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const continuousStepRunningRef = useRef(false)
+  const continuousStepStopRef = useRef(false)
+  const stepCtxRef = useRef<StepRuntimeContext>({
+    variables: new Map(),
+    loopRemaining: new Map(),
+  })
 
   useShortcutBindings()
 
@@ -110,6 +125,257 @@ function App() {
     }
   }
 
+  const runSingleStep = useCallback(async () => {
+    if (running) {
+      addLog('warn', '当前正在执行，请先停止后再进行单步。')
+      return
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeId)
+    if (!selectedNode) {
+      addLog('warn', '请先选中一个节点，再执行单步。')
+      return
+    }
+
+    const workflowFile = exportWorkflow()
+    const stepFile: WorkflowFile = {
+      ...workflowFile,
+      updatedAt: new Date().toISOString(),
+      graph: {
+        ...workflowFile.graph,
+        nodes: [selectedNode],
+        edges: [],
+      },
+    }
+
+    setRunning(true)
+    try {
+      addLog('info', `单步执行节点：${selectedNode.data.label}`)
+      const message = await runWorkflow(toBackendGraph(stepFile))
+      addLog('success', `单步完成：${message}`)
+    } catch (error) {
+      addLog('error', `单步失败：${String(error)}`)
+    } finally {
+      setRunning(false)
+    }
+  }, [addLog, exportWorkflow, nodes, running, selectedNodeId, setRunning])
+
+  const getParamString = (node: WorkflowNode, key: string, fallback = '') => {
+    const value = node.data.params[key]
+    return typeof value === 'string' ? value : fallback
+  }
+
+  const getParamNumber = (node: WorkflowNode, key: string, fallback = 0) => {
+    const value = node.data.params[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  }
+
+  const toNumeric = (value: unknown) => {
+    if (typeof value === 'number') return value
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    if (typeof value === 'boolean') return value ? 1 : 0
+    return 0
+  }
+
+  const parseOperand = (kind: string, raw: string, variables: Map<string, unknown>) => {
+    if (kind === 'var') {
+      return variables.get(raw)
+    }
+    if (raw.toLowerCase() === 'true') return true
+    if (raw.toLowerCase() === 'false') return false
+    const asNumber = Number(raw)
+    if (Number.isFinite(asNumber)) return asNumber
+    return raw
+  }
+
+  const evaluateCondition = (node: WorkflowNode, variables: Map<string, unknown>) => {
+    const leftType = getParamString(node, 'leftType', 'var')
+    const rightType = getParamString(node, 'rightType', 'literal')
+    const operator = getParamString(node, 'operator', '==')
+    const leftRaw = getParamString(node, 'left', '')
+    const rightRaw = getParamString(node, 'right', '')
+
+    const left = parseOperand(leftType, leftRaw, variables)
+    const right = parseOperand(rightType, rightRaw, variables)
+
+    switch (operator) {
+      case '==':
+        return left === right
+      case '!=':
+        return left !== right
+      case '>':
+        return toNumeric(left) > toNumeric(right)
+      case '>=':
+        return toNumeric(left) >= toNumeric(right)
+      case '<':
+        return toNumeric(left) < toNumeric(right)
+      case '<=':
+        return toNumeric(left) <= toNumeric(right)
+      default:
+        return false
+    }
+  }
+
+  const updateStepContextAfterNode = (node: WorkflowNode, ctx: StepRuntimeContext) => {
+    const nodeKind = node.data.kind
+    if (nodeKind === 'varDefine') {
+      const name = getParamString(node, 'name', '').trim()
+      if (!name) return
+      if (!ctx.variables.has(name)) {
+        ctx.variables.set(name, node.data.params.value ?? null)
+      }
+      return
+    }
+
+    if (nodeKind === 'varSet') {
+      const name = getParamString(node, 'name', '').trim()
+      if (!name) return
+      ctx.variables.set(name, node.data.params.value ?? null)
+    }
+  }
+
+  const pickNextNodeId = (node: WorkflowNode, ctx: StepRuntimeContext) => {
+    const outgoing = edges.filter((edge) => edge.source === node.id)
+    if (outgoing.length === 0) return null
+
+    const chooseByHandle = (handle: string) =>
+      outgoing.find((edge) => edge.sourceHandle === handle || edge.sourceHandle === `${handle}`)
+
+    if (node.data.kind === 'condition') {
+      const result = evaluateCondition(node, ctx.variables)
+      return (result ? chooseByHandle('true') : chooseByHandle('false') ?? outgoing[0])?.target ?? null
+    }
+
+    if (node.data.kind === 'loop') {
+      const times = Math.max(0, Math.floor(getParamNumber(node, 'times', 1)))
+      const remaining = ctx.loopRemaining.get(node.id) ?? times
+      if (remaining > 0) {
+        ctx.loopRemaining.set(node.id, remaining - 1)
+        return (chooseByHandle('loop') ?? outgoing[0])?.target ?? null
+      }
+      ctx.loopRemaining.delete(node.id)
+      return (chooseByHandle('done') ?? outgoing[0])?.target ?? null
+    }
+
+    return outgoing[0]?.target ?? null
+  }
+
+  const runContinuousStep = useCallback(async () => {
+    if (running) {
+      addLog('warn', '当前正在执行，请先停止后再进行连续单步。')
+      return
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeId)
+    if (!selectedNode) {
+      addLog('warn', '请先选中一个节点，再开始连续单步。')
+      return
+    }
+
+    continuousStepStopRef.current = false
+    continuousStepRunningRef.current = true
+    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+    setRunning(true)
+    addLog('info', `开始连续单步：${selectedNode.data.label}`)
+
+    let currentNode = selectedNode
+    let guard = 0
+    try {
+      while (!continuousStepStopRef.current && guard < 2000) {
+        guard += 1
+
+        const workflowFile = exportWorkflow()
+        const stepFile: WorkflowFile = {
+          ...workflowFile,
+          updatedAt: new Date().toISOString(),
+          graph: {
+            ...workflowFile.graph,
+            nodes: [currentNode],
+            edges: [],
+          },
+        }
+
+        addLog('info', `连续单步执行：${currentNode.data.label}`)
+        await runWorkflow(toBackendGraph(stepFile))
+        updateStepContextAfterNode(currentNode, stepCtxRef.current)
+
+        const nextNodeId = pickNextNodeId(currentNode, stepCtxRef.current)
+        if (!nextNodeId) {
+          addLog('success', '连续单步完成：已到达流程末尾。')
+          return
+        }
+
+        const nextNode = nodes.find((node) => node.id === nextNodeId)
+        if (!nextNode) {
+          addLog('warn', `连续单步结束：未找到下一个节点 ${nextNodeId}。`)
+          return
+        }
+
+        setSelectedNode(nextNode.id)
+        currentNode = nextNode
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
+
+      if (guard >= 2000) {
+        addLog('warn', '连续单步已触发保护上限，已自动停止。')
+      } else if (continuousStepStopRef.current) {
+        addLog('warn', '连续单步已停止。')
+      }
+    } catch (error) {
+      addLog('error', `连续单步失败：${String(error)}`)
+    } finally {
+      continuousStepRunningRef.current = false
+      continuousStepStopRef.current = false
+      setRunning(false)
+    }
+  }, [addLog, exportWorkflow, nodes, pickNextNodeId, running, selectedNodeId, setRunning, setSelectedNode])
+
+  const stopAllExecution = useCallback(async () => {
+    continuousStepStopRef.current = true
+    try {
+      const message = await stopWorkflow()
+      addLog('warn', message)
+    } catch (error) {
+      addLog('error', `停止失败：${String(error)}`)
+    } finally {
+      setRunning(false)
+    }
+  }, [addLog, setRunning])
+
+  useEffect(() => {
+    const handleRunStep = () => {
+      void runSingleStep()
+    }
+    window.addEventListener('commandflow:run-step', handleRunStep)
+    return () => window.removeEventListener('commandflow:run-step', handleRunStep)
+  }, [runSingleStep])
+
+  useEffect(() => {
+    const handleRunContinuousStep = () => {
+      if (continuousStepRunningRef.current) {
+        continuousStepStopRef.current = true
+        addLog('warn', '正在停止连续单步...')
+        return
+      }
+      void runContinuousStep()
+    }
+
+    const handleStop = () => {
+      void stopAllExecution()
+    }
+
+    window.addEventListener('commandflow:run-continuous-step', handleRunContinuousStep)
+    window.addEventListener('commandflow:stop-run', handleStop)
+
+    return () => {
+      window.removeEventListener('commandflow:run-continuous-step', handleRunContinuousStep)
+      window.removeEventListener('commandflow:stop-run', handleStop)
+    }
+  }, [addLog, runContinuousStep, stopAllExecution])
+
   const handleMenuAction = async (item: string) => {
     setActiveMenu(null)
     switch (item) {
@@ -171,23 +437,19 @@ function App() {
         }
         break
       case '停止':
-        try {
-          const message = await stopWorkflow()
-          addLog('warn', message)
-        } catch (error) {
-          addLog('error', `停止失败：${String(error)}`)
-        } finally {
-          setRunning(false)
-        }
+        await stopAllExecution()
         break
       case '单步':
-        addLog('warn', '单步执行尚未实现，敬请期待。')
+        void runSingleStep()
+        break
+      case '连续单步':
+        void runContinuousStep()
         break
       case '文档':
         addLog('info', '文档请查看项目根目录 README.md。')
         break
       case '快捷键':
-        addLog('info', '快捷键：Ctrl+N 新建，Ctrl+Z 撤销，Ctrl+Y 重做，Ctrl+C 复制，Ctrl+V 粘贴，Delete 删除，F5 运行，F6 停止。')
+        addLog('info', '快捷键：Ctrl+N 新建，Ctrl+Z 撤销，Ctrl+Y 重做，Ctrl+C 复制，Ctrl+V 粘贴，Delete 删除，F5 运行，F6 停止，F9 连续单步，F10 单步。')
         break
       default:
         console.log(`点击了 ${item}`)

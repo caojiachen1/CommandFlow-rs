@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useExecutionStore } from '../stores/executionStore'
 import { useWorkflowStore } from '../stores/workflowStore'
-import { runWorkflow, stopWorkflow } from '../utils/execution'
+import { runWorkflow } from '../utils/execution'
 import { toBackendGraph } from '../utils/workflowBridge'
 
 export const useShortcutBindings = () => {
@@ -58,10 +58,13 @@ export const useShortcutBindings = () => {
           .finally(() => setRunning(false))
       } else if (event.key === 'F6') {
         event.preventDefault()
-        void stopWorkflow()
-          .then((message) => addLog('warn', message))
-          .catch((error) => addLog('error', `停止失败：${String(error)}`))
-        setRunning(false)
+        window.dispatchEvent(new Event('commandflow:stop-run'))
+      } else if (event.key === 'F9') {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:run-continuous-step'))
+      } else if (event.key === 'F10') {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:run-step'))
       }
     }
 
