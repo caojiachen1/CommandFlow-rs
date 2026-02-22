@@ -27,14 +27,6 @@ function App() {
   const { setRunning, addLog } = useExecutionStore()
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const [expandedPanels, setExpandedPanels] = useState({
-    variable: true,
-    log: true,
-  })
-
-  const togglePanel = (panel: keyof typeof expandedPanels) => {
-    setExpandedPanels(prev => ({ ...prev, [panel]: !prev[panel] }))
-  }
 
   useShortcutBindings()
 
@@ -155,11 +147,11 @@ function App() {
         <NodePanel />
         <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
         <div className="flex flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
-          <div className="flex h-1/2 flex-col border-b border-slate-200 dark:border-neutral-800">
-            <VariablePanel expanded={expandedPanels.variable} onToggle={() => togglePanel('variable')} />
+          <div className="flex h-1/2 min-h-0 flex-col border-b border-slate-200 dark:border-neutral-800">
+            <VariablePanel />
           </div>
-          <div className="flex h-1/2 flex-col">
-            <ExecutionLog expanded={expandedPanels.log} onToggle={() => togglePanel('log')} />
+          <div className="flex h-1/2 min-h-0 flex-col">
+            <ExecutionLog />
           </div>
         </div>
       </main>
