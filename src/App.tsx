@@ -143,10 +143,10 @@ function App() {
         <Toolbar />
       </div>
 
-      <main className="flex flex-1 grid-cols-[280px_1fr_320px] overflow-hidden lg:grid">
+      <main className="flex min-h-0 flex-1 grid-cols-[280px_1fr_320px] overflow-hidden lg:grid">
         <NodePanel />
         <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
-        <div className="flex flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
+        <div className="flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
           <div className="flex h-1/3 min-h-0 flex-col border-b border-slate-200 dark:border-neutral-800">
             <VariablePanel />
           </div>

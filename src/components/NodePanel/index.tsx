@@ -46,11 +46,11 @@ export default function NodePanel() {
   }
 
   return (
-    <aside className="border-r border-slate-200 bg-slate-50/50 backdrop-blur-md dark:border-neutral-800 dark:bg-black/20">
-      <div className="flex h-12 items-center border-b border-slate-200 px-4 dark:border-neutral-800">
+    <aside className="flex h-full min-h-0 flex-col border-r border-slate-200 bg-slate-50/50 backdrop-blur-md dark:border-neutral-800 dark:bg-black/20">
+      <div className="flex h-12 shrink-0 items-center border-b border-slate-200 px-4 dark:border-neutral-800">
         <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">节点工具箱</h2>
       </div>
-      <div className="h-[calc(100%-3rem)] overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
         {groups.map((group) => (
           <section key={group.title}>
             <h3 className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
