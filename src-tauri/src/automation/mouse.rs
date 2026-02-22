@@ -31,3 +31,20 @@ pub fn wheel(vertical: i32) -> CommandResult<()> {
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     Ok(())
 }
+
+pub fn drag(from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> CommandResult<()> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .move_mouse(from_x, from_y, Coordinate::Abs)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .button(Button::Left, Direction::Press)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .move_mouse(to_x, to_y, Coordinate::Abs)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .button(Button::Left, Direction::Release)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    Ok(())
+}

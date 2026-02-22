@@ -14,8 +14,14 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
     title: '动作',
     items: [
       { label: '鼠标点击', kind: 'mouseClick', color: 'bg-cyan-500' },
+      { label: '鼠标移动', kind: 'mouseMove', color: 'bg-sky-500' },
+      { label: '鼠标拖拽', kind: 'mouseDrag', color: 'bg-blue-500' },
+      { label: '鼠标滚轮', kind: 'mouseWheel', color: 'bg-indigo-500' },
       { label: '键盘按键', kind: 'keyboardKey', color: 'bg-blue-500' },
+      { label: '键盘输入', kind: 'keyboardInput', color: 'bg-cyan-600' },
+      { label: '组合键', kind: 'shortcut', color: 'bg-sky-600' },
       { label: '屏幕截图', kind: 'screenshot', color: 'bg-indigo-500' },
+      { label: '窗口激活', kind: 'windowActivate', color: 'bg-violet-500' },
       { label: '执行命令', kind: 'runCommand', color: 'bg-violet-500' },
       { label: '等待延时', kind: 'delay', color: 'bg-purple-500' },
     ],
@@ -25,6 +31,7 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
     items: [
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500' },
       { label: '循环处理', kind: 'loop', color: 'bg-fuchsia-500' },
+      { label: '错误处理', kind: 'errorHandler', color: 'bg-red-500' },
       { label: '变量定义', kind: 'varDefine', color: 'bg-pink-500' },
       { label: '变量赋值', kind: 'varSet', color: 'bg-emerald-500' },
     ],

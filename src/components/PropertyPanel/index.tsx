@@ -1,5 +1,24 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { getNodeMeta, type ParamField } from '../../utils/nodeMeta'
+
+const toJsonDraft = (value: unknown): string => {
+  try {
+    return JSON.stringify(value ?? null, null, 2)
+  } catch {
+    return 'null'
+  }
+}
+
+const buildJsonDrafts = (params: Record<string, unknown>, fields: ParamField[]) => {
+  const drafts: Record<string, string> = {}
+  for (const field of fields) {
+    if (field.type === 'json') {
+      drafts[field.key] = toJsonDraft(params[field.key])
+    }
+  }
+  return drafts
+}
 
 export default function PropertyPanel() {
   const { selectedNodeId, nodes, updateNodeParams } = useWorkflowStore()
@@ -8,16 +27,114 @@ export default function PropertyPanel() {
     [nodes, selectedNodeId],
   )
 
-  const [draft, setDraft] = useState('{}')
+  const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
+  const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const apply = () => {
-    if (!selectedNode) return
-    try {
-      const parsed = JSON.parse(draft)
-      updateNodeParams(selectedNode.id, parsed)
-    } catch (e) {
-      console.error("Invalid JSON", e)
+  useEffect(() => {
+    if (!selectedNode || !selectedMeta) {
+      setJsonDrafts({})
+      setErrors({})
+      return
     }
+    setJsonDrafts(buildJsonDrafts(selectedNode.data.params, selectedMeta.fields))
+    setErrors({})
+  }, [selectedMeta, selectedNode])
+
+  const updateParam = (key: string, value: unknown) => {
+    if (!selectedNode) return
+    updateNodeParams(selectedNode.id, {
+      ...selectedNode.data.params,
+      [key]: value,
+    })
+  }
+
+  const renderField = (field: ParamField) => {
+    if (!selectedNode) return null
+    const currentValue = selectedNode.data.params[field.key]
+
+    if (field.type === 'boolean') {
+      return (
+        <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={Boolean(currentValue)}
+            onChange={(event) => updateParam(field.key, event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+          />
+          启用
+        </label>
+      )
+    }
+
+    if (field.type === 'select') {
+      return (
+        <select
+          value={String(currentValue ?? '')}
+          onChange={(event) => updateParam(field.key, event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          {(field.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+
+    if (field.type === 'number') {
+      return (
+        <input
+          type="number"
+          value={Number(currentValue ?? 0)}
+          min={field.min}
+          max={field.max}
+          step={field.step ?? 1}
+          onChange={(event) => updateParam(field.key, Number(event.target.value))}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+        />
+      )
+    }
+
+    if (field.type === 'json') {
+      const draft = jsonDrafts[field.key] ?? toJsonDraft(currentValue)
+      const fieldError = errors[field.key]
+      return (
+        <>
+          <textarea
+            value={draft}
+            onChange={(event) => {
+              const value = event.target.value
+              setJsonDrafts((state) => ({ ...state, [field.key]: value }))
+              try {
+                const parsed = JSON.parse(value)
+                updateParam(field.key, parsed)
+                setErrors((state) => {
+                  const next = { ...state }
+                  delete next[field.key]
+                  return next
+                })
+              } catch {
+                setErrors((state) => ({ ...state, [field.key]: 'JSON 格式不正确' }))
+              }
+            }}
+            className="h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs shadow-inner transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+          />
+          {fieldError ? <p className="mt-1 text-[11px] text-rose-500">{fieldError}</p> : null}
+        </>
+      )
+    }
+
+    return (
+      <input
+        type="text"
+        value={String(currentValue ?? '')}
+        placeholder={field.placeholder}
+        onChange={(event) => updateParam(field.key, event.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+      />
+    )
   }
 
   return (
@@ -48,24 +165,27 @@ export default function PropertyPanel() {
                 {selectedNode.data.label}
               </div>
             </div>
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-slate-400">
+              {selectedMeta?.description}
+            </p>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">节点参数 (JSON)</label>
-              <textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                className="h-32 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 font-mono text-xs shadow-inner transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-cyan-400 dark:focus:ring-cyan-400/10"
-                placeholder='{ "action": "click" }'
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={apply}
-              className="w-full rounded-xl bg-cyan-600 py-3 text-xs font-bold text-white shadow-lg shadow-cyan-600/20 transition-all hover:bg-cyan-500 hover:shadow-cyan-500/30 active:scale-[0.98] dark:shadow-cyan-950"
-            >
-              保存并应用更改
-            </button>
+            {selectedMeta?.fields.length ? (
+              <div className="space-y-3">
+                {selectedMeta.fields.map((field) => (
+                  <div key={field.key} className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{field.label}</label>
+                    {renderField(field)}
+                    {field.description ? (
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">{field.description}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-[11px] text-slate-400 dark:border-neutral-700 dark:text-slate-500">
+                该节点无可编辑参数。
+              </div>
+            )}
           </div>
         )}
       </div>

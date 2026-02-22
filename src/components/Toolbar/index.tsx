@@ -1,20 +1,39 @@
 import { useExecutionStore } from '../../stores/executionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { runWorkflow, stopWorkflow } from '../../utils/execution'
+import { toBackendGraph } from '../../utils/workflowBridge'
 
 export default function Toolbar() {
   const { running, setRunning, addLog } = useExecutionStore()
   const { zoom } = useSettingsStore()
   const { undo, redo, exportWorkflow } = useWorkflowStore()
 
-  const run = () => {
+  const run = async () => {
+    if (running) return
+    const workflowFile = exportWorkflow()
+    const graph = toBackendGraph(workflowFile)
+
     setRunning(true)
-    addLog('success', '用户点击运行，开始执行流程。')
+    addLog('info', `开始执行流程：${workflowFile.graph.name}`)
+    try {
+      const message = await runWorkflow(graph)
+      addLog('success', message)
+    } catch (error) {
+      addLog('error', `执行失败：${String(error)}`)
+    } finally {
+      setRunning(false)
+    }
   }
 
-  const stop = () => {
+  const stop = async () => {
+    try {
+      const message = await stopWorkflow()
+      addLog('warn', message)
+    } catch (error) {
+      addLog('error', `停止失败：${String(error)}`)
+    }
     setRunning(false)
-    addLog('warn', '用户点击停止，流程已终止。')
   }
 
   const exportJson = () => {

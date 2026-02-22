@@ -11,6 +11,8 @@ import { useSettingsStore } from './stores/settingsStore'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
+import { runWorkflow, stopWorkflow } from './utils/execution'
+import { toBackendGraph } from './utils/workflowBridge'
 
 const menuGroups = {
   文件: ['新建', '打开', '保存', '另存为'],
@@ -22,7 +24,7 @@ const menuGroups = {
 
 function App() {
   const { theme, setTheme } = useSettingsStore()
-  const { undo, redo, resetWorkflow } = useWorkflowStore()
+  const { undo, redo, resetWorkflow, exportWorkflow } = useWorkflowStore()
   const { setRunning, addLog } = useExecutionStore()
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -45,7 +47,7 @@ function App() {
     setActiveMenu(null)
   }, [])
 
-  const handleMenuAction = (item: string) => {
+  const handleMenuAction = async (item: string) => {
     setActiveMenu(null)
     switch (item) {
       case '新建':
@@ -60,11 +62,27 @@ function App() {
         break
       case '运行':
         setRunning(true)
-        addLog('success', '已开始执行。')
+        try {
+          const workflowFile = exportWorkflow()
+          const graph = toBackendGraph(workflowFile)
+          addLog('info', `开始执行：${workflowFile.graph.name}`)
+          const message = await runWorkflow(graph)
+          addLog('success', message)
+        } catch (error) {
+          addLog('error', `执行失败：${String(error)}`)
+        } finally {
+          setRunning(false)
+        }
         break
       case '停止':
-        setRunning(false)
-        addLog('warn', '已停止执行。')
+        try {
+          const message = await stopWorkflow()
+          addLog('warn', message)
+        } catch (error) {
+          addLog('error', `停止失败：${String(error)}`)
+        } finally {
+          setRunning(false)
+        }
         break
       default:
         console.log(`点击了 ${item}`)

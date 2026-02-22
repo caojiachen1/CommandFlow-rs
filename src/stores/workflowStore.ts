@@ -1,6 +1,7 @@
 import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react'
 import { create } from 'zustand'
 import type { CoordinatePoint, NodeKind, WorkflowEdge, WorkflowFile, WorkflowNode } from '../types/workflow'
+import { getNodeMeta } from '../utils/nodeMeta'
 
 interface Snapshot {
   nodes: WorkflowNode[]
@@ -37,29 +38,6 @@ const cloneSnapshot = (nodes: WorkflowNode[], edges: WorkflowEdge[]): Snapshot =
   edges: structuredClone(edges),
 })
 
-const labels: Record<NodeKind, string> = {
-  hotkeyTrigger: '热键触发',
-  timerTrigger: '定时触发',
-  manualTrigger: '手动触发',
-  windowTrigger: '窗口触发',
-  mouseClick: '鼠标点击',
-  mouseMove: '鼠标移动',
-  mouseDrag: '鼠标拖拽',
-  mouseWheel: '鼠标滚轮',
-  keyboardKey: '键盘按键',
-  keyboardInput: '键盘输入',
-  shortcut: '组合键',
-  screenshot: '屏幕截图',
-  windowActivate: '窗口激活',
-  runCommand: '执行命令',
-  delay: '等待延时',
-  condition: '条件判断',
-  loop: '循环',
-  errorHandler: '错误处理',
-  varDefine: '变量定义',
-  varSet: '变量赋值',
-}
-
 const initialNodes: WorkflowNode[] = [
   {
     id: crypto.randomUUID(),
@@ -67,9 +45,9 @@ const initialNodes: WorkflowNode[] = [
     position: { x: 200, y: 120 },
     data: {
       kind: 'manualTrigger',
-      label: labels.manualTrigger,
-      params: {},
-      description: '点击运行按钮开始执行工作流。',
+      label: getNodeMeta('manualTrigger').label,
+      params: structuredClone(getNodeMeta('manualTrigger').defaultParams),
+      description: getNodeMeta('manualTrigger').description,
     },
   },
 ]
@@ -107,23 +85,27 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       },
     })),
   addNode: (kind, position) =>
-    set((state) => ({
-      past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
-      future: [],
-      nodes: [
-        ...state.nodes,
-        {
-          id: crypto.randomUUID(),
-          type: kind,
-          position,
-          data: {
-            kind,
-            label: labels[kind],
-            params: {},
+    set((state) => {
+      const meta = getNodeMeta(kind)
+      return {
+        past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
+        future: [],
+        nodes: [
+          ...state.nodes,
+          {
+            id: crypto.randomUUID(),
+            type: kind,
+            position,
+            data: {
+              kind,
+              label: meta.label,
+              description: meta.description,
+              params: structuredClone(meta.defaultParams),
+            },
           },
-        },
-      ],
-    })),
+        ],
+      }
+    }),
   deleteSelectedNodes: () =>
     set((state) => {
       if (!state.selectedNodeId) return state
