@@ -1,5 +1,6 @@
-import { Handle, Position } from '@xyflow/react'
+import { Handle, Position, useNodeId } from '@xyflow/react'
 import type { WorkflowNodeData } from '../types/workflow'
+import { useWorkflowStore } from '../stores/workflowStore'
 
 interface BaseNodeProps {
   data: WorkflowNodeData
@@ -12,9 +13,23 @@ const tones = {
   control: 'border-amber-500/70 bg-amber-50 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100',
 }
 
+const selectedStyles = {
+  trigger: 'border-emerald-500 ring-1 ring-emerald-400 ring-offset-1 ring-offset-emerald-50 dark:ring-offset-emerald-900/30',
+  action: 'border-cyan-500 ring-1 ring-cyan-400 ring-offset-1 ring-offset-cyan-50 dark:ring-offset-cyan-900/30',
+  control: 'border-amber-500 ring-1 ring-amber-400 ring-offset-1 ring-offset-amber-50 dark:ring-offset-amber-900/30',
+}
+
 export default function BaseNode({ data, tone = 'action' }: BaseNodeProps) {
+  const nodeId = useNodeId()
+  const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId)
+  const isSelected = nodeId === selectedNodeId
+
   return (
-    <div className={`min-w-[180px] rounded-lg border px-3 py-2 shadow-sm ${tones[tone]}`}>
+    <div
+      className={`min-w-[180px] rounded-lg border px-3 py-2 shadow-sm transition-all duration-200 ${tones[tone]} ${
+        isSelected ? selectedStyles[tone] : ''
+      }`}
+    >
       <Handle type="target" position={Position.Left} className="!h-2 !w-2" />
       <div className="text-xs font-semibold">{data.label}</div>
       <div className="mt-1 text-[11px] opacity-80">{data.description ?? data.kind}</div>
