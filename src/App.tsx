@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react'
 import FlowEditor from './components/FlowEditor'
 import NodePanel from './components/NodePanel'
 import Toolbar from './components/Toolbar'
@@ -12,6 +12,7 @@ import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { runWorkflow, stopWorkflow } from './utils/execution'
 import { toBackendGraph } from './utils/workflowBridge'
+import type { WorkflowFile } from './types/workflow'
 
 const menuGroups = {
   文件: ['新建', '打开', '保存', '另存为'],
@@ -23,10 +24,20 @@ const menuGroups = {
 
 function App() {
   const { theme, setTheme } = useSettingsStore()
-  const { undo, redo, resetWorkflow, exportWorkflow } = useWorkflowStore()
-  const { setRunning, addLog } = useExecutionStore()
+  const {
+    undo,
+    redo,
+    resetWorkflow,
+    exportWorkflow,
+    importWorkflow,
+    copySelectedNode,
+    pasteCopiedNode,
+  } = useWorkflowStore()
+  const { running, setRunning, addLog } = useExecutionStore()
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
+  const [lastFileName, setLastFileName] = useState<string>('workflow.json')
   const menuRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useShortcutBindings()
 
@@ -46,6 +57,59 @@ function App() {
     setActiveMenu(null)
   }, [])
 
+  const isWorkflowFile = (value: unknown): value is WorkflowFile => {
+    if (!value || typeof value !== 'object') return false
+    const file = value as Partial<WorkflowFile>
+    return (
+      file.version === '1.0.0' &&
+      !!file.graph &&
+      typeof file.graph.id === 'string' &&
+      typeof file.graph.name === 'string' &&
+      Array.isArray(file.graph.nodes) &&
+      Array.isArray(file.graph.edges)
+    )
+  }
+
+  const downloadWorkflow = (preferredName?: string) => {
+    const file = exportWorkflow()
+    const requestedName = (preferredName ?? lastFileName ?? `${file.graph.name}.json`).trim()
+    const finalName = requestedName.toLowerCase().endsWith('.json') ? requestedName : `${requestedName}.json`
+
+    const payload = JSON.stringify(file, null, 2)
+    const blob = new Blob([payload], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = finalName
+    anchor.click()
+    URL.revokeObjectURL(url)
+
+    setLastFileName(finalName)
+    addLog('success', `已保存工作流：${finalName}`)
+  }
+
+  const handleOpenFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const content = await file.text()
+      const parsed: unknown = JSON.parse(content)
+
+      if (!isWorkflowFile(parsed)) {
+        throw new Error('文件格式不是有效的 CommandFlow 工作流 JSON。')
+      }
+
+      importWorkflow(parsed)
+      setLastFileName(file.name)
+      addLog('success', `已打开工作流：${file.name}`)
+    } catch (error) {
+      addLog('error', `打开失败：${String(error)}`)
+    } finally {
+      event.target.value = ''
+    }
+  }
+
   const handleMenuAction = async (item: string) => {
     setActiveMenu(null)
     switch (item) {
@@ -53,13 +117,46 @@ function App() {
         resetWorkflow()
         addLog('info', '已新建工作流。')
         break
+      case '打开':
+        fileInputRef.current?.click()
+        break
+      case '保存':
+        downloadWorkflow(lastFileName)
+        break
+      case '另存为': {
+        const suggested = lastFileName || 'workflow.json'
+        const inputName = window.prompt('请输入文件名（支持 .json）', suggested)
+        if (!inputName) return
+        downloadWorkflow(inputName)
+        break
+      }
       case '撤销':
         undo()
         break
       case '重做':
         redo()
         break
+      case '复制': {
+        const copied = copySelectedNode()
+        addLog(copied ? 'info' : 'warn', copied ? '已复制选中节点。' : '未选中节点，无法复制。')
+        break
+      }
+      case '粘贴': {
+        const pasted = pasteCopiedNode()
+        addLog(pasted ? 'info' : 'warn', pasted ? '已粘贴节点。' : '剪贴板为空，请先复制节点。')
+        break
+      }
+      case '放大':
+        window.dispatchEvent(new Event('commandflow:zoom-in'))
+        break
+      case '缩小':
+        window.dispatchEvent(new Event('commandflow:zoom-out'))
+        break
+      case '重置缩放':
+        window.dispatchEvent(new Event('commandflow:zoom-reset'))
+        break
       case '运行':
+        if (running) return
         setRunning(true)
         try {
           const workflowFile = exportWorkflow()
@@ -82,6 +179,15 @@ function App() {
         } finally {
           setRunning(false)
         }
+        break
+      case '单步':
+        addLog('warn', '单步执行尚未实现，敬请期待。')
+        break
+      case '文档':
+        addLog('info', '文档请查看项目根目录 README.md。')
+        break
+      case '快捷键':
+        addLog('info', '快捷键：Ctrl+N 新建，Ctrl+Z 撤销，Ctrl+Y 重做，Ctrl+C 复制，Ctrl+V 粘贴，Delete 删除，F5 运行，F6 停止。')
         break
       default:
         console.log(`点击了 ${item}`)
@@ -159,6 +265,14 @@ function App() {
       <div className="shrink-0">
         <StatusBar />
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={handleOpenFile}
+      />
     </div>
   )
 }

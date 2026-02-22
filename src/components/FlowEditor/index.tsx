@@ -128,6 +128,33 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     }
   }, [reactFlow, addNode])
 
+  useEffect(() => {
+    const handleZoomIn = () => {
+      void reactFlow.zoomIn({ duration: 150 })
+      setZoom(reactFlow.getZoom())
+    }
+
+    const handleZoomOut = () => {
+      void reactFlow.zoomOut({ duration: 150 })
+      setZoom(reactFlow.getZoom())
+    }
+
+    const handleZoomReset = () => {
+      void reactFlow.fitView({ duration: 200, padding: 0.2 })
+      setZoom(reactFlow.getZoom())
+    }
+
+    window.addEventListener('commandflow:zoom-in', handleZoomIn)
+    window.addEventListener('commandflow:zoom-out', handleZoomOut)
+    window.addEventListener('commandflow:zoom-reset', handleZoomReset)
+
+    return () => {
+      window.removeEventListener('commandflow:zoom-in', handleZoomIn)
+      window.removeEventListener('commandflow:zoom-out', handleZoomOut)
+      window.removeEventListener('commandflow:zoom-reset', handleZoomReset)
+    }
+  }, [reactFlow, setZoom])
+
   const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
     setSelectedNode(node.id)
   }, [setSelectedNode])

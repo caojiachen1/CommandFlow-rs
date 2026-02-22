@@ -5,7 +5,16 @@ import { runWorkflow, stopWorkflow } from '../utils/execution'
 import { toBackendGraph } from '../utils/workflowBridge'
 
 export const useShortcutBindings = () => {
-  const { undo, redo, deleteSelectedNodes, duplicateSelectedNode, resetWorkflow, exportWorkflow } = useWorkflowStore()
+  const {
+    undo,
+    redo,
+    deleteSelectedNodes,
+    duplicateSelectedNode,
+    resetWorkflow,
+    exportWorkflow,
+    copySelectedNode,
+    pasteCopiedNode,
+  } = useWorkflowStore()
   const { setRunning, addLog } = useExecutionStore()
 
   useEffect(() => {
@@ -25,6 +34,14 @@ export const useShortcutBindings = () => {
       } else if (ctrl && key === 'd') {
         event.preventDefault()
         duplicateSelectedNode()
+      } else if (ctrl && key === 'c') {
+        event.preventDefault()
+        const copied = copySelectedNode()
+        addLog(copied ? 'info' : 'warn', copied ? '已复制选中节点。' : '未选中节点，无法复制。')
+      } else if (ctrl && key === 'v') {
+        event.preventDefault()
+        const pasted = pasteCopiedNode()
+        addLog(pasted ? 'info' : 'warn', pasted ? '已粘贴节点。' : '剪贴板为空，请先复制节点。')
       } else if (ctrl && key === 'n') {
         event.preventDefault()
         resetWorkflow()
@@ -50,5 +67,16 @@ export const useShortcutBindings = () => {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [addLog, deleteSelectedNodes, duplicateSelectedNode, exportWorkflow, redo, resetWorkflow, setRunning, undo])
+  }, [
+    addLog,
+    copySelectedNode,
+    deleteSelectedNodes,
+    duplicateSelectedNode,
+    exportWorkflow,
+    pasteCopiedNode,
+    redo,
+    resetWorkflow,
+    setRunning,
+    undo,
+  ])
 }

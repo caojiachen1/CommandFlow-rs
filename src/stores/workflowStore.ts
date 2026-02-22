@@ -14,6 +14,9 @@ interface WorkflowState {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   selectedNodeId: string | null
+  copiedNode: WorkflowNode | null
+  copySelectedNode: () => boolean
+  pasteCopiedNode: () => boolean
   cursor: CoordinatePoint
   past: Snapshot[]
   future: Snapshot[]
@@ -62,6 +65,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   selectedNodeId: null,
   cursor: { x: 0, y: 0, isPhysicalPixel: true, mode: 'virtualScreen' },
   past: [],
+  copiedNode: null,
   future: [],
   onNodesChange: (changes) =>
     set((state) => ({
@@ -134,6 +138,34 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         nodes: [...state.nodes, duplicated],
       }
     }),
+  copySelectedNode: () => {
+    const state = get()
+    const selected = state.nodes.find((node) => node.id === state.selectedNodeId)
+    if (!selected) return false
+    set(() => ({ copiedNode: structuredClone(selected) }))
+    return true
+  },
+  pasteCopiedNode: () => {
+    const state = get()
+    if (!state.copiedNode) return false
+
+    const pasted: WorkflowNode = {
+      ...structuredClone(state.copiedNode),
+      id: crypto.randomUUID(),
+      position: {
+        x: state.copiedNode.position.x + 40,
+        y: state.copiedNode.position.y + 40,
+      },
+    }
+
+    set((current) => ({
+      past: [...current.past, cloneSnapshot(current.nodes, current.edges)].slice(-100),
+      future: [],
+      nodes: [...current.nodes, pasted],
+      selectedNodeId: pasted.id,
+    }))
+    return true
+  },
   updateNodeParams: (id, params) =>
     set((state) => ({
       nodes: state.nodes.map((node) =>
