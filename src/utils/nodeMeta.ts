@@ -130,8 +130,8 @@ const metas: Record<NodeKind, NodeMeta> = {
     ],
   },
   windowActivate: {
-    label: '窗口激活',
-    description: '尝试激活目标窗口。',
+    label: '切换窗口',
+    description: '切换到目标窗口并置顶。',
     defaultParams: { title: 'CommandFlow-rs' },
     fields: [{ key: 'title', label: '窗口标题', type: 'string', placeholder: 'CommandFlow-rs' }],
   },
