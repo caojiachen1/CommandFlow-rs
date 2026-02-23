@@ -48,6 +48,7 @@ export const useShortcutBindings = () => {
         addLog('info', '已新建工作流。')
       } else if (event.key === 'F5') {
         event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:reset-step-debug'))
         const workflowFile = exportWorkflow()
         const graph = toBackendGraph(workflowFile)
         clearVariables()

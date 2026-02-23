@@ -28,6 +28,9 @@ interface StepRuntimeContext {
   loopRemaining: Map<string, number>
 }
 
+const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
+  kind === 'hotkeyTrigger' || kind === 'timerTrigger' || kind === 'manualTrigger' || kind === 'windowTrigger'
+
 function App() {
   const { theme, setTheme } = useSettingsStore()
   const {
@@ -54,6 +57,7 @@ function App() {
     variables: new Map(),
     loopRemaining: new Map(),
   })
+  const stepNextNodeIdRef = useRef<string | null>(null)
 
   useShortcutBindings()
 
@@ -167,11 +171,62 @@ function App() {
       return
     }
 
-    const selectedNode = nodes.find((node) => node.id === selectedNodeId)
-    if (!selectedNode) {
-      addLog('warn', '请先选中一个节点，再执行单步。')
+    const resetStepSession = () => {
+      stepNextNodeIdRef.current = null
+      stepCtxRef.current = {
+        variables: new Map(),
+        loopRemaining: new Map(),
+      }
+    }
+
+    const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
+
+    const pickDefaultStartNode = () => {
+      if (nodes.length === 0) return null
+
+      const triggerNode = nodes.find((node) => isTriggerKind(node.data.kind))
+      if (triggerNode) return triggerNode
+
+      const incomingCount = new Map<string, number>()
+      for (const node of nodes) {
+        incomingCount.set(node.id, 0)
+      }
+      for (const edge of edges) {
+        incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1)
+      }
+
+      const root = nodes.find((node) => (incomingCount.get(node.id) ?? 0) === 0)
+      return root ?? nodes[0]
+    }
+
+    let currentNodeId = stepNextNodeIdRef.current
+    const switchedSelection = Boolean(selectedNodeId) && selectedNodeId !== stepNextNodeIdRef.current
+    if (switchedSelection && selectedNode) {
+      resetStepSession()
+      currentNodeId = selectedNode.id
+      addLog('info', `单步调试已切换起点：${selectedNode.data.label}`)
+    }
+
+    if (!currentNodeId) {
+      const startNode = selectedNode ?? pickDefaultStartNode()
+      if (!startNode) {
+        addLog('warn', '当前工作流没有可执行节点。')
+        return
+      }
+      currentNodeId = startNode.id
+      resetStepSession()
+      clearVariables()
+      addLog('info', `单步调试开始：${startNode.data.label}`)
+    }
+
+    const currentNode = nodes.find((node) => node.id === currentNodeId)
+    if (!currentNode) {
+      resetStepSession()
+      addLog('warn', '单步调试上下文已失效（节点不存在），请重新选择起点。')
       return
     }
+
+    setSelectedNode(currentNode.id)
 
     const workflowFile = exportWorkflow()
     const stepFile: WorkflowFile = {
@@ -179,26 +234,40 @@ function App() {
       updatedAt: new Date().toISOString(),
       graph: {
         ...workflowFile.graph,
-        nodes: [selectedNode],
+        nodes: [currentNode],
         edges: [],
       },
     }
 
     setRunning(true)
-    clearVariables()
     try {
-      addLog('info', `单步执行节点：${selectedNode.data.label}`)
+      addLog('info', `单步执行节点：${currentNode.data.label}`)
       const message = await runWorkflow(toBackendGraph(stepFile))
-      const nextVariables = new Map<string, unknown>()
-      updateStepContextAfterNode(selectedNode, { variables: nextVariables, loopRemaining: new Map() })
-      setVariables(Object.fromEntries(nextVariables.entries()))
-      addLog('success', `单步完成：${message}`)
+      updateStepContextAfterNode(currentNode, stepCtxRef.current)
+      setVariables(Object.fromEntries(stepCtxRef.current.variables.entries()))
+
+      const nextNodeId = pickNextNodeId(currentNode, stepCtxRef.current)
+      if (!nextNodeId) {
+        resetStepSession()
+        addLog('success', `单步完成：${message}（已到流程末尾）`)
+        return
+      }
+
+      stepNextNodeIdRef.current = nextNodeId
+      const nextNode = nodes.find((node) => node.id === nextNodeId)
+      if (nextNode) {
+        setSelectedNode(nextNode.id)
+        addLog('success', `单步完成：${message}，下一步将执行：${nextNode.data.label}`)
+      } else {
+        addLog('warn', '单步完成，但下一节点不存在，请检查连线。')
+      }
     } catch (error) {
+      resetStepSession()
       addLog('error', `单步失败：${String(error)}`)
     } finally {
       setRunning(false)
     }
-  }, [addLog, clearVariables, exportWorkflow, nodes, running, selectedNodeId, setRunning, setVariables])
+  }, [addLog, clearVariables, edges, exportWorkflow, nodes, running, selectedNodeId, setRunning, setSelectedNode, setVariables])
 
   const getParamString = (node: WorkflowNode, key: string, fallback = '') => {
     const value = node.data.params[key]
@@ -317,6 +386,7 @@ function App() {
 
     continuousStepStopRef.current = false
     continuousStepRunningRef.current = true
+    stepNextNodeIdRef.current = null
     stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
     clearVariables()
     setRunning(true)
@@ -377,6 +447,8 @@ function App() {
 
   const stopAllExecution = useCallback(async () => {
     continuousStepStopRef.current = true
+    stepNextNodeIdRef.current = null
+    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
     try {
       const message = await stopWorkflow()
       addLog('warn', message)
@@ -386,6 +458,16 @@ function App() {
       setRunning(false)
     }
   }, [addLog, setRunning])
+
+  useEffect(() => {
+    const resetStepDebug = () => {
+      stepNextNodeIdRef.current = null
+      stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+    }
+
+    window.addEventListener('commandflow:reset-step-debug', resetStepDebug)
+    return () => window.removeEventListener('commandflow:reset-step-debug', resetStepDebug)
+  }, [])
 
   useEffect(() => {
     const handleRunStep = () => {
@@ -465,6 +547,8 @@ function App() {
         break
       case '运行':
         if (running) return
+        stepNextNodeIdRef.current = null
+        stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
         setRunning(true)
         clearVariables()
         try {

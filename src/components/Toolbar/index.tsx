@@ -11,6 +11,7 @@ export default function Toolbar() {
 
   const run = async () => {
     if (running) return
+    window.dispatchEvent(new Event('commandflow:reset-step-debug'))
     const workflowFile = exportWorkflow()
     const graph = toBackendGraph(workflowFile)
 
@@ -60,6 +61,15 @@ export default function Toolbar() {
       >
         <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
         F5 运行
+      </button>
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event('commandflow:run-step'))}
+        className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 hover:shadow-indigo-500/30 active:scale-95 disabled:bg-slate-400"
+        disabled={running}
+      >
+        <span className="h-2 w-2 rounded-full bg-white" />
+        F10 单步
       </button>
       <button 
         type="button" 

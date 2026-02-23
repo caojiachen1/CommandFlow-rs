@@ -399,8 +399,8 @@ fn evaluate_condition(node: &WorkflowNode, variables: &HashMap<String, Value>) -
     let right = resolve_operand(&right_type, &right_raw, variables);
 
     match operator.as_str() {
-        "==" => left == right,
-        "!=" => left != right,
+        "==" => values_equal(&left, &right),
+        "!=" => !values_equal(&left, &right),
         ">" => as_f64(&left) > as_f64(&right),
         ">=" => as_f64(&left) >= as_f64(&right),
         "<" => as_f64(&left) < as_f64(&right),
@@ -437,4 +437,22 @@ fn as_f64(value: &Value) -> f64 {
         .or_else(|| value.as_u64().map(|n| n as f64))
         .or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
         .unwrap_or(0.0)
+}
+
+fn values_equal(left: &Value, right: &Value) -> bool {
+    let left_num = as_optional_f64(left);
+    let right_num = as_optional_f64(right);
+    if let (Some(a), Some(b)) = (left_num, right_num) {
+        return (a - b).abs() < f64::EPSILON;
+    }
+
+    left == right
+}
+
+fn as_optional_f64(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|n| n as f64))
+        .or_else(|| value.as_u64().map(|n| n as f64))
+        .or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
 }

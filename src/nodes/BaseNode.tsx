@@ -43,7 +43,7 @@ export default function BaseNode({ data, tone = 'action', selected = false }: Ba
         />
       ))}
       <div className="text-xs font-semibold">{data.label}</div>
-      <div className="mt-1 text-[11px] opacity-80">{data.description ?? data.kind}</div>
+      <div className="mt-1 text-[8px] opacity-70">{data.description ?? data.kind}</div>
 
       {portSpec.outputs.map((output, index) => (
         <div key={`source-wrap-${output.id}`}>
