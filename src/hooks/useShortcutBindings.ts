@@ -15,7 +15,7 @@ export const useShortcutBindings = () => {
     copySelectedNode,
     pasteCopiedNode,
   } = useWorkflowStore()
-  const { setRunning, addLog } = useExecutionStore()
+  const { setRunning, addLog, clearVariables } = useExecutionStore()
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -50,6 +50,7 @@ export const useShortcutBindings = () => {
         event.preventDefault()
         const workflowFile = exportWorkflow()
         const graph = toBackendGraph(workflowFile)
+        clearVariables()
         setRunning(true)
         addLog('info', `开始执行工作流：${workflowFile.graph.name}`)
         void runWorkflow(graph)
@@ -80,6 +81,7 @@ export const useShortcutBindings = () => {
     redo,
     resetWorkflow,
     setRunning,
+    clearVariables,
     undo,
   ])
 }

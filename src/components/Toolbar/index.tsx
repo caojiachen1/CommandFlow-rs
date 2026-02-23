@@ -5,7 +5,7 @@ import { runWorkflow, stopWorkflow } from '../../utils/execution'
 import { toBackendGraph } from '../../utils/workflowBridge'
 
 export default function Toolbar() {
-  const { running, setRunning, addLog } = useExecutionStore()
+  const { running, setRunning, addLog, clearVariables } = useExecutionStore()
   const { zoom } = useSettingsStore()
   const { undo, redo, exportWorkflow } = useWorkflowStore()
 
@@ -14,6 +14,7 @@ export default function Toolbar() {
     const workflowFile = exportWorkflow()
     const graph = toBackendGraph(workflowFile)
 
+    clearVariables()
     setRunning(true)
     addLog('info', `开始执行流程：${workflowFile.graph.name}`)
     try {

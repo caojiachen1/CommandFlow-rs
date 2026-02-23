@@ -1,5 +1,7 @@
 use crate::automation::executor::WorkflowExecutor;
 use crate::workflow::graph::WorkflowGraph;
+use serde_json::Value;
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
@@ -14,6 +16,11 @@ pub struct CoordinateInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct NodeProgressPayload {
     pub node_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VariablesUpdatedPayload {
+    pub variables: HashMap<String, Value>,
 }
 
 #[tauri::command]
@@ -32,8 +39,16 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             },
         );
     };
+    let mut emit_variables = |variables: &HashMap<String, Value>| {
+        let _ = app.emit(
+            "workflow-variables-updated",
+            VariablesUpdatedPayload {
+                variables: variables.clone(),
+            },
+        );
+    };
     executor
-        .execute_with_progress(&graph, &mut emit_progress)
+        .execute_with_progress(&graph, &mut emit_progress, &mut emit_variables)
         .await
         .map_err(|e| e.to_string())?;
     Ok("workflow finished".to_string())

@@ -74,23 +74,35 @@ function App() {
       return
     }
 
-    let unlisten: (() => void) | null = null
+    let unlistenProgress: (() => void) | null = null
+    let unlistenVariables: (() => void) | null = null
     void listen<{ node_id: string }>('workflow-node-started', (event) => {
       const nodeId = event.payload?.node_id
       if (!nodeId) return
       setSelectedNode(nodeId)
     })
       .then((cleanup) => {
-        unlisten = cleanup
+        unlistenProgress = cleanup
       })
       .catch((error) => {
         addLog('warn', `监听执行进度失败：${String(error)}`)
       })
 
+    void listen<{ variables: Record<string, unknown> }>('workflow-variables-updated', (event) => {
+      setVariables(event.payload?.variables ?? {})
+    })
+      .then((cleanup) => {
+        unlistenVariables = cleanup
+      })
+      .catch((error) => {
+        addLog('warn', `监听变量更新失败：${String(error)}`)
+      })
+
     return () => {
-      unlisten?.()
+      unlistenProgress?.()
+      unlistenVariables?.()
     }
-  }, [addLog, setSelectedNode])
+  }, [addLog, setSelectedNode, setVariables])
 
   const handleFlowEditorPaneClick = useCallback(() => {
     setActiveMenu(null)

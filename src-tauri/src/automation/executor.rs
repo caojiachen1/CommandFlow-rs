@@ -24,16 +24,19 @@ enum NextDirective {
 impl WorkflowExecutor {
     pub async fn execute(&self, graph: &WorkflowGraph) -> CommandResult<()> {
         let mut noop = |_node: &WorkflowNode| {};
-        self.execute_with_progress(graph, &mut noop).await
+        let mut noop_vars = |_variables: &HashMap<String, Value>| {};
+        self.execute_with_progress(graph, &mut noop, &mut noop_vars).await
     }
 
-    pub async fn execute_with_progress<F>(
+    pub async fn execute_with_progress<F, G>(
         &self,
         graph: &WorkflowGraph,
         on_node_start: &mut F,
+        on_variables_update: &mut G,
     ) -> CommandResult<()>
     where
         F: FnMut(&WorkflowNode),
+        G: FnMut(&HashMap<String, Value>),
     {
         if graph.nodes.is_empty() {
             return Err(CommandFlowError::Validation(
@@ -79,7 +82,14 @@ impl WorkflowExecutor {
         let mut ctx = ExecutionContext::default();
         for start in starts {
             if visited_entry.insert(start.to_string()) {
-                self.execute_from_node(start, graph, &node_map, &mut ctx, on_node_start)
+                self.execute_from_node(
+                    start,
+                    graph,
+                    &node_map,
+                    &mut ctx,
+                    on_node_start,
+                    on_variables_update,
+                )
                     .await?;
             }
         }
@@ -94,6 +104,7 @@ impl WorkflowExecutor {
         node_map: &HashMap<&str, &WorkflowNode>,
         ctx: &mut ExecutionContext,
         on_node_start: &mut impl FnMut(&WorkflowNode),
+        on_variables_update: &mut impl FnMut(&HashMap<String, Value>),
     ) -> CommandResult<()> {
         let mut current_id = start_id.to_string();
         let mut guard_steps = 0usize;
@@ -107,6 +118,7 @@ impl WorkflowExecutor {
             on_node_start(node);
 
             let directive = self.execute_single_node(node, ctx).await?;
+            on_variables_update(&ctx.variables);
 
             let outgoing = graph.edges.iter().filter(|edge| edge.source == current_id);
             let next = match directive {
