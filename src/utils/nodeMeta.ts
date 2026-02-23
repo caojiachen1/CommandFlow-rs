@@ -121,10 +121,11 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   screenshot: {
     label: '屏幕截图',
-    description: '保存指定尺寸截图（当前为占位实现）。',
-    defaultParams: { path: 'capture.png', width: 320, height: 240 },
+    description: '保存截图到指定地址',
+    defaultParams: { path: 'capture.png', fullscreen: false, width: 320, height: 240 },
     fields: [
-      { key: 'path', label: '输出路径', type: 'string', placeholder: 'capture.png' },
+      { key: 'path', label: '保存地址', type: 'string', placeholder: 'capture.png' },
+      { key: 'fullscreen', label: '是否全屏', type: 'boolean' },
       { key: 'width', label: '宽度', type: 'number', min: 1, step: 1 },
       { key: 'height', label: '高度', type: 'number', min: 1, step: 1 },
     ],

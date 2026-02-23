@@ -171,6 +171,10 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   const renderField = (field: ParamField) => {
     if (!selectedNode) return null
     const currentValue = selectedNode.data.params[field.key]
+    const isScreenshotSizeFieldDisabled =
+      selectedNode.data.kind === 'screenshot' &&
+      (field.key === 'width' || field.key === 'height') &&
+      Boolean(selectedNode.data.params.fullscreen)
 
     if (field.type === 'boolean') {
       return (
@@ -210,8 +214,9 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
           min={field.min}
           max={field.max}
           step={field.step ?? 1}
+          disabled={isScreenshotSizeFieldDisabled}
           onChange={(event) => updateParam(field.key, Number(event.target.value))}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
         />
       )
     }

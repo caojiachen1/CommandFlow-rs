@@ -208,9 +208,14 @@ impl WorkflowExecutor {
             }
             NodeKind::Screenshot => {
                 let path = get_string(node, "path", "capture.png");
-                let width = get_u32(node, "width", 320);
-                let height = get_u32(node, "height", 240);
-                screenshot::capture_region(&path, width.max(1), height.max(1))?;
+                let fullscreen = get_bool(node, "fullscreen", false);
+                if fullscreen {
+                    screenshot::capture_fullscreen(&path)?;
+                } else {
+                    let width = get_u32(node, "width", 320);
+                    let height = get_u32(node, "height", 240);
+                    screenshot::capture_region(&path, width.max(1), height.max(1))?;
+                }
                 Ok(NextDirective::Default)
             }
             NodeKind::WindowActivate => {
