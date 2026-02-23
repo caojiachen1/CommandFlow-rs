@@ -2,6 +2,12 @@ import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type Edge
 import { create } from 'zustand'
 import type { CoordinatePoint, NodeKind, WorkflowEdge, WorkflowFile, WorkflowNode } from '../types/workflow'
 import { getNodeMeta } from '../utils/nodeMeta'
+import {
+  getInputHandleMaxConnections,
+  getOutputHandleMaxConnections,
+  normalizeSourceHandleId,
+  normalizeTargetHandleId,
+} from '../utils/nodePorts'
 
 interface Snapshot {
   nodes: WorkflowNode[]
@@ -100,9 +106,67 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       edges: applyEdgeChanges<WorkflowEdge>(changes, state.edges),
     })),
   onConnect: (connection) =>
-    set((state) => ({
-      edges: addEdge({ ...connection, animated: true }, state.edges),
-    })),
+    set((state) => {
+      if (!connection.source || !connection.target) {
+        return state
+      }
+
+      if (connection.source === connection.target) {
+        return state
+      }
+
+      const sourceNode = state.nodes.find((node) => node.id === connection.source)
+      const targetNode = state.nodes.find((node) => node.id === connection.target)
+      if (!sourceNode || !targetNode) {
+        return state
+      }
+
+      const sourceHandle = normalizeSourceHandleId(sourceNode.data.kind, connection.sourceHandle)
+      const targetHandle = normalizeTargetHandleId(targetNode.data.kind, connection.targetHandle)
+
+      if (!sourceHandle || !targetHandle) {
+        return state
+      }
+
+      const duplicated = state.edges.some(
+        (edge) =>
+          edge.source === connection.source &&
+          edge.target === connection.target &&
+          edge.sourceHandle === sourceHandle &&
+          edge.targetHandle === targetHandle,
+      )
+      if (duplicated) {
+        return state
+      }
+
+      const sourceMax = getOutputHandleMaxConnections(sourceNode.data.kind, sourceHandle)
+      const sourceCount = state.edges.filter(
+        (edge) => edge.source === connection.source && edge.sourceHandle === sourceHandle,
+      ).length
+      if (sourceCount >= sourceMax) {
+        return state
+      }
+
+      const targetMax = getInputHandleMaxConnections(targetNode.data.kind, targetHandle)
+      const targetCount = state.edges.filter(
+        (edge) => edge.target === connection.target && edge.targetHandle === targetHandle,
+      ).length
+      if (targetCount >= targetMax) {
+        return state
+      }
+
+      return {
+        edges: addEdge(
+          {
+            ...connection,
+            sourceHandle,
+            targetHandle,
+            animated: true,
+          },
+          state.edges,
+        ),
+      }
+    }),
   setSelectedNode: (id) =>
     set((state) => {
       const selectedNodeIds = id ? [id] : []
