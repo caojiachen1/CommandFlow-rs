@@ -11,9 +11,12 @@ interface ExecutionState {
   running: boolean
   statusText: string
   logs: ExecutionLogItem[]
+  variables: Record<string, unknown>
   setRunning: (running: boolean) => void
   addLog: (level: ExecutionLogItem['level'], message: string) => void
   clearLogs: () => void
+  setVariables: (variables: Record<string, unknown>) => void
+  clearVariables: () => void
 }
 
 const now = () => new Date().toISOString()
@@ -21,6 +24,7 @@ const now = () => new Date().toISOString()
 export const useExecutionStore = create<ExecutionState>((set) => ({
   running: false,
   statusText: '就绪',
+  variables: {},
   logs: [
     {
       id: crypto.randomUUID(),
@@ -47,4 +51,6 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
       ].slice(-200),
     })),
   clearLogs: () => set(() => ({ logs: [] })),
+  setVariables: (variables) => set(() => ({ variables })),
+  clearVariables: () => set(() => ({ variables: {} })),
 }))

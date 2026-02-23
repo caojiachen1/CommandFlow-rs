@@ -14,7 +14,8 @@ interface WorkflowState {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   selectedNodeId: string | null
-  copiedNode: WorkflowNode | null
+  selectedNodeIds: string[]
+  copiedNodes: WorkflowNode[] | null
   copySelectedNode: () => boolean
   pasteCopiedNode: () => boolean
   cursor: CoordinatePoint
@@ -24,6 +25,7 @@ interface WorkflowState {
   onEdgesChange: (changes: EdgeChange<WorkflowEdge>[]) => void
   onConnect: (connection: Connection) => void
   setSelectedNode: (id: string | null) => void
+  setSelectedNodes: (ids: string[]) => void
   setCursor: (x: number, y: number) => void
   addNode: (kind: NodeKind, position: { x: number; y: number }) => void
   deleteSelectedNodes: () => void
@@ -40,6 +42,21 @@ const cloneSnapshot = (nodes: WorkflowNode[], edges: WorkflowEdge[]): Snapshot =
   nodes: structuredClone(nodes),
   edges: structuredClone(edges),
 })
+
+const deriveSelectedNodeIds = (nodes: WorkflowNode[]) =>
+  nodes.filter((node) => Boolean(node.selected)).map((node) => node.id)
+
+const pickPrimarySelectedId = (selectedNodeIds: string[], currentSelectedNodeId: string | null) => {
+  if (currentSelectedNodeId && selectedNodeIds.includes(currentSelectedNodeId)) {
+    return currentSelectedNodeId
+  }
+  return selectedNodeIds[0] ?? null
+}
+
+const resolveSelectedIds = (state: WorkflowState) => {
+  if (state.selectedNodeIds.length > 0) return state.selectedNodeIds
+  return state.selectedNodeId ? [state.selectedNodeId] : []
+}
 
 const initialNodes: WorkflowNode[] = [
   {
@@ -63,14 +80,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   nodes: makeInitialNodes(),
   edges: [],
   selectedNodeId: null,
+  selectedNodeIds: [],
   cursor: { x: 0, y: 0, isPhysicalPixel: true, mode: 'virtualScreen' },
   past: [],
-  copiedNode: null,
+  copiedNodes: null,
   future: [],
   onNodesChange: (changes) =>
-    set((state) => ({
-      nodes: applyNodeChanges<WorkflowNode>(changes, state.nodes),
-    })),
+    set((state) => {
+      const nextNodes = applyNodeChanges<WorkflowNode>(changes, state.nodes)
+      const selectedNodeIds = deriveSelectedNodeIds(nextNodes)
+      return {
+        nodes: nextNodes,
+        selectedNodeIds,
+        selectedNodeId: pickPrimarySelectedId(selectedNodeIds, state.selectedNodeId),
+      }
+    }),
   onEdgesChange: (changes) =>
     set((state) => ({
       edges: applyEdgeChanges<WorkflowEdge>(changes, state.edges),
@@ -79,7 +103,27 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set((state) => ({
       edges: addEdge({ ...connection, animated: true }, state.edges),
     })),
-  setSelectedNode: (id) => set(() => ({ selectedNodeId: id })),
+  setSelectedNode: (id) =>
+    set((state) => {
+      const selectedNodeIds = id ? [id] : []
+      return {
+        selectedNodeId: id,
+        selectedNodeIds,
+        nodes: state.nodes.map((node) => ({ ...node, selected: id !== null && node.id === id })),
+      }
+    }),
+  setSelectedNodes: (ids) =>
+    set((state) => {
+      const selectedSet = new Set(ids)
+      const selectedNodeIds = state.nodes
+        .filter((node) => selectedSet.has(node.id))
+        .map((node) => node.id)
+      return {
+        selectedNodeIds,
+        selectedNodeId: pickPrimarySelectedId(selectedNodeIds, state.selectedNodeId),
+        nodes: state.nodes.map((node) => ({ ...node, selected: selectedSet.has(node.id) })),
+      }
+    }),
   setCursor: (x, y) =>
     set((state) => ({
       cursor: {
@@ -112,57 +156,68 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }),
   deleteSelectedNodes: () =>
     set((state) => {
-      if (!state.selectedNodeId) return state
+      const selectedIds = resolveSelectedIds(state)
+      if (selectedIds.length === 0) return state
+      const selectedSet = new Set(selectedIds)
       return {
         past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
         future: [],
-        nodes: state.nodes.filter((node) => node.id !== state.selectedNodeId),
-        edges: state.edges.filter(
-          (edge) => edge.source !== state.selectedNodeId && edge.target !== state.selectedNodeId,
-        ),
+        nodes: state.nodes.filter((node) => !selectedSet.has(node.id)),
+        edges: state.edges.filter((edge) => !selectedSet.has(edge.source) && !selectedSet.has(edge.target)),
         selectedNodeId: null,
+        selectedNodeIds: [],
       }
     }),
   duplicateSelectedNode: () =>
     set((state) => {
-      const selected = state.nodes.find((node) => node.id === state.selectedNodeId)
-      if (!selected) return state
-      const duplicated: WorkflowNode = {
+      const selectedSet = new Set(resolveSelectedIds(state))
+      const selectedNodes = state.nodes.filter((node) => selectedSet.has(node.id))
+      if (selectedNodes.length === 0) return state
+
+      const duplicatedNodes: WorkflowNode[] = selectedNodes.map((selected) => ({
         ...structuredClone(selected),
         id: crypto.randomUUID(),
+        selected: true,
         position: { x: selected.position.x + 40, y: selected.position.y + 40 },
-      }
+      }))
+      const duplicatedIds = duplicatedNodes.map((node) => node.id)
       return {
         past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
         future: [],
-        nodes: [...state.nodes, duplicated],
+        nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), ...duplicatedNodes],
+        selectedNodeId: duplicatedIds[0] ?? null,
+        selectedNodeIds: duplicatedIds,
       }
     }),
   copySelectedNode: () => {
     const state = get()
-    const selected = state.nodes.find((node) => node.id === state.selectedNodeId)
-    if (!selected) return false
-    set(() => ({ copiedNode: structuredClone(selected) }))
+    const selectedSet = new Set(resolveSelectedIds(state))
+    const selectedNodes = state.nodes.filter((node) => selectedSet.has(node.id))
+    if (selectedNodes.length === 0) return false
+    set(() => ({ copiedNodes: structuredClone(selectedNodes) }))
     return true
   },
   pasteCopiedNode: () => {
     const state = get()
-    if (!state.copiedNode) return false
+    if (!state.copiedNodes || state.copiedNodes.length === 0) return false
 
-    const pasted: WorkflowNode = {
-      ...structuredClone(state.copiedNode),
+    const pastedNodes: WorkflowNode[] = state.copiedNodes.map((node) => ({
+      ...structuredClone(node),
       id: crypto.randomUUID(),
+      selected: true,
       position: {
-        x: state.copiedNode.position.x + 40,
-        y: state.copiedNode.position.y + 40,
+        x: node.position.x + 40,
+        y: node.position.y + 40,
       },
-    }
+    }))
+    const pastedIds = pastedNodes.map((node) => node.id)
 
     set((current) => ({
       past: [...current.past, cloneSnapshot(current.nodes, current.edges)].slice(-100),
       future: [],
-      nodes: [...current.nodes, pasted],
-      selectedNodeId: pasted.id,
+      nodes: [...current.nodes.map((node) => ({ ...node, selected: false })), ...pastedNodes],
+      selectedNodeId: pastedIds[0] ?? null,
+      selectedNodeIds: pastedIds,
     }))
     return true
   },
@@ -203,6 +258,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes: file.graph.nodes,
       edges: file.graph.edges,
       selectedNodeId: null,
+      selectedNodeIds: [],
     })),
   resetWorkflow: () =>
     set((state) => ({
@@ -213,6 +269,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes: makeInitialNodes(),
       edges: [],
       selectedNodeId: null,
+      selectedNodeIds: [],
     })),
   undo: () =>
     set((state) => {

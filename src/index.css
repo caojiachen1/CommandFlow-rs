@@ -51,6 +51,13 @@ body,
   display: none;
 }
 
+.react-flow__node.selected,
+.react-flow__node:focus,
+.react-flow__node:focus-visible {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
 /* React Flow Controls Style Adjustments */
 .react-flow__controls-button {
   background: white !important;

@@ -43,7 +43,7 @@ function App() {
     edges,
     setSelectedNode,
   } = useWorkflowStore()
-  const { running, setRunning, addLog } = useExecutionStore()
+  const { running, setRunning, addLog, setVariables, clearVariables } = useExecutionStore()
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [lastFileName, setLastFileName] = useState<string>('workflow.json')
   const menuRef = useRef<HTMLDivElement>(null)
@@ -173,16 +173,20 @@ function App() {
     }
 
     setRunning(true)
+    clearVariables()
     try {
       addLog('info', `单步执行节点：${selectedNode.data.label}`)
       const message = await runWorkflow(toBackendGraph(stepFile))
+      const nextVariables = new Map<string, unknown>()
+      updateStepContextAfterNode(selectedNode, { variables: nextVariables, loopRemaining: new Map() })
+      setVariables(Object.fromEntries(nextVariables.entries()))
       addLog('success', `单步完成：${message}`)
     } catch (error) {
       addLog('error', `单步失败：${String(error)}`)
     } finally {
       setRunning(false)
     }
-  }, [addLog, exportWorkflow, nodes, running, selectedNodeId, setRunning])
+  }, [addLog, clearVariables, exportWorkflow, nodes, running, selectedNodeId, setRunning, setVariables])
 
   const getParamString = (node: WorkflowNode, key: string, fallback = '') => {
     const value = node.data.params[key]
@@ -302,6 +306,7 @@ function App() {
     continuousStepStopRef.current = false
     continuousStepRunningRef.current = true
     stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+    clearVariables()
     setRunning(true)
     addLog('info', `开始连续单步：${selectedNode.data.label}`)
 
@@ -325,6 +330,7 @@ function App() {
         addLog('info', `连续单步执行：${currentNode.data.label}`)
         await runWorkflow(toBackendGraph(stepFile))
         updateStepContextAfterNode(currentNode, stepCtxRef.current)
+        setVariables(Object.fromEntries(stepCtxRef.current.variables.entries()))
 
         const nextNodeId = pickNextNodeId(currentNode, stepCtxRef.current)
         if (!nextNodeId) {
@@ -355,7 +361,7 @@ function App() {
       continuousStepStopRef.current = false
       setRunning(false)
     }
-  }, [addLog, exportWorkflow, nodes, pickNextNodeId, running, selectedNodeId, setRunning, setSelectedNode])
+  }, [addLog, clearVariables, exportWorkflow, nodes, pickNextNodeId, running, selectedNodeId, setRunning, setSelectedNode, setVariables])
 
   const stopAllExecution = useCallback(async () => {
     continuousStepStopRef.current = true
@@ -448,6 +454,7 @@ function App() {
       case '运行':
         if (running) return
         setRunning(true)
+        clearVariables()
         try {
           const workflowFile = exportWorkflow()
           const graph = toBackendGraph(workflowFile)
@@ -461,6 +468,7 @@ function App() {
         }
         break
       case '停止':
+        clearVariables()
         await stopAllExecution()
         break
       case '单步':

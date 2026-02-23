@@ -53,6 +53,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     onEdgesChange,
     onConnect,
     setSelectedNode,
+    setSelectedNodes,
     addNode,
     setCursor,
   } = useWorkflowStore()
@@ -155,10 +156,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     }
   }, [reactFlow, setZoom])
 
-  const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
-    setSelectedNode(node.id)
-  }, [setSelectedNode])
-
   const [modalOpen, setModalOpen] = useState(false)
 
   const onNodeDoubleClick: NodeMouseHandler = useCallback((_, node) => {
@@ -179,6 +176,13 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     [reactFlow, setCursor],
   )
 
+  const onSelectionChange = useCallback(
+    ({ nodes: selectedNodes }: { nodes: Array<{ id: string }> }) => {
+      setSelectedNodes(selectedNodes.map((node) => node.id))
+    },
+    [setSelectedNodes],
+  )
+
   return (
     <div
       ref={wrapperRef}
@@ -192,12 +196,14 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
-        onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        onSelectionChange={onSelectionChange}
         onPaneClick={handlePaneClick}
         onPaneMouseMove={onPaneMouseMove}
         fitView
-        panOnDrag
+        selectionKeyCode="Control"
+        multiSelectionKeyCode="Control"
+        panOnDrag={[0, 1, 2]}
         snapToGrid
         snapGrid={[15, 15]}
         defaultEdgeOptions={{

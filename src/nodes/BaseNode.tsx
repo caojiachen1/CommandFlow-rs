@@ -1,10 +1,10 @@
-import { Handle, Position, useNodeId } from '@xyflow/react'
+import { Handle, Position } from '@xyflow/react'
 import type { WorkflowNodeData } from '../types/workflow'
-import { useWorkflowStore } from '../stores/workflowStore'
 
 interface BaseNodeProps {
   data: WorkflowNodeData
   tone?: 'trigger' | 'action' | 'control'
+  selected?: boolean
 }
 
 const tones = {
@@ -19,10 +19,8 @@ const selectedStyles = {
   control: 'border-amber-500 ring-1 ring-amber-400 ring-offset-1 ring-offset-amber-50 dark:ring-offset-amber-900/30',
 }
 
-export default function BaseNode({ data, tone = 'action' }: BaseNodeProps) {
-  const nodeId = useNodeId()
-  const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId)
-  const isSelected = nodeId === selectedNodeId
+export default function BaseNode({ data, tone = 'action', selected = false }: BaseNodeProps) {
+  const isSelected = selected
 
   return (
     <div
