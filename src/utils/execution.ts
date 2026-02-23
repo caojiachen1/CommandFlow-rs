@@ -16,3 +16,10 @@ export const stopWorkflow = async (): Promise<string> => {
   }
   return invoke<string>('stop_workflow')
 }
+
+export const listOpenWindows = async (): Promise<string[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+  return invoke<string[]>('list_open_windows')
+}

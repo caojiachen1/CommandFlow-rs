@@ -35,3 +35,6 @@ tauri-plugin-shell = "2.0"
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 opencv-support = ["dep:opencv"]
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

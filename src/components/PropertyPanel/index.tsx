@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getNodeMeta, type ParamField } from '../../utils/nodeMeta'
+import { listOpenWindows } from '../../utils/execution'
+import type { NodeKind } from '../../types/workflow'
+import SmartInputSelect from '../SmartInputSelect'
 
 interface PropertyPanelProps {
   expanded: boolean
@@ -25,6 +28,50 @@ const buildJsonDrafts = (params: Record<string, unknown>, fields: ParamField[]) 
   return drafts
 }
 
+const COMMON_KEYS = [
+  'Enter',
+  'Tab',
+  'Esc',
+  'Space',
+  'Backspace',
+  'Delete',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+  'F1',
+  'F2',
+  'F3',
+  'F4',
+  'F5',
+  'F6',
+  'F7',
+  'F8',
+  'F9',
+  'F10',
+  'F11',
+  'F12',
+]
+
+const COMMON_HOTKEYS = [
+  'Ctrl+C',
+  'Ctrl+V',
+  'Ctrl+S',
+  'Ctrl+Shift+S',
+  'Ctrl+Z',
+  'Ctrl+Y',
+  'Ctrl+Shift+R',
+  'Alt+Tab',
+]
+
+const dedupe = (values: string[]) => Array.from(new Set(values.filter((value) => value.trim().length > 0)))
+
+const isVariableOperandField = (kind: NodeKind, fieldKey: string) => kind === 'condition' && (fieldKey === 'left' || fieldKey === 'right')
+
 export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps) {
   const { selectedNodeId, nodes, updateNodeParams } = useWorkflowStore()
   const selectedNode = useMemo(
@@ -35,6 +82,17 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [windowTitles, setWindowTitles] = useState<string[]>([])
+
+  const variableNames = useMemo(
+    () =>
+      dedupe(
+        nodes
+          .filter((node) => node.data.kind === 'varDefine')
+          .map((node) => (typeof node.data.params.name === 'string' ? node.data.params.name.trim() : '')),
+      ),
+    [nodes],
+  )
 
   useEffect(() => {
     if (!selectedNode || !selectedMeta) {
@@ -45,6 +103,62 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     setJsonDrafts(buildJsonDrafts(selectedNode.data.params, selectedMeta.fields))
     setErrors({})
   }, [selectedMeta, selectedNode])
+
+  useEffect(() => {
+    if (!selectedNode || !expanded) return
+    if (selectedNode.data.kind !== 'windowTrigger' && selectedNode.data.kind !== 'windowActivate') {
+      return
+    }
+
+    let cancelled = false
+    void listOpenWindows()
+      .then((titles) => {
+        if (cancelled) return
+        setWindowTitles(dedupe(titles))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setWindowTitles([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [expanded, selectedNode])
+
+  const getStringSuggestions = (field: ParamField): string[] => {
+    if (!selectedNode) return []
+    const kind = selectedNode.data.kind
+
+    if (kind === 'windowTrigger' && field.key === 'title') {
+      return windowTitles
+    }
+    if (kind === 'windowActivate' && field.key === 'title') {
+      return windowTitles
+    }
+    if (kind === 'varSet' && field.key === 'name') {
+      return variableNames
+    }
+    if (isVariableOperandField(kind, field.key)) {
+      const typeKey = field.key === 'left' ? 'leftType' : 'rightType'
+      const typeValue = selectedNode.data.params[typeKey]
+      if (typeValue === 'var') {
+        return variableNames
+      }
+      return []
+    }
+    if (kind === 'keyboardKey' && field.key === 'key') {
+      return COMMON_KEYS
+    }
+    if (kind === 'shortcut' && field.key === 'key') {
+      return COMMON_KEYS
+    }
+    if (kind === 'hotkeyTrigger' && field.key === 'hotkey') {
+      return COMMON_HOTKEYS
+    }
+
+    return []
+  }
 
   const updateParam = (key: string, value: unknown) => {
     if (!selectedNode) return
@@ -132,13 +246,30 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     }
 
     return (
-      <input
-        type="text"
-        value={String(currentValue ?? '')}
-        placeholder={field.placeholder}
-        onChange={(event) => updateParam(field.key, event.target.value)}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
-      />
+      (() => {
+        const suggestions = getStringSuggestions(field)
+        if (suggestions.length > 0) {
+          return (
+            <SmartInputSelect
+              value={String(currentValue ?? '')}
+              placeholder={field.placeholder}
+              options={suggestions}
+              onChange={(nextValue) => updateParam(field.key, nextValue)}
+              hint="支持下拉选择，也可手动输入"
+            />
+          )
+        }
+
+        return (
+          <input
+            type="text"
+            value={String(currentValue ?? '')}
+            placeholder={field.placeholder}
+            onChange={(event) => updateParam(field.key, event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+          />
+        )
+      })()
     )
   }
 

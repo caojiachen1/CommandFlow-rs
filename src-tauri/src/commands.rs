@@ -5,6 +5,11 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinateInfo {
     pub x: i32,
@@ -85,4 +90,53 @@ pub async fn pick_coordinate(mode: Option<String>) -> Result<CoordinateInfo, Str
         is_physical_pixel: true,
         mode: resolved_mode,
     })
+}
+
+#[tauri::command]
+pub async fn list_open_windows() -> Result<Vec<String>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            if IsWindowVisible(hwnd) == 0 {
+                return 1;
+            }
+
+            let len = GetWindowTextLengthW(hwnd);
+            if len <= 0 {
+                return 1;
+            }
+
+            let mut buffer = vec![0u16; (len as usize) + 1];
+            let copied = GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32);
+            if copied <= 0 {
+                return 1;
+            }
+
+            let title = String::from_utf16_lossy(&buffer[..copied as usize])
+                .trim()
+                .to_string();
+            if title.is_empty() {
+                return 1;
+            }
+
+            let titles = &mut *(lparam as *mut Vec<String>);
+            if !titles.iter().any(|existing| existing == &title) {
+                titles.push(title);
+            }
+
+            1
+        }
+
+        let mut titles = Vec::<String>::new();
+        unsafe {
+            EnumWindows(Some(enum_windows_proc), &mut titles as *mut Vec<String> as LPARAM);
+        }
+
+        return Ok(titles);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(vec![])
+    }
 }

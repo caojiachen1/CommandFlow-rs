@@ -25,6 +25,7 @@ pub fn run() {
             commands::save_workflow,
             commands::load_workflow,
             commands::pick_coordinate,
+            commands::list_open_windows,
             commands::health_check,
         ])
         .run(tauri::generate_context!())
