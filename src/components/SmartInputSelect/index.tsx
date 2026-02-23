@@ -5,12 +5,13 @@ interface SmartInputSelectProps {
   placeholder?: string
   options: string[]
   onChange: (nextValue: string) => void
+  onEnter?: () => void
   hint?: string
 }
 
 const dedupe = (values: string[]) => Array.from(new Set(values.filter((item) => item.trim().length > 0)))
 
-export default function SmartInputSelect({ value, placeholder, options, onChange, hint }: SmartInputSelectProps) {
+export default function SmartInputSelect({ value, placeholder, options, onChange, onEnter, hint }: SmartInputSelectProps) {
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -59,13 +60,17 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
       return
     }
 
-    if (event.key === 'Enter' && open) {
-      event.preventDefault()
-      const picked = allOptions[activeIndex]
-      if (picked !== undefined) {
-        onChange(picked)
+    if (event.key === 'Enter') {
+      if (open && allOptions.length > 0) {
+        event.preventDefault()
+        const picked = allOptions[activeIndex]
+        if (picked !== undefined) {
+          onChange(picked)
+        }
+        setOpen(false)
+      } else if (onEnter) {
+        onEnter()
       }
-      setOpen(false)
       return
     }
 

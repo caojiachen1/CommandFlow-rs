@@ -171,6 +171,12 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     }
   }, [handleClose])
 
+  const handleInputKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      handleClose()
+    }
+  }, [handleClose])
+
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && open) {
@@ -198,6 +204,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
             type="checkbox"
             checked={Boolean(currentValue)}
             onChange={(event) => updateParam(field.key, event.target.checked)}
+            onKeyDown={handleInputKeyDown}
             className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
           />
           启用
@@ -210,6 +217,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
         <select
           value={String(currentValue ?? '')}
           onChange={(event) => updateParam(field.key, event.target.value)}
+          onKeyDown={handleInputKeyDown}
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
         >
           {(field.options ?? []).map((option) => (
@@ -231,6 +239,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
           step={field.step ?? 1}
           disabled={isScreenshotSizeFieldDisabled}
           onChange={(event) => updateParam(field.key, Number(event.target.value))}
+          onKeyDown={handleInputKeyDown}
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
         />
       )
@@ -275,6 +284,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
               placeholder={field.placeholder}
               options={suggestions}
               onChange={(nextValue) => updateParam(field.key, nextValue)}
+              onEnter={handleClose}
               hint="支持下拉选择，也可手动输入"
             />
           )
@@ -286,6 +296,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
             value={String(currentValue ?? '')}
             placeholder={field.placeholder}
             onChange={(event) => updateParam(field.key, event.target.value)}
+            onKeyDown={handleInputKeyDown}
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
           />
         )

@@ -3,10 +3,8 @@ import FlowEditor from './components/FlowEditor'
 import NodePanel from './components/NodePanel'
 import Toolbar from './components/Toolbar'
 import StatusBar from './components/StatusBar'
-import CoordinatePicker from './components/CoordinatePicker'
 import VariablePanel from './components/VariablePanel'
 import ExecutionLog from './components/ExecutionLog'
-import { useSettingsStore } from './stores/settingsStore'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
@@ -32,7 +30,6 @@ const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
   kind === 'hotkeyTrigger' || kind === 'timerTrigger' || kind === 'manualTrigger' || kind === 'windowTrigger'
 
 function App() {
-  const { theme, setTheme } = useSettingsStore()
   const {
     undo,
     redo,
@@ -49,6 +46,8 @@ function App() {
   const { running, setRunning, addLog, setVariables, clearVariables } = useExecutionStore()
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [lastFileName, setLastFileName] = useState<string>('workflow.json')
+  const [helpModalOpen, setHelpModalOpen] = useState(false)
+  const [helpType, setHelpType] = useState<'docs' | 'shortcuts'>('docs')
   const menuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const continuousStepRunningRef = useRef(false)
@@ -574,13 +573,21 @@ function App() {
         void runContinuousStep()
         break
       case '文档':
-        addLog('info', '文档请查看项目根目录 README.md。')
+        setHelpType('docs')
+        setHelpModalOpen(true)
         break
       case '快捷键':
-        addLog('info', '快捷键：Ctrl+N 新建，Ctrl+Z 撤销，Ctrl+Y 重做，Ctrl+C 复制，Ctrl+V 粘贴，Delete 删除，F5 运行，F6 停止，F9 连续单步，F10 单步。')
+        setHelpType('shortcuts')
+        setHelpModalOpen(true)
         break
       default:
         console.log(`点击了 ${item}`)
+    }
+  }
+
+  const handleHelpModalBackdropClick = (event: React.MouseEvent) => {
+    if (event.target === event.currentTarget) {
+      setHelpModalOpen(false)
     }
   }
 
@@ -620,20 +627,73 @@ function App() {
             </div>
           ))}
         </div>
-        <div className="flex items-center gap-3 text-[11px] font-medium">
-          <CoordinatePicker />
-          <div className="h-3 w-[1px] bg-slate-200 dark:bg-neutral-800" />
-          <select
-            value={theme}
-            onChange={(event) => setTheme(event.target.value as 'light' | 'dark' | 'system')}
-            className="cursor-pointer rounded-md border border-slate-200 bg-white/50 px-2 py-1 outline-none backdrop-blur-md transition-all hover:bg-white dark:border-neutral-700 dark:bg-neutral-900/50 dark:hover:bg-slate-800"
-          >
-            <option value="system">跟随系统</option>
-            <option value="dark">深色模式</option>
-            <option value="light">浅色模式</option>
-          </select>
-        </div>
       </header>
+
+      {helpModalOpen && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={handleHelpModalBackdropClick}
+        >
+          <div className="flex max-h-[80vh] w-[600px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
+              <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                {helpType === 'docs' ? '文档说明' : '快捷键说明'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setHelpModalOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-800"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-8 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+              {helpType === 'docs' ? (
+                <div className="space-y-4 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                  <p className="font-semibold text-slate-800 dark:text-slate-200">欢迎使用 CommandFlow-rs！</p>
+                  <p>CommandFlow-rs 是一个基于 Tauri v2 的桌面自动化流程编排工具。它能够帮助你通过图形化界面创建复杂的自动化序列，包括鼠标点击、键盘输入、屏幕截图以及逻辑判断等功能。</p>
+                  <div className="space-y-2">
+                    <p className="font-semibold">功能亮点：</p>
+                    <ul className="list-inside list-disc space-y-1">
+                      <li>多窗口适配：支持基于窗口标题的相对坐标拾取和操作。</li>
+                      <li>图像匹配：可以通过屏幕截图查找特定图标或按钮的位置。</li>
+                      <li>变量系统：定义并使用工作流中的动态数据。</li>
+                      <li>流程控制：包含条件分支和循环节点，支持复杂逻辑。</li>
+                    </ul>
+                  </div>
+                  <p>详细文档和高级用法请参考项目根目录的 README.md 文件。</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 text-xs">
+                  {[
+                    ['新建流程', 'Ctrl + N'],
+                    ['保存流程', 'Ctrl + S'],
+                    ['撤销操作', 'Ctrl + Z'],
+                    ['重做操作', 'Ctrl + Y'],
+                    ['复制节点', 'Ctrl + C'],
+                    ['粘贴节点', 'Ctrl + V'],
+                    ['删除节点', 'Delete'],
+                    ['运行流程', 'F5'],
+                    ['停止执行', 'F6'],
+                    ['连续单步', 'F9'],
+                    ['单步执行', 'F10'],
+                    ['放大画布', 'Ctrl + ='],
+                    ['缩小画布', 'Ctrl + -'],
+                    ['重置缩放', 'Ctrl + 0'],
+                  ].map(([label, key]) => (
+                    <div key={label} className="flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-neutral-800/50">
+                      <span className="text-slate-600 dark:text-slate-400">{label}</span>
+                      <kbd className="rounded bg-white px-2 py-1 font-mono text-[10px] font-bold shadow-sm dark:bg-neutral-700 dark:text-cyan-400">{key}</kbd>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="shrink-0 flex flex-col">
         <Toolbar />
