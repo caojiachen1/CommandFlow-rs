@@ -72,6 +72,38 @@ pub fn list_open_window_titles() -> CommandResult<Vec<String>> {
     }
 }
 
+pub fn window_title_exists(title: &str, match_mode: &str) -> CommandResult<bool> {
+    #[cfg(target_os = "windows")]
+    {
+        let target = title.trim();
+        if target.is_empty() {
+            return Err(CommandFlowError::Validation("window title is empty".to_string()));
+        }
+
+        let target_lower = target.to_lowercase();
+        let mode = match_mode.to_lowercase();
+
+        let matched = enumerate_windows().into_iter().any(|entry| {
+            let current = entry.title.to_lowercase();
+            match mode.as_str() {
+                "exact" => current == target_lower,
+                _ => current.contains(&target_lower),
+            }
+        });
+
+        return Ok(matched);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = title;
+        let _ = match_mode;
+        Err(CommandFlowError::Automation(
+            "window trigger is only supported on Windows currently".to_string(),
+        ))
+    }
+}
+
 pub fn activate_window(title: &str) -> CommandResult<()> {
     #[cfg(target_os = "windows")]
     {

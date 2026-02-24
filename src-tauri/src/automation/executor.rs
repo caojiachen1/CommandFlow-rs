@@ -55,15 +55,28 @@ impl WorkflowExecutor {
             }
         }
 
-        let trigger_starts: Vec<&str> = graph
+        let manual_trigger_starts: Vec<&str> = graph
             .nodes
             .iter()
-            .filter(|node| is_trigger(&node.kind))
+            .filter(|node| is_manual_trigger(&node.kind))
             .map(|node| node.id.as_str())
             .collect();
 
-        let starts: Vec<&str> = if !trigger_starts.is_empty() {
-            trigger_starts
+        let auto_trigger_starts: Vec<&str> = graph
+            .nodes
+            .iter()
+            .filter(|node| is_trigger(&node.kind) && !is_manual_trigger(&node.kind))
+            .map(|node| node.id.as_str())
+            .collect();
+
+        let starts: Vec<&str> = if !manual_trigger_starts.is_empty() {
+            manual_trigger_starts
+        } else if auto_trigger_starts.len() == 1 {
+            auto_trigger_starts
+        } else if auto_trigger_starts.len() > 1 {
+            return Err(CommandFlowError::Validation(
+                "workflow has multiple non-manual triggers; direct run requires exactly one trigger or at least one manual trigger".to_string(),
+            ));
         } else {
             let roots: Vec<&str> = graph
                 .nodes
@@ -156,14 +169,53 @@ impl WorkflowExecutor {
         ctx: &mut ExecutionContext,
     ) -> CommandResult<NextDirective> {
         match node.kind {
-            NodeKind::HotkeyTrigger => Ok(NextDirective::Default),
+            NodeKind::HotkeyTrigger => {
+                let hotkey = get_string(node, "hotkey", "Ctrl+Shift+R");
+                let timeout_ms = get_u64(node, "timeoutMs", 30_000);
+                let poll_ms = get_u64(node, "pollMs", 50);
+                keyboard::wait_for_hotkey(&hotkey, timeout_ms, poll_ms).await?;
+                Ok(NextDirective::Default)
+            }
             NodeKind::TimerTrigger => {
                 let interval_ms = get_u64(node, "intervalMs", 1000);
                 sleep(Duration::from_millis(interval_ms)).await;
                 Ok(NextDirective::Default)
             }
             NodeKind::ManualTrigger => Ok(NextDirective::Default),
-            NodeKind::WindowTrigger => Ok(NextDirective::Default),
+            NodeKind::WindowTrigger => {
+                let title = get_string(node, "title", "");
+                let match_mode = get_string(node, "matchMode", "contains");
+                let timeout_ms = get_u64(node, "timeoutMs", 30_000);
+                let poll_ms = get_u64(node, "pollMs", 250);
+
+                if title.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' window trigger title is empty",
+                        node.id
+                    )));
+                }
+
+                let poll_interval = Duration::from_millis(poll_ms.max(10));
+                let deadline = Duration::from_millis(timeout_ms);
+                let started = tokio::time::Instant::now();
+
+                loop {
+                    if window::window_title_exists(&title, &match_mode)? {
+                        break;
+                    }
+
+                    if started.elapsed() >= deadline {
+                        return Err(CommandFlowError::Automation(format!(
+                            "window trigger timed out after {} ms for title '{}'",
+                            timeout_ms, title
+                        )));
+                    }
+
+                    sleep(poll_interval).await;
+                }
+
+                Ok(NextDirective::Default)
+            }
             NodeKind::MouseClick => {
                 let x = get_i32(node, "x", 0);
                 let y = get_i32(node, "y", 0);
@@ -292,6 +344,10 @@ fn is_trigger(kind: &NodeKind) -> bool {
             | NodeKind::ManualTrigger
             | NodeKind::WindowTrigger
     )
+}
+
+fn is_manual_trigger(kind: &NodeKind) -> bool {
+    matches!(kind, NodeKind::ManualTrigger)
 }
 
 async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<()> {
