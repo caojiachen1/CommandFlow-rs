@@ -38,17 +38,6 @@ export default function Toolbar() {
     setRunning(false)
   }
 
-  const exportJson = () => {
-    const data = exportWorkflow()
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${data.graph.name}.json`
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }
-
   const buttonClass = "flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/60 px-3.5 py-1.5 text-xs font-medium transition-all duration-150 hover:bg-white hover:shadow-sm active:translate-y-[1px] disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-slate-800"
 
   return (
@@ -90,12 +79,6 @@ export default function Toolbar() {
         重做
       </button>
       
-      <div className="mx-2 h-5 w-[1px] bg-slate-200 dark:bg-neutral-800" />
-
-      <button type="button" onClick={exportJson} className={buttonClass}>
-        导出 JSON
-      </button>
-
       <div className="ml-auto flex items-center gap-3">
         <div className="rounded-full bg-slate-200/50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:bg-neutral-800/50 dark:text-slate-400">
           缩放: {Math.round(zoom * 100)}%
