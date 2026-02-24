@@ -85,6 +85,18 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  fileCopy: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  fileMove: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  fileDelete: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   runCommand: {
     inputs: singleIn(),
     outputs: singleOut(),
@@ -117,10 +129,6 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'loop', label: 'loop', maxConnections: ONE },
       { id: 'done', label: 'done', maxConnections: ONE },
     ],
-  },
-  errorHandler: {
-    inputs: singleIn(),
-    outputs: singleOut(),
   },
   varDefine: {
     inputs: singleIn(),

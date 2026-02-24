@@ -36,6 +36,9 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
     items: [
       { label: '屏幕截图', kind: 'screenshot', color: 'bg-indigo-500' },
       { label: '切换窗口', kind: 'windowActivate', color: 'bg-violet-500' },
+      { label: '复制文件/文件夹', kind: 'fileCopy', color: 'bg-fuchsia-500' },
+      { label: '移动文件/文件夹', kind: 'fileMove', color: 'bg-pink-500' },
+      { label: '删除文件/文件夹', kind: 'fileDelete', color: 'bg-rose-500' },
       { label: '执行命令', kind: 'runCommand', color: 'bg-violet-500' },
       { label: '执行 Python', kind: 'pythonCode', color: 'bg-blue-600' },
       { label: '等待延时', kind: 'delay', color: 'bg-purple-500' },
@@ -47,7 +50,11 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500' },
       { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500' },
       { label: 'while 循环', kind: 'whileLoop', color: 'bg-purple-600' },
-      { label: '错误处理', kind: 'errorHandler', color: 'bg-red-500' },
+    ],
+  },
+  {
+    title: '变量',
+    items: [
       { label: '变量定义', kind: 'varDefine', color: 'bg-pink-500' },
       { label: '变量赋值', kind: 'varSet', color: 'bg-emerald-500' },
     ],

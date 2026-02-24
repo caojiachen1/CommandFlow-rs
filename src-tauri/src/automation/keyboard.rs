@@ -69,6 +69,30 @@ pub fn shortcut(modifiers: &[String], key: &str) -> CommandResult<()> {
     Ok(())
 }
 
+pub fn shortcut_by_hotkey(hotkey: &str) -> CommandResult<()> {
+    let tokens = hotkey
+        .split('+')
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+
+    if tokens.is_empty() {
+        return Err(CommandFlowError::Validation("hotkey cannot be empty".to_string()));
+    }
+
+    if tokens.len() == 1 {
+        return key_tap_by_name(tokens[0]);
+    }
+
+    let key = tokens[tokens.len() - 1].to_string();
+    let modifiers = tokens[..tokens.len() - 1]
+        .iter()
+        .map(|item| item.to_string())
+        .collect::<Vec<_>>();
+
+    shortcut(&modifiers, &key)
+}
+
 pub async fn wait_for_hotkey(hotkey: &str, timeout_ms: u64, poll_ms: u64) -> CommandResult<()> {
     #[cfg(target_os = "windows")]
     {

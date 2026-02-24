@@ -1,4 +1,4 @@
-use crate::automation::{keyboard, mouse, screenshot, window};
+use crate::automation::{file_ops, keyboard, mouse, screenshot, window};
 use crate::error::{CommandFlowError, CommandResult};
 use crate::workflow::graph::WorkflowGraph;
 use crate::workflow::node::{NodeKind, WorkflowNode};
@@ -447,8 +447,66 @@ impl WorkflowExecutor {
                 Ok(NextDirective::Default)
             }
             NodeKind::WindowActivate => {
-                let title = get_string(node, "title", "");
-                window::activate_window(&title)?;
+                let switch_mode = get_string(node, "switchMode", "title");
+                if switch_mode.eq_ignore_ascii_case("shortcut") {
+                    let shortcut = get_string(node, "shortcut", "Alt+Tab");
+                    let times = get_u64(node, "shortcutTimes", 1).max(1);
+                    let interval_ms = get_u64(node, "shortcutIntervalMs", 120).max(1);
+                    for i in 0..times {
+                        keyboard::shortcut_by_hotkey(&shortcut)?;
+                        if i + 1 < times {
+                            sleep(Duration::from_millis(interval_ms)).await;
+                        }
+                    }
+                } else {
+                    let title = get_string(node, "title", "");
+                    window::activate_window(&title)?;
+                }
+                Ok(NextDirective::Default)
+            }
+            NodeKind::FileCopy => {
+                let source_path = get_string(node, "sourcePath", "");
+                let target_path = get_string(node, "targetPath", "");
+                let overwrite = get_bool(node, "overwrite", false);
+                let recursive = get_bool(node, "recursive", true);
+
+                if source_path.trim().is_empty() || target_path.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' sourcePath/targetPath cannot be empty",
+                        node.id
+                    )));
+                }
+
+                file_ops::copy_path(&source_path, &target_path, overwrite, recursive)?;
+                Ok(NextDirective::Default)
+            }
+            NodeKind::FileMove => {
+                let source_path = get_string(node, "sourcePath", "");
+                let target_path = get_string(node, "targetPath", "");
+                let overwrite = get_bool(node, "overwrite", false);
+
+                if source_path.trim().is_empty() || target_path.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' sourcePath/targetPath cannot be empty",
+                        node.id
+                    )));
+                }
+
+                file_ops::move_path(&source_path, &target_path, overwrite)?;
+                Ok(NextDirective::Default)
+            }
+            NodeKind::FileDelete => {
+                let path = get_string(node, "path", "");
+                let recursive = get_bool(node, "recursive", true);
+
+                if path.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' path cannot be empty",
+                        node.id
+                    )));
+                }
+
+                file_ops::delete_path(&path, recursive)?;
                 Ok(NextDirective::Default)
             }
             NodeKind::RunCommand => {
@@ -517,7 +575,6 @@ impl WorkflowExecutor {
                     Ok(NextDirective::Branch("done"))
                 }
             }
-            NodeKind::ErrorHandler => Ok(NextDirective::Default),
             NodeKind::VarDefine => {
                 let name = get_string(node, "name", "");
                 if !name.trim().is_empty() {

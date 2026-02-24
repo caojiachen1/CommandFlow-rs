@@ -15,12 +15,16 @@ export type ActionNodeKind =
   | 'shortcut'
   | 'screenshot'
   | 'windowActivate'
+  | 'fileCopy'
+  | 'fileMove'
+  | 'fileDelete'
   | 'runCommand'
   | 'pythonCode'
   | 'delay'
-export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'errorHandler' | 'varDefine' | 'varSet'
+export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop'
+export type DataNodeKind = 'varDefine' | 'varSet'
 
-export type NodeKind = TriggerNodeKind | ActionNodeKind | ControlNodeKind
+export type NodeKind = TriggerNodeKind | ActionNodeKind | ControlNodeKind | DataNodeKind
 
 export interface WorkflowNodeData {
   [key: string]: unknown
