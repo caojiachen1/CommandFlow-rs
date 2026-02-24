@@ -121,6 +121,7 @@ impl WorkflowExecutor {
     ) -> CommandResult<()> {
         let mut current_id = start_id.to_string();
         let mut guard_steps = 0usize;
+        let mut loop_stack: Vec<String> = Vec::new();
 
         while guard_steps < 10_000 {
             guard_steps += 1;
@@ -129,6 +130,68 @@ impl WorkflowExecutor {
             })?;
 
             on_node_start(node);
+
+            if matches!(node.kind, NodeKind::Loop) {
+                let outgoing: Vec<_> = graph
+                    .edges
+                    .iter()
+                    .filter(|edge| edge.source == current_id)
+                    .collect();
+
+                let loop_edge = outgoing
+                    .iter()
+                    .find(|edge| edge.source_handle.as_deref() == Some("loop"))
+                    .copied()
+                    .or_else(|| outgoing.first().copied());
+
+                let done_edge = outgoing
+                    .iter()
+                    .find(|edge| edge.source_handle.as_deref() == Some("done"))
+                    .copied()
+                    .or_else(|| {
+                        outgoing
+                            .iter()
+                            .find(|edge| edge.source_handle.as_deref() != Some("loop"))
+                            .copied()
+                    });
+
+                let times = get_u64(node, "times", 1);
+                let remaining = ctx.loop_remaining.entry(node.id.clone()).or_insert(times);
+
+                on_variables_update(&ctx.variables);
+
+                if *remaining > 0 {
+                    if let Some(edge) = loop_edge {
+                        *remaining -= 1;
+
+                        if loop_stack.last().map(String::as_str) != Some(node.id.as_str()) {
+                            loop_stack.push(node.id.clone());
+                        }
+
+                        current_id = edge.target.clone();
+                        continue;
+                    }
+
+                    *remaining = 0;
+                }
+
+                ctx.loop_remaining.remove(&node.id);
+                if loop_stack.last().map(String::as_str) == Some(node.id.as_str()) {
+                    loop_stack.pop();
+                }
+
+                if let Some(edge) = done_edge {
+                    current_id = edge.target.clone();
+                    continue;
+                }
+
+                if let Some(parent_loop_id) = loop_stack.last() {
+                    current_id = parent_loop_id.clone();
+                    continue;
+                }
+
+                return Ok(());
+            }
 
             let directive = self.execute_single_node(node, ctx).await?;
             on_variables_update(&ctx.variables);
@@ -153,7 +216,13 @@ impl WorkflowExecutor {
 
             match next {
                 Some(edge) => current_id = edge.target.clone(),
-                None => return Ok(()),
+                None => {
+                    if let Some(active_loop_id) = loop_stack.last() {
+                        current_id = active_loop_id.clone();
+                        continue;
+                    }
+                    return Ok(());
+                }
             }
         }
 
