@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getNodeMeta, type ParamField } from '../../utils/nodeMeta'
 import { listOpenWindows } from '../../utils/execution'
 import type { NodeKind } from '../../types/workflow'
 import SmartInputSelect from '../SmartInputSelect'
 import StyledSelect from '../StyledSelect'
+import PathPickerDropdown from '../PathPickerDropdown'
 
 interface PropertyPanelProps {
   expanded: boolean
@@ -307,47 +307,11 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 onChange={(event) => updateParam(field.key, event.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
               />
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  className="rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur transition-all hover:border-cyan-500 hover:text-cyan-600 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-300 dark:hover:text-cyan-400"
-                  onClick={async () => {
-                    try {
-                      const picked = await openDialog({
-                        directory: false,
-                        multiple: false,
-                        title: `${field.label}（选择文件）`,
-                      })
-                      if (typeof picked === 'string' && picked.trim().length > 0) {
-                        updateParam(field.key, picked)
-                      }
-                    } catch {
-                      // 用户取消或运行在非 Tauri 环境，静默忽略
-                    }
-                  }}
-                >
-                  文件
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur transition-all hover:border-cyan-500 hover:text-cyan-600 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-300 dark:hover:text-cyan-400"
-                  onClick={async () => {
-                    try {
-                      const picked = await openDialog({
-                        directory: true,
-                        multiple: false,
-                        title: `${field.label}（选择文件夹）`,
-                      })
-                      if (typeof picked === 'string' && picked.trim().length > 0) {
-                        updateParam(field.key, picked)
-                      }
-                    } catch {
-                      // 用户取消或运行在非 Tauri 环境，静默忽略
-                    }
-                  }}
-                >
-                  文件夹
-                </button>
+              <div className="flex shrink-0 items-center">
+                <PathPickerDropdown
+                  fieldLabel={field.label ?? field.key}
+                  onSelect={(value) => updateParam(field.key, value)}
+                />
               </div>
             </div>
           )
