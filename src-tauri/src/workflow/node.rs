@@ -23,6 +23,7 @@ pub enum NodeKind {
     Delay,
     Condition,
     Loop,
+    WhileLoop,
     ErrorHandler,
     VarDefine,
     VarSet,

@@ -70,7 +70,8 @@ const COMMON_HOTKEYS = [
 
 const dedupe = (values: string[]) => Array.from(new Set(values.filter((value) => value.trim().length > 0)))
 
-const isVariableOperandField = (kind: NodeKind, fieldKey: string) => kind === 'condition' && (fieldKey === 'left' || fieldKey === 'right')
+const isVariableOperandField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'condition' || kind === 'whileLoop') && (fieldKey === 'left' || fieldKey === 'right')
 
 export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps) {
   const { selectedNodeId, nodes, updateNodeParams } = useWorkflowStore()

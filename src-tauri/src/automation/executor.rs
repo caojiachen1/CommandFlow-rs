@@ -15,6 +15,7 @@ pub struct WorkflowExecutor;
 struct ExecutionContext {
     variables: HashMap<String, Value>,
     loop_remaining: HashMap<String, u64>,
+    while_iterations: HashMap<String, u64>,
 }
 
 enum NextDirective {
@@ -138,7 +139,7 @@ impl WorkflowExecutor {
 
             on_node_start(node);
 
-            if matches!(node.kind, NodeKind::Loop) {
+            if matches!(node.kind, NodeKind::Loop | NodeKind::WhileLoop) {
                 let outgoing: Vec<_> = graph
                     .edges
                     .iter()
@@ -162,42 +163,90 @@ impl WorkflowExecutor {
                             .copied()
                     });
 
-                let times = get_u64(node, "times", 1);
-                let remaining = ctx.loop_remaining.entry(node.id.clone()).or_insert(times);
-
                 on_variables_update(&ctx.variables);
 
-                if *remaining > 0 {
-                    if let Some(edge) = loop_edge {
-                        *remaining -= 1;
+                match node.kind {
+                    NodeKind::Loop => {
+                        let times = get_u64(node, "times", 1);
+                        let remaining = ctx.loop_remaining.entry(node.id.clone()).or_insert(times);
 
-                        if loop_stack.last().map(String::as_str) != Some(node.id.as_str()) {
-                            loop_stack.push(node.id.clone());
+                        if *remaining > 0 {
+                            if let Some(edge) = loop_edge {
+                                *remaining -= 1;
+
+                                if loop_stack.last().map(String::as_str) != Some(node.id.as_str()) {
+                                    loop_stack.push(node.id.clone());
+                                }
+
+                                current_id = edge.target.clone();
+                                continue;
+                            }
+
+                            *remaining = 0;
                         }
 
-                        current_id = edge.target.clone();
-                        continue;
+                        ctx.loop_remaining.remove(&node.id);
+                        if loop_stack.last().map(String::as_str) == Some(node.id.as_str()) {
+                            loop_stack.pop();
+                        }
+
+                        if let Some(edge) = done_edge {
+                            current_id = edge.target.clone();
+                            continue;
+                        }
+
+                        if let Some(parent_loop_id) = loop_stack.last() {
+                            current_id = parent_loop_id.clone();
+                            continue;
+                        }
+
+                        return Ok(());
                     }
+                    NodeKind::WhileLoop => {
+                        let max_iterations = get_u64(node, "maxIterations", 1000).max(1);
+                        let condition_true = evaluate_condition(node, &ctx.variables);
+                        let iterations = ctx.while_iterations.entry(node.id.clone()).or_insert(0);
 
-                    *remaining = 0;
+                        if condition_true && *iterations < max_iterations {
+                            if let Some(edge) = loop_edge {
+                                *iterations += 1;
+
+                                if loop_stack.last().map(String::as_str) != Some(node.id.as_str()) {
+                                    loop_stack.push(node.id.clone());
+                                }
+
+                                current_id = edge.target.clone();
+                                continue;
+                            }
+                        } else if condition_true && *iterations >= max_iterations {
+                            on_log(
+                                "warn",
+                                format!(
+                                    "while 节点 '{}' 达到最大循环次数 {}，已自动切换 done 分支。",
+                                    node.label, max_iterations
+                                ),
+                            );
+                        }
+
+                        ctx.while_iterations.remove(&node.id);
+                        if loop_stack.last().map(String::as_str) == Some(node.id.as_str()) {
+                            loop_stack.pop();
+                        }
+
+                        if let Some(edge) = done_edge {
+                            current_id = edge.target.clone();
+                            continue;
+                        }
+
+                        if let Some(parent_loop_id) = loop_stack.last() {
+                            current_id = parent_loop_id.clone();
+                            continue;
+                        }
+
+                        return Ok(());
+                    }
+                    _ => {}
                 }
-
-                ctx.loop_remaining.remove(&node.id);
-                if loop_stack.last().map(String::as_str) == Some(node.id.as_str()) {
-                    loop_stack.pop();
-                }
-
-                if let Some(edge) = done_edge {
-                    current_id = edge.target.clone();
-                    continue;
-                }
-
-                if let Some(parent_loop_id) = loop_stack.last() {
-                    current_id = parent_loop_id.clone();
-                    continue;
-                }
-
-                return Ok(());
             }
 
             let directive = self.execute_single_node(node, ctx, on_log).await?;
@@ -393,6 +442,28 @@ impl WorkflowExecutor {
                     Ok(NextDirective::Branch("loop"))
                 } else {
                     ctx.loop_remaining.remove(&node.id);
+                    Ok(NextDirective::Branch("done"))
+                }
+            }
+            NodeKind::WhileLoop => {
+                let max_iterations = get_u64(node, "maxIterations", 1000).max(1);
+                let iterations = ctx.while_iterations.entry(node.id.clone()).or_insert(0);
+                let condition_true = evaluate_condition(node, &ctx.variables);
+
+                if condition_true && *iterations < max_iterations {
+                    *iterations += 1;
+                    Ok(NextDirective::Branch("loop"))
+                } else {
+                    if condition_true && *iterations >= max_iterations {
+                        on_log(
+                            "warn",
+                            format!(
+                                "while 节点 '{}' 达到最大循环次数 {}，已自动切换 done 分支。",
+                                node.label, max_iterations
+                            ),
+                        );
+                    }
+                    ctx.while_iterations.remove(&node.id);
                     Ok(NextDirective::Branch("done"))
                 }
             }

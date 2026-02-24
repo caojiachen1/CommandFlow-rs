@@ -26,6 +26,7 @@ const menuGroups = {
 interface StepRuntimeContext {
   variables: Map<string, unknown>
   loopRemaining: Map<string, number>
+  whileIterations: Map<string, number>
 }
 
 const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
@@ -58,6 +59,7 @@ function App() {
   const stepCtxRef = useRef<StepRuntimeContext>({
     variables: new Map(),
     loopRemaining: new Map(),
+    whileIterations: new Map(),
   })
   const stepNextNodeIdRef = useRef<string | null>(null)
   const loopRoundRef = useRef<Map<string, number>>(new Map())
@@ -106,12 +108,12 @@ function App() {
         if (currentRound <= totalRounds) {
           addLog(
             'info',
-            `执行节点：${nodeLabel} [${nodeKind}]（第 ${currentRound}/${totalRounds} 轮） id=${nodeId} 参数=${JSON.stringify(params)}`,
+            `执行节点：${nodeLabel} [for 循环]（第 ${currentRound}/${totalRounds} 轮） id=${nodeId} 参数=${JSON.stringify(params)}`,
           )
         } else {
           addLog(
             'info',
-            `执行节点：${nodeLabel} [${nodeKind}]（循环完成，进入 done 分支） id=${nodeId} 参数=${JSON.stringify(params)}`,
+            `执行节点：${nodeLabel} [for 循环]（循环完成，进入 done 分支） id=${nodeId} 参数=${JSON.stringify(params)}`,
           )
           loopRoundRef.current.delete(nodeId)
         }
@@ -301,6 +303,7 @@ function App() {
       stepCtxRef.current = {
         variables: new Map(),
         loopRemaining: new Map(),
+        whileIterations: new Map(),
       }
       loopRoundRef.current.clear()
     }
@@ -495,6 +498,20 @@ function App() {
       return (chooseByHandle('done') ?? outgoing[0])?.target ?? null
     }
 
+    if (node.data.kind === 'whileLoop') {
+      const maxIterations = Math.max(1, Math.floor(getParamNumber(node, 'maxIterations', 1000)))
+      const currentIterations = ctx.whileIterations.get(node.id) ?? 0
+      const conditionTrue = evaluateCondition(node, ctx.variables)
+
+      if (conditionTrue && currentIterations < maxIterations) {
+        ctx.whileIterations.set(node.id, currentIterations + 1)
+        return (chooseByHandle('loop') ?? outgoing[0])?.target ?? null
+      }
+
+      ctx.whileIterations.delete(node.id)
+      return (chooseByHandle('done') ?? outgoing[0])?.target ?? null
+    }
+
     return outgoing[0]?.target ?? null
   }
 
@@ -513,7 +530,7 @@ function App() {
     continuousStepStopRef.current = false
     continuousStepRunningRef.current = true
     stepNextNodeIdRef.current = null
-    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
     loopRoundRef.current.clear()
     clearVariables()
     setRunning(true)
@@ -575,7 +592,7 @@ function App() {
   const stopAllExecution = useCallback(async () => {
     continuousStepStopRef.current = true
     stepNextNodeIdRef.current = null
-    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
     loopRoundRef.current.clear()
     try {
       const message = await stopWorkflow()
@@ -590,7 +607,7 @@ function App() {
   useEffect(() => {
     const resetStepDebug = () => {
       stepNextNodeIdRef.current = null
-      stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+      stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
     }
 
     window.addEventListener('commandflow:reset-step-debug', resetStepDebug)
@@ -700,7 +717,7 @@ function App() {
       case '运行':
         if (running) return
         stepNextNodeIdRef.current = null
-        stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+        stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
         loopRoundRef.current.clear()
         setRunning(true)
         clearVariables()

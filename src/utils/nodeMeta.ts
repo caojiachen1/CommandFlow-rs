@@ -212,10 +212,65 @@ const metas: Record<NodeKind, NodeMeta> = {
     ],
   },
   loop: {
-    label: '循环',
-    description: 'for 循环。',
+    label: 'for 循环',
+    description: 'for 条件循环。',
     defaultParams: { times: 3 },
     fields: [{ key: 'times', label: '循环次数', type: 'number', min: 0, step: 1 }],
+  },
+  whileLoop: {
+    label: 'while 循环',
+    description: 'while 条件循环。',
+    defaultParams: {
+      leftType: 'var',
+      left: 'counter',
+      operator: '<',
+      rightType: 'literal',
+      right: '10',
+      maxIterations: 1000,
+    },
+    fields: [
+      {
+        key: 'leftType',
+        label: '左值类型',
+        type: 'select',
+        options: [
+          { label: '变量', value: 'var' },
+          { label: '字面量', value: 'literal' },
+        ],
+      },
+      { key: 'left', label: '左值', type: 'string', placeholder: 'counter' },
+      {
+        key: 'operator',
+        label: '运算符',
+        type: 'select',
+        options: [
+          { label: '==', value: '==' },
+          { label: '!=', value: '!=' },
+          { label: '>', value: '>' },
+          { label: '>=', value: '>=' },
+          { label: '<', value: '<' },
+          { label: '<=', value: '<=' },
+        ],
+      },
+      {
+        key: 'rightType',
+        label: '右值类型',
+        type: 'select',
+        options: [
+          { label: '变量', value: 'var' },
+          { label: '字面量', value: 'literal' },
+        ],
+      },
+      { key: 'right', label: '右值', type: 'string', placeholder: '10' },
+      {
+        key: 'maxIterations',
+        label: '最大循环次数',
+        type: 'number',
+        min: 1,
+        step: 1,
+        description: '防止 while 条件长期为真导致死循环。',
+      },
+    ],
   },
   errorHandler: {
     label: '错误处理',

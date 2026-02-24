@@ -14,7 +14,7 @@ export type ActionNodeKind =
   | 'runCommand'
   | 'pythonCode'
   | 'delay'
-export type ControlNodeKind = 'condition' | 'loop' | 'errorHandler' | 'varDefine' | 'varSet'
+export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'errorHandler' | 'varDefine' | 'varSet'
 
 export type NodeKind = TriggerNodeKind | ActionNodeKind | ControlNodeKind
 

@@ -95,6 +95,13 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'done', label: 'done', maxConnections: ONE },
     ],
   },
+  whileLoop: {
+    inputs: singleIn(),
+    outputs: [
+      { id: 'loop', label: 'loop', maxConnections: ONE },
+      { id: 'done', label: 'done', maxConnections: ONE },
+    ],
+  },
   errorHandler: {
     inputs: singleIn(),
     outputs: singleOut(),

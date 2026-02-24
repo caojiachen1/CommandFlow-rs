@@ -31,7 +31,8 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
     title: '控制流',
     items: [
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500' },
-      { label: '循环处理', kind: 'loop', color: 'bg-fuchsia-500' },
+      { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500' },
+      { label: 'while 循环', kind: 'whileLoop', color: 'bg-purple-600' },
       { label: '错误处理', kind: 'errorHandler', color: 'bg-red-500' },
       { label: '变量定义', kind: 'varDefine', color: 'bg-pink-500' },
       { label: '变量赋值', kind: 'varSet', color: 'bg-emerald-500' },
