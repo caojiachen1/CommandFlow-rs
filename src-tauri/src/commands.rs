@@ -17,6 +17,9 @@ pub struct CoordinateInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct NodeProgressPayload {
     pub node_id: String,
+    pub node_kind: String,
+    pub node_label: String,
+    pub params: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -37,6 +40,9 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             "workflow-node-started",
             NodeProgressPayload {
                 node_id: node.id.clone(),
+                node_kind: format!("{:?}", node.kind),
+                node_label: node.label.clone(),
+                params: node.params.clone(),
             },
         );
     };

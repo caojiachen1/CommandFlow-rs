@@ -57,6 +57,7 @@ function App() {
     loopRemaining: new Map(),
   })
   const stepNextNodeIdRef = useRef<string | null>(null)
+  const loopRoundRef = useRef<Map<string, number>>(new Map())
 
   useShortcutBindings()
 
@@ -79,9 +80,44 @@ function App() {
 
     let unlistenProgress: (() => void) | null = null
     let unlistenVariables: (() => void) | null = null
-    void listen<{ node_id: string }>('workflow-node-started', (event) => {
+    void listen<{ node_id: string; node_kind: string; node_label: string; params: Record<string, unknown> }>('workflow-node-started', (event) => {
       const nodeId = event.payload?.node_id
       if (!nodeId) return
+
+      const nodeKind = event.payload?.node_kind ?? 'Unknown'
+      const nodeLabel = event.payload?.node_label ?? '未命名节点'
+      const params = event.payload?.params ?? {}
+
+      if (nodeKind === 'Loop') {
+        const currentRound = (loopRoundRef.current.get(nodeId) ?? 0) + 1
+        loopRoundRef.current.set(nodeId, currentRound)
+        const timesRaw = params.times
+        const totalRounds =
+          typeof timesRaw === 'number'
+            ? Math.max(0, Math.floor(timesRaw))
+            : typeof timesRaw === 'string'
+              ? Math.max(0, Math.floor(Number(timesRaw) || 0))
+              : 1
+
+        if (currentRound <= totalRounds) {
+          addLog(
+            'info',
+            `执行节点：${nodeLabel} [${nodeKind}]（第 ${currentRound}/${totalRounds} 轮） id=${nodeId} 参数=${JSON.stringify(params)}`,
+          )
+        } else {
+          addLog(
+            'info',
+            `执行节点：${nodeLabel} [${nodeKind}]（循环完成，进入 done 分支） id=${nodeId} 参数=${JSON.stringify(params)}`,
+          )
+          loopRoundRef.current.delete(nodeId)
+        }
+      } else {
+        addLog(
+          'info',
+          `执行节点：${nodeLabel} [${nodeKind}] id=${nodeId} 参数=${JSON.stringify(params)}`,
+        )
+      }
+
       setSelectedNode(nodeId)
     })
       .then((cleanup) => {
@@ -92,7 +128,9 @@ function App() {
       })
 
     void listen<{ variables: Record<string, unknown> }>('workflow-variables-updated', (event) => {
-      setVariables(event.payload?.variables ?? {})
+      const vars = event.payload?.variables ?? {}
+      setVariables(vars)
+      addLog('info', `变量快照：${JSON.stringify(vars)}`)
     })
       .then((cleanup) => {
         unlistenVariables = cleanup
@@ -104,6 +142,7 @@ function App() {
     return () => {
       unlistenProgress?.()
       unlistenVariables?.()
+      loopRoundRef.current.clear()
     }
   }, [addLog, setSelectedNode, setVariables])
 
@@ -176,6 +215,7 @@ function App() {
         variables: new Map(),
         loopRemaining: new Map(),
       }
+      loopRoundRef.current.clear()
     }
 
     const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
@@ -387,6 +427,7 @@ function App() {
     continuousStepRunningRef.current = true
     stepNextNodeIdRef.current = null
     stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+    loopRoundRef.current.clear()
     clearVariables()
     setRunning(true)
     addLog('info', `开始连续单步：${selectedNode.data.label}`)
@@ -448,6 +489,7 @@ function App() {
     continuousStepStopRef.current = true
     stepNextNodeIdRef.current = null
     stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+    loopRoundRef.current.clear()
     try {
       const message = await stopWorkflow()
       addLog('warn', message)
@@ -548,6 +590,7 @@ function App() {
         if (running) return
         stepNextNodeIdRef.current = null
         stepCtxRef.current = { variables: new Map(), loopRemaining: new Map() }
+        loopRoundRef.current.clear()
         setRunning(true)
         clearVariables()
         try {

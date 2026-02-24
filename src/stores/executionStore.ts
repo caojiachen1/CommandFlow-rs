@@ -48,7 +48,7 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
           level,
           message,
         },
-      ].slice(-200),
+      ].slice(-1000),
     })),
   clearLogs: () => set(() => ({ logs: [] })),
   setVariables: (variables) => set(() => ({ variables })),
