@@ -70,6 +70,24 @@ export const useShortcutBindings = () => {
         event.preventDefault()
         resetWorkflow()
         addLog('info', '已新建工作流。')
+      } else if (ctrl && key === 'o') {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:open-workflow'))
+      } else if (ctrl && key === 's' && event.shiftKey) {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:save-workflow-as'))
+      } else if (ctrl && key === 's') {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:save-workflow'))
+      } else if (ctrl && (key === '=' || key === '+')) {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:zoom-in'))
+      } else if (ctrl && key === '-') {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:zoom-out'))
+      } else if (ctrl && key === '0') {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:zoom-reset'))
       } else if (event.key === 'F5') {
         event.preventDefault()
         window.dispatchEvent(new Event('commandflow:reset-step-debug'))
@@ -89,6 +107,9 @@ export const useShortcutBindings = () => {
         event.preventDefault()
         window.dispatchEvent(new Event('commandflow:run-continuous-step'))
       } else if (event.key === 'F10') {
+        if ('__TAURI_INTERNALS__' in window) {
+          return
+        }
         event.preventDefault()
         window.dispatchEvent(new Event('commandflow:run-step'))
       }

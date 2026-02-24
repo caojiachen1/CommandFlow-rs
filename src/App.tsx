@@ -19,7 +19,7 @@ const menuGroups = {
   文件: ['新建', '打开', '保存', '另存为'],
   编辑: ['撤销', '重做', '复制', '粘贴'],
   视图: ['放大', '缩小', '重置缩放'],
-  运行: ['运行', '停止', '单步', '连续单步'],
+  运行: ['运行', '停止', '单步'],
   帮助: ['文档', '快捷键'],
 }
 
@@ -69,13 +69,27 @@ function App() {
   const menu = useMemo(() => Object.entries(menuGroups), [])
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleCloseMenuOutside = (event: Event) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setActiveMenu(null)
       }
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+
+    const handleWindowBlur = () => setActiveMenu(null)
+
+    document.addEventListener('pointerdown', handleCloseMenuOutside)
+    document.addEventListener('contextmenu', handleCloseMenuOutside)
+    document.addEventListener('wheel', handleCloseMenuOutside, { passive: true })
+    document.addEventListener('keydown', handleCloseMenuOutside)
+    window.addEventListener('blur', handleWindowBlur)
+
+    return () => {
+      document.removeEventListener('pointerdown', handleCloseMenuOutside)
+      document.removeEventListener('contextmenu', handleCloseMenuOutside)
+      document.removeEventListener('wheel', handleCloseMenuOutside)
+      document.removeEventListener('keydown', handleCloseMenuOutside)
+      window.removeEventListener('blur', handleWindowBlur)
+    }
   }, [])
 
   useEffect(() => {
@@ -619,8 +633,25 @@ function App() {
       void runSingleStep()
     }
     window.addEventListener('commandflow:run-step', handleRunStep)
-    return () => window.removeEventListener('commandflow:run-step', handleRunStep)
-  }, [runSingleStep])
+    let unlistenGlobalStep: (() => void) | null = null
+
+    if ('__TAURI_INTERNALS__' in window) {
+      void listen('commandflow-global-run-step', () => {
+        void runSingleStep()
+      })
+        .then((cleanup) => {
+          unlistenGlobalStep = cleanup
+        })
+        .catch((error) => {
+          addLog('warn', `监听全局单步快捷键失败：${String(error)}`)
+        })
+    }
+
+    return () => {
+      window.removeEventListener('commandflow:run-step', handleRunStep)
+      unlistenGlobalStep?.()
+    }
+  }, [addLog, runSingleStep])
 
   useEffect(() => {
     const handleRunContinuousStep = () => {
@@ -740,9 +771,6 @@ function App() {
       case '单步':
         void runSingleStep()
         break
-      case '连续单步':
-        void runContinuousStep()
-        break
       case '文档':
         setHelpType('docs')
         setHelpModalOpen(true)
@@ -755,6 +783,30 @@ function App() {
         console.log(`点击了 ${item}`)
     }
   }
+
+  useEffect(() => {
+    const handleOpenWorkflow = () => {
+      void handleMenuAction('打开')
+    }
+
+    const handleSaveWorkflow = () => {
+      void handleMenuAction('保存')
+    }
+
+    const handleSaveWorkflowAs = () => {
+      void handleMenuAction('另存为')
+    }
+
+    window.addEventListener('commandflow:open-workflow', handleOpenWorkflow)
+    window.addEventListener('commandflow:save-workflow', handleSaveWorkflow)
+    window.addEventListener('commandflow:save-workflow-as', handleSaveWorkflowAs)
+
+    return () => {
+      window.removeEventListener('commandflow:open-workflow', handleOpenWorkflow)
+      window.removeEventListener('commandflow:save-workflow', handleSaveWorkflow)
+      window.removeEventListener('commandflow:save-workflow-as', handleSaveWorkflowAs)
+    }
+  }, [handleMenuAction])
 
   const handleHelpModalBackdropClick = (event: React.MouseEvent) => {
     if (event.target === event.currentTarget) {
@@ -775,11 +827,6 @@ function App() {
               <button
                 type="button"
                 onClick={() => setActiveMenu(activeMenu === group ? null : group)}
-                onMouseEnter={() => {
-                  if (activeMenu) {
-                    setActiveMenu(group)
-                  }
-                }}
                 className={`rounded-md px-2.5 py-1 text-xs transition-colors hover:bg-slate-200/50 dark:hover:bg-slate-800/70 ${
                   activeMenu === group ? 'bg-slate-200/70 dark:bg-neutral-800/90 text-cyan-600 dark:text-cyan-400 font-semibold' : ''
                 }`}
@@ -845,7 +892,9 @@ function App() {
                 <div className="grid grid-cols-2 gap-4 text-xs">
                   {[
                     ['新建流程', 'Ctrl + N'],
+                    ['打开流程', 'Ctrl + O'],
                     ['保存流程', 'Ctrl + S'],
+                    ['另存为', 'Ctrl + Shift + S'],
                     ['撤销操作', 'Ctrl + Z'],
                     ['重做操作', 'Ctrl + Y'],
                     ['复制节点', 'Ctrl + C'],
