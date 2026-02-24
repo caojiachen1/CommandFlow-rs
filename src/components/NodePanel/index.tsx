@@ -23,6 +23,7 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
       { label: '屏幕截图', kind: 'screenshot', color: 'bg-indigo-500' },
       { label: '切换窗口', kind: 'windowActivate', color: 'bg-violet-500' },
       { label: '执行命令', kind: 'runCommand', color: 'bg-violet-500' },
+      { label: '执行 Python', kind: 'pythonCode', color: 'bg-blue-600' },
       { label: '等待延时', kind: 'delay', color: 'bg-purple-500' },
     ],
   },

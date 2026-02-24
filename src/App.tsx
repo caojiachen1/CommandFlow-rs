@@ -83,6 +83,7 @@ function App() {
 
     let unlistenProgress: (() => void) | null = null
     let unlistenVariables: (() => void) | null = null
+    let unlistenLog: (() => void) | null = null
     void listen<{ node_id: string; node_kind: string; node_label: string; params: Record<string, unknown> }>('workflow-node-started', (event) => {
       const nodeId = event.payload?.node_id
       if (!nodeId) return
@@ -142,9 +143,29 @@ function App() {
         addLog('warn', `监听变量更新失败：${String(error)}`)
       })
 
+    void listen<{ level: string; message: string }>('workflow-log', (event) => {
+      const level = event.payload?.level
+      const message = event.payload?.message
+      if (!message) return
+
+      if (level === 'info' || level === 'warn' || level === 'error' || level === 'success') {
+        addLog(level, message)
+        return
+      }
+
+      addLog('info', message)
+    })
+      .then((cleanup) => {
+        unlistenLog = cleanup
+      })
+      .catch((error) => {
+        addLog('warn', `监听执行日志失败：${String(error)}`)
+      })
+
     return () => {
       unlistenProgress?.()
       unlistenVariables?.()
+      unlistenLog?.()
       loopRoundRef.current.clear()
     }
   }, [addLog, setSelectedNode, setVariables])

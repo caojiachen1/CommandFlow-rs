@@ -19,6 +19,7 @@ pub enum NodeKind {
     Screenshot,
     WindowActivate,
     RunCommand,
+    PythonCode,
     Delay,
     Condition,
     Loop,

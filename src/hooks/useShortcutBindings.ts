@@ -4,6 +4,21 @@ import { useWorkflowStore } from '../stores/workflowStore'
 import { runWorkflow } from '../utils/execution'
 import { toBackendGraph } from '../utils/workflowBridge'
 
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) return false
+
+  if (target.isContentEditable) return true
+
+  const tagName = target.tagName
+  if (tagName === 'TEXTAREA' || tagName === 'SELECT') return true
+  if (tagName === 'INPUT') {
+    const input = target as HTMLInputElement
+    return !input.readOnly && !input.disabled
+  }
+
+  return Boolean(target.closest('[contenteditable="true"]'))
+}
+
 export const useShortcutBindings = () => {
   const {
     undo,
@@ -21,6 +36,15 @@ export const useShortcutBindings = () => {
     const onKeyDown = (event: KeyboardEvent) => {
       const ctrl = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
+      const editable = isEditableTarget(event.target)
+
+      if (editable) {
+        const isNativeEditCombo = ctrl && ['a', 'c', 'v', 'x', 'z', 'y'].includes(key)
+        const isNativeDelete = event.key === 'Delete' || event.key === 'Backspace'
+        if (isNativeEditCombo || isNativeDelete) {
+          return
+        }
+      }
 
       if (ctrl && key === 'z') {
         event.preventDefault()

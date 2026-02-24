@@ -73,6 +73,10 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  pythonCode: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   delay: {
     inputs: singleIn(),
     outputs: singleOut(),

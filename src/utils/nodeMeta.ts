@@ -1,6 +1,6 @@
 import type { NodeKind } from '../types/workflow'
 
-export type ParamFieldType = 'string' | 'number' | 'boolean' | 'select' | 'json'
+export type ParamFieldType = 'string' | 'number' | 'boolean' | 'select' | 'json' | 'text'
 
 export interface ParamField {
   key: string
@@ -143,6 +143,20 @@ const metas: Record<NodeKind, NodeMeta> = {
     fields: [
       { key: 'command', label: '命令', type: 'string', placeholder: 'echo Hello' },
       { key: 'shell', label: '通过 Shell 执行', type: 'boolean' },
+    ],
+  },
+  pythonCode: {
+    label: '执行 Python',
+    description: '使用系统 Python 执行代码。',
+    defaultParams: { code: 'print("Hello CommandFlow")' },
+    fields: [
+      {
+        key: 'code',
+        label: 'Python 代码',
+        type: 'text',
+        placeholder: 'print("Hello")',
+        description: '支持多行代码，执行输出会写入执行日志。',
+      },
     ],
   },
   delay: {

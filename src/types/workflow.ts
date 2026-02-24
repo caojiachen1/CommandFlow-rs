@@ -12,6 +12,7 @@ export type ActionNodeKind =
   | 'screenshot'
   | 'windowActivate'
   | 'runCommand'
+  | 'pythonCode'
   | 'delay'
 export type ControlNodeKind = 'condition' | 'loop' | 'errorHandler' | 'varDefine' | 'varSet'
 

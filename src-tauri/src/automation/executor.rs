@@ -4,6 +4,7 @@ use crate::workflow::graph::WorkflowGraph;
 use crate::workflow::node::{NodeKind, WorkflowNode};
 use serde_json::{Number, Value};
 use std::collections::{HashMap, HashSet};
+use std::io::ErrorKind;
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
@@ -25,18 +26,22 @@ impl WorkflowExecutor {
     pub async fn execute(&self, graph: &WorkflowGraph) -> CommandResult<()> {
         let mut noop = |_node: &WorkflowNode| {};
         let mut noop_vars = |_variables: &HashMap<String, Value>| {};
-        self.execute_with_progress(graph, &mut noop, &mut noop_vars).await
+        let mut noop_log = |_level: &str, _message: String| {};
+        self.execute_with_progress(graph, &mut noop, &mut noop_vars, &mut noop_log)
+            .await
     }
 
-    pub async fn execute_with_progress<F, G>(
+    pub async fn execute_with_progress<F, G, H>(
         &self,
         graph: &WorkflowGraph,
         on_node_start: &mut F,
         on_variables_update: &mut G,
+        on_log: &mut H,
     ) -> CommandResult<()>
     where
         F: FnMut(&WorkflowNode),
         G: FnMut(&HashMap<String, Value>),
+        H: FnMut(&str, String),
     {
         if graph.nodes.is_empty() {
             return Err(CommandFlowError::Validation(
@@ -102,6 +107,7 @@ impl WorkflowExecutor {
                     &mut ctx,
                     on_node_start,
                     on_variables_update,
+                    on_log,
                 )
                     .await?;
             }
@@ -118,6 +124,7 @@ impl WorkflowExecutor {
         ctx: &mut ExecutionContext,
         on_node_start: &mut impl FnMut(&WorkflowNode),
         on_variables_update: &mut impl FnMut(&HashMap<String, Value>),
+        on_log: &mut impl FnMut(&str, String),
     ) -> CommandResult<()> {
         let mut current_id = start_id.to_string();
         let mut guard_steps = 0usize;
@@ -193,7 +200,7 @@ impl WorkflowExecutor {
                 return Ok(());
             }
 
-            let directive = self.execute_single_node(node, ctx).await?;
+            let directive = self.execute_single_node(node, ctx, on_log).await?;
             on_variables_update(&ctx.variables);
 
             let outgoing = graph.edges.iter().filter(|edge| edge.source == current_id);
@@ -236,6 +243,7 @@ impl WorkflowExecutor {
         &self,
         node: &WorkflowNode,
         ctx: &mut ExecutionContext,
+        on_log: &mut impl FnMut(&str, String),
     ) -> CommandResult<NextDirective> {
         match node.kind {
             NodeKind::HotkeyTrigger => {
@@ -356,6 +364,10 @@ impl WorkflowExecutor {
                 run_system_command(&command, use_shell).await?;
                 Ok(NextDirective::Default)
             }
+            NodeKind::PythonCode => {
+                run_python_code(node, on_log).await?;
+                Ok(NextDirective::Default)
+            }
             NodeKind::Delay => {
                 let duration = get_u64(node, "ms", 100);
                 sleep(Duration::from_millis(duration)).await;
@@ -413,6 +425,102 @@ fn is_trigger(kind: &NodeKind) -> bool {
             | NodeKind::ManualTrigger
             | NodeKind::WindowTrigger
     )
+}
+
+async fn run_python_code(
+    node: &WorkflowNode,
+    on_log: &mut impl FnMut(&str, String),
+) -> CommandResult<()> {
+    let code = get_string(node, "code", "");
+    if code.trim().is_empty() {
+        on_log(
+            "warn",
+            format!("Python 节点 '{}' 代码为空，已自动跳过。", node.label),
+        );
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    let candidates: &[(&str, &[&str])] = &[
+        ("python", &[]),
+        ("py", &["-3"]),
+        ("python3", &[]),
+    ];
+
+    #[cfg(not(target_os = "windows"))]
+    let candidates: &[(&str, &[&str])] = &[("python3", &[]), ("python", &[])];
+
+    for (program, prefix_args) in candidates {
+        let mut command = Command::new(program);
+        for arg in *prefix_args {
+            command.arg(arg);
+        }
+
+        let output = command.arg("-c").arg(&code).output().await;
+        match output {
+            Ok(output) => {
+                emit_process_output("Python", &output.stdout, &output.stderr, on_log);
+                if output.status.success() {
+                    return Ok(());
+                }
+
+                let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let status = output.status.code().map(|code| code.to_string()).unwrap_or_else(|| "unknown".to_string());
+                return Err(CommandFlowError::Automation(if stderr_text.is_empty() {
+                    format!(
+                        "python 节点执行失败：{} 返回非零退出码 {}",
+                        program, status
+                    )
+                } else {
+                    format!(
+                        "python 节点执行失败：{} 返回非零退出码 {}，stderr: {}",
+                        program, status, stderr_text
+                    )
+                }));
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                continue;
+            }
+            Err(error) => {
+                return Err(CommandFlowError::Automation(format!(
+                    "调用系统 Python 失败：{}",
+                    error
+                )));
+            }
+        }
+    }
+
+    on_log(
+        "warn",
+        format!(
+            "Python 节点 '{}'：未检测到系统 Python，已自动跳过该节点。",
+            node.label
+        ),
+    );
+    Ok(())
+}
+
+fn emit_process_output(
+    prefix: &str,
+    stdout: &[u8],
+    stderr: &[u8],
+    on_log: &mut impl FnMut(&str, String),
+) {
+    let stdout_text = String::from_utf8_lossy(stdout);
+    for line in stdout_text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            on_log("info", format!("{} stdout: {}", prefix, trimmed));
+        }
+    }
+
+    let stderr_text = String::from_utf8_lossy(stderr);
+    for line in stderr_text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            on_log("warn", format!("{} stderr: {}", prefix, trimmed));
+        }
+    }
 }
 
 fn is_manual_trigger(kind: &NodeKind) -> bool {

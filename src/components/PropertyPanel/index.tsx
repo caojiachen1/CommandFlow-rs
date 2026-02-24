@@ -250,6 +250,17 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       )
     }
 
+    if (field.type === 'text') {
+      return (
+        <textarea
+          value={String(currentValue ?? '')}
+          placeholder={field.placeholder}
+          onChange={(event) => updateParam(field.key, event.target.value)}
+          className="h-28 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs shadow-inner transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+        />
+      )
+    }
+
     return (
       (() => {
         const suggestions = getStringSuggestions(field)

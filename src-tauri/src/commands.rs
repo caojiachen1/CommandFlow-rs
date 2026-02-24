@@ -27,6 +27,12 @@ pub struct VariablesUpdatedPayload {
     pub variables: HashMap<String, Value>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecutionLogPayload {
+    pub level: String,
+    pub message: String,
+}
+
 #[tauri::command]
 pub async fn health_check() -> Result<String, String> {
     Ok("ok".to_string())
@@ -54,8 +60,17 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             },
         );
     };
+    let mut emit_log = |level: &str, message: String| {
+        let _ = app.emit(
+            "workflow-log",
+            ExecutionLogPayload {
+                level: level.to_string(),
+                message,
+            },
+        );
+    };
     executor
-        .execute_with_progress(&graph, &mut emit_progress, &mut emit_variables)
+        .execute_with_progress(&graph, &mut emit_progress, &mut emit_variables, &mut emit_log)
         .await
         .map_err(|e| e.to_string())?;
     Ok("workflow finished".to_string())
