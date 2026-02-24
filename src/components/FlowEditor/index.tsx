@@ -347,6 +347,20 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     [onReconnect],
   )
 
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge) => ({
+        ...edge,
+        animated: false,
+        style: {
+          stroke: '#0891b2',
+          strokeWidth: 2,
+          ...edge.style,
+        },
+      })),
+    [edges],
+  )
+
   return (
     <div
       ref={wrapperRef}
@@ -354,7 +368,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     >
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={renderedEdges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -375,11 +389,11 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"
         panOnDrag={[0, 1, 2]}
-        snapToGrid
+        snapToGrid={false}
         snapGrid={[15, 15]}
         defaultEdgeOptions={{
-          animated: true,
-          style: { stroke: '#0891b2', strokeWidth: 2 }
+          animated: false,
+          style: { stroke: '#0891b2', strokeWidth: 2 },
         }}
       >
         <Background

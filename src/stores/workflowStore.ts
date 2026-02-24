@@ -162,7 +162,8 @@ const applyConnectionWithReplacement = (
       ...connection,
       sourceHandle,
       targetHandle,
-      animated: true,
+      animated: false,
+      style: { stroke: '#0891b2', strokeWidth: 2 },
     },
     nextEdges,
   )
