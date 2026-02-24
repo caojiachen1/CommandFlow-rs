@@ -153,7 +153,7 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   condition: {
     label: '条件判断',
-    description: '根据条件选择 true/false 分支。',
+    description: 'if 条件判断。',
     defaultParams: {
       leftType: 'var',
       left: 'counter',
@@ -199,7 +199,7 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   loop: {
     label: '循环',
-    description: '按次数执行 loop 分支，完成后走 done 分支。',
+    description: 'for 循环。',
     defaultParams: { times: 3 },
     fields: [{ key: 'times', label: '循环次数', type: 'number', min: 0, step: 1 }],
   },

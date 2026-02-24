@@ -4,7 +4,10 @@ import {
   Controls,
   ReactFlow,
   ReactFlowProvider,
+  type Connection,
+  type Edge,
   type NodeMouseHandler,
+  type OnConnectStartParams,
   useReactFlow,
 } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -52,6 +55,8 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     onNodesChange,
     onEdgesChange,
     onConnect,
+    onReconnect,
+    disconnectHandleConnections,
     setSelectedNode,
     setSelectedNodes,
     addNode,
@@ -183,6 +188,24 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     [setSelectedNodes],
   )
 
+  const onConnectStart = useCallback(
+    (_event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
+      if (!params.nodeId || !params.handleType) {
+        return
+      }
+
+      disconnectHandleConnections(params.nodeId, params.handleType, params.handleId ?? null)
+    },
+    [disconnectHandleConnections],
+  )
+
+  const onReconnectEdge = useCallback(
+    (oldEdge: Edge, connection: Connection) => {
+      onReconnect(oldEdge, connection)
+    },
+    [onReconnect],
+  )
+
   return (
     <div
       ref={wrapperRef}
@@ -195,11 +218,16 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onReconnect={onReconnectEdge}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeDoubleClick={onNodeDoubleClick}
         onSelectionChange={onSelectionChange}
         onPaneClick={handlePaneClick}
         onPaneMouseMove={onPaneMouseMove}
+        edgesReconnectable
+        reconnectRadius={28}
+        connectionRadius={24}
         fitView
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"

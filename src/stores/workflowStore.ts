@@ -1,4 +1,11 @@
-import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react'
+import {
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  type Connection,
+  type EdgeChange,
+  type NodeChange,
+} from '@xyflow/react'
 import { create } from 'zustand'
 import type { CoordinatePoint, NodeKind, WorkflowEdge, WorkflowFile, WorkflowNode } from '../types/workflow'
 import { getNodeMeta } from '../utils/nodeMeta'
@@ -30,6 +37,12 @@ interface WorkflowState {
   onNodesChange: (changes: NodeChange<WorkflowNode>[]) => void
   onEdgesChange: (changes: EdgeChange<WorkflowEdge>[]) => void
   onConnect: (connection: Connection) => void
+  onReconnect: (oldEdge: WorkflowEdge, connection: Connection) => void
+  disconnectHandleConnections: (
+    nodeId: string,
+    handleType: 'source' | 'target',
+    handleId: string | null,
+  ) => void
   setSelectedNode: (id: string | null) => void
   setSelectedNodes: (ids: string[]) => void
   setCursor: (x: number, y: number) => void
@@ -80,6 +93,81 @@ const initialNodes: WorkflowNode[] = [
 
 const makeInitialNodes = (): WorkflowNode[] => structuredClone(initialNodes)
 
+const applyConnectionWithReplacement = (
+  edges: WorkflowEdge[],
+  nodes: WorkflowNode[],
+  connection: Connection,
+): WorkflowEdge[] | null => {
+  if (!connection.source || !connection.target) {
+    return null
+  }
+
+  if (connection.source === connection.target) {
+    return null
+  }
+
+  const sourceNode = nodes.find((node) => node.id === connection.source)
+  const targetNode = nodes.find((node) => node.id === connection.target)
+  if (!sourceNode || !targetNode) {
+    return null
+  }
+
+  const sourceHandle = normalizeSourceHandleId(sourceNode.data.kind, connection.sourceHandle)
+  const targetHandle = normalizeTargetHandleId(targetNode.data.kind, connection.targetHandle)
+  if (!sourceHandle || !targetHandle) {
+    return null
+  }
+
+  let nextEdges = edges
+
+  const sourceMax = getOutputHandleMaxConnections(sourceNode.data.kind, sourceHandle)
+  if (sourceMax <= 0) {
+    return null
+  }
+  const sourceCurrent = nextEdges.filter(
+    (edge) => edge.source === connection.source && edge.sourceHandle === sourceHandle,
+  )
+  if (sourceCurrent.length >= sourceMax) {
+    const sourceOverflow = sourceCurrent.length - sourceMax + 1
+    const sourceDropIds = new Set(sourceCurrent.slice(0, sourceOverflow).map((edge) => edge.id))
+    nextEdges = nextEdges.filter((edge) => !sourceDropIds.has(edge.id))
+  }
+
+  const targetMax = getInputHandleMaxConnections(targetNode.data.kind, targetHandle)
+  if (targetMax <= 0) {
+    return null
+  }
+  const targetCurrent = nextEdges.filter(
+    (edge) => edge.target === connection.target && edge.targetHandle === targetHandle,
+  )
+  if (targetCurrent.length >= targetMax) {
+    const targetOverflow = targetCurrent.length - targetMax + 1
+    const targetDropIds = new Set(targetCurrent.slice(0, targetOverflow).map((edge) => edge.id))
+    nextEdges = nextEdges.filter((edge) => !targetDropIds.has(edge.id))
+  }
+
+  const duplicated = nextEdges.some(
+    (edge) =>
+      edge.source === connection.source &&
+      edge.target === connection.target &&
+      edge.sourceHandle === sourceHandle &&
+      edge.targetHandle === targetHandle,
+  )
+  if (duplicated) {
+    return nextEdges
+  }
+
+  return addEdge(
+    {
+      ...connection,
+      sourceHandle,
+      targetHandle,
+      animated: true,
+    },
+    nextEdges,
+  )
+}
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   graphId: crypto.randomUUID(),
   graphName: '未命名工作流',
@@ -107,65 +195,39 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     })),
   onConnect: (connection) =>
     set((state) => {
-      if (!connection.source || !connection.target) {
-        return state
+      const nextEdges = applyConnectionWithReplacement(state.edges, state.nodes, connection)
+      if (!nextEdges) return state
+      return { edges: nextEdges }
+    }),
+  onReconnect: (oldEdge, connection) =>
+    set((state) => {
+      const withoutOld = state.edges.filter((edge) => edge.id !== oldEdge.id)
+      const nextEdges = applyConnectionWithReplacement(withoutOld, state.nodes, connection)
+      if (!nextEdges) {
+        return { edges: withoutOld }
+      }
+      return { edges: nextEdges }
+    }),
+  disconnectHandleConnections: (nodeId, handleType, handleId) =>
+    set((state) => {
+      const node = state.nodes.find((item) => item.id === nodeId)
+      if (!node) return state
+
+      if (handleType === 'source') {
+        const normalized = normalizeSourceHandleId(node.data.kind, handleId)
+        if (!normalized) return state
+        const nextEdges = state.edges.filter(
+          (edge) => !(edge.source === nodeId && edge.sourceHandle === normalized),
+        )
+        return nextEdges.length === state.edges.length ? state : { edges: nextEdges }
       }
 
-      if (connection.source === connection.target) {
-        return state
-      }
-
-      const sourceNode = state.nodes.find((node) => node.id === connection.source)
-      const targetNode = state.nodes.find((node) => node.id === connection.target)
-      if (!sourceNode || !targetNode) {
-        return state
-      }
-
-      const sourceHandle = normalizeSourceHandleId(sourceNode.data.kind, connection.sourceHandle)
-      const targetHandle = normalizeTargetHandleId(targetNode.data.kind, connection.targetHandle)
-
-      if (!sourceHandle || !targetHandle) {
-        return state
-      }
-
-      const duplicated = state.edges.some(
-        (edge) =>
-          edge.source === connection.source &&
-          edge.target === connection.target &&
-          edge.sourceHandle === sourceHandle &&
-          edge.targetHandle === targetHandle,
+      const normalized = normalizeTargetHandleId(node.data.kind, handleId)
+      if (!normalized) return state
+      const nextEdges = state.edges.filter(
+        (edge) => !(edge.target === nodeId && edge.targetHandle === normalized),
       )
-      if (duplicated) {
-        return state
-      }
-
-      const sourceMax = getOutputHandleMaxConnections(sourceNode.data.kind, sourceHandle)
-      const sourceCount = state.edges.filter(
-        (edge) => edge.source === connection.source && edge.sourceHandle === sourceHandle,
-      ).length
-      if (sourceCount >= sourceMax) {
-        return state
-      }
-
-      const targetMax = getInputHandleMaxConnections(targetNode.data.kind, targetHandle)
-      const targetCount = state.edges.filter(
-        (edge) => edge.target === connection.target && edge.targetHandle === targetHandle,
-      ).length
-      if (targetCount >= targetMax) {
-        return state
-      }
-
-      return {
-        edges: addEdge(
-          {
-            ...connection,
-            sourceHandle,
-            targetHandle,
-            animated: true,
-          },
-          state.edges,
-        ),
-      }
+      return nextEdges.length === state.edges.length ? state : { edges: nextEdges }
     }),
   setSelectedNode: (id) =>
     set((state) => {
