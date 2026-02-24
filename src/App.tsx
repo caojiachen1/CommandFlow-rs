@@ -1,4 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react'
+import { open, save } from '@tauri-apps/plugin-dialog'
+import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import FlowEditor from './components/FlowEditor'
 import NodePanel from './components/NodePanel'
 import Toolbar from './components/Toolbar'
@@ -46,6 +48,7 @@ function App() {
   const { running, setRunning, addLog, setVariables, clearVariables } = useExecutionStore()
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [lastFileName, setLastFileName] = useState<string>('workflow.json')
+  const [lastFilePath, setLastFilePath] = useState<string | null>(null)
   const [helpModalOpen, setHelpModalOpen] = useState(false)
   const [helpType, setHelpType] = useState<'docs' | 'shortcuts'>('docs')
   const menuRef = useRef<HTMLDivElement>(null)
@@ -163,6 +166,21 @@ function App() {
     )
   }
 
+  const isTauriRuntime = '__TAURI_INTERNALS__' in window
+
+  const toDisplayFileName = (path: string) => {
+    const segments = path.split(/[/\\]/)
+    return segments[segments.length - 1] || 'workflow.json'
+  }
+
+  const toWorkflowPayload = () => {
+    const file = exportWorkflow()
+    const requestedName = (lastFileName ?? `${file.graph.name}.json`).trim()
+    const finalName = requestedName.toLowerCase().endsWith('.json') ? requestedName : `${requestedName}.json`
+    const payload = JSON.stringify(file, null, 2)
+    return { payload, finalName }
+  }
+
   const downloadWorkflow = (preferredName?: string) => {
     const file = exportWorkflow()
     const requestedName = (preferredName ?? lastFileName ?? `${file.graph.name}.json`).trim()
@@ -181,6 +199,53 @@ function App() {
     addLog('success', `已保存工作流：${finalName}`)
   }
 
+  const openWorkflowFromSystemDialog = async () => {
+    const selectedPath = await open({
+      multiple: false,
+      filters: [{ name: 'CommandFlow Workflow', extensions: ['json'] }],
+    })
+
+    if (!selectedPath || Array.isArray(selectedPath)) return
+
+    try {
+      const content = await readTextFile(selectedPath)
+      const parsed: unknown = JSON.parse(content)
+
+      if (!isWorkflowFile(parsed)) {
+        throw new Error('文件格式不是有效的 CommandFlow 工作流 JSON。')
+      }
+
+      importWorkflow(parsed)
+      setLastFileName(toDisplayFileName(selectedPath))
+      setLastFilePath(selectedPath)
+      addLog('success', `已打开工作流：${toDisplayFileName(selectedPath)}`)
+    } catch (error) {
+      addLog('error', `打开失败：${String(error)}`)
+    }
+  }
+
+  const saveWorkflowToSystemPath = async (path: string) => {
+    const { payload } = toWorkflowPayload()
+    await writeTextFile(path, payload)
+    setLastFilePath(path)
+    setLastFileName(toDisplayFileName(path))
+    addLog('success', `已保存工作流：${toDisplayFileName(path)}`)
+  }
+
+  const saveWorkflowAsSystemDialog = async () => {
+    const { payload, finalName } = toWorkflowPayload()
+    const targetPath = await save({
+      defaultPath: finalName,
+      filters: [{ name: 'CommandFlow Workflow', extensions: ['json'] }],
+    })
+    if (!targetPath) return
+
+    await writeTextFile(targetPath, payload)
+    setLastFilePath(targetPath)
+    setLastFileName(toDisplayFileName(targetPath))
+    addLog('success', `已另存为：${toDisplayFileName(targetPath)}`)
+  }
+
   const handleOpenFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -195,6 +260,7 @@ function App() {
 
       importWorkflow(parsed)
       setLastFileName(file.name)
+      setLastFilePath(null)
       addLog('success', `已打开工作流：${file.name}`)
     } catch (error) {
       addLog('error', `打开失败：${String(error)}`)
@@ -549,16 +615,40 @@ function App() {
         addLog('info', '已新建工作流。')
         break
       case '打开':
-        fileInputRef.current?.click()
+        if (isTauriRuntime) {
+          await openWorkflowFromSystemDialog()
+        } else {
+          fileInputRef.current?.click()
+        }
         break
       case '保存':
-        downloadWorkflow(lastFileName)
+        try {
+          if (isTauriRuntime) {
+            if (lastFilePath) {
+              await saveWorkflowToSystemPath(lastFilePath)
+            } else {
+              await saveWorkflowAsSystemDialog()
+            }
+          } else {
+            downloadWorkflow(lastFileName)
+          }
+        } catch (error) {
+          addLog('error', `保存失败：${String(error)}`)
+        }
         break
       case '另存为': {
-        const suggested = lastFileName || 'workflow.json'
-        const inputName = window.prompt('请输入文件名（支持 .json）', suggested)
-        if (!inputName) return
-        downloadWorkflow(inputName)
+        try {
+          if (isTauriRuntime) {
+            await saveWorkflowAsSystemDialog()
+          } else {
+            const suggested = lastFileName || 'workflow.json'
+            const inputName = window.prompt('请输入文件名（支持 .json）', suggested)
+            if (!inputName) return
+            downloadWorkflow(inputName)
+          }
+        } catch (error) {
+          addLog('error', `另存为失败：${String(error)}`)
+        }
         break
       }
       case '撤销':
@@ -647,6 +737,11 @@ function App() {
               <button
                 type="button"
                 onClick={() => setActiveMenu(activeMenu === group ? null : group)}
+                onMouseEnter={() => {
+                  if (activeMenu) {
+                    setActiveMenu(group)
+                  }
+                }}
                 className={`rounded-md px-2.5 py-1 text-xs transition-colors hover:bg-slate-200/50 dark:hover:bg-slate-800/70 ${
                   activeMenu === group ? 'bg-slate-200/70 dark:bg-neutral-800/90 text-cyan-600 dark:text-cyan-400 font-semibold' : ''
                 }`}
@@ -654,7 +749,7 @@ function App() {
                 {group}
               </button>
               {activeMenu === group && (
-                <div className="absolute left-0 z-[110] mt-1.5 min-w-[140px] animate-in fade-in slide-in-from-top-1 zoom-in-95 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-2xl duration-200 dark:border-neutral-700 dark:bg-neutral-900/95">
+                <div className="menu-dropdown-enter absolute left-0 z-[110] mt-1.5 min-w-[140px] rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-2xl dark:border-neutral-700 dark:bg-neutral-900/95">
                   {items.map((item) => (
                     <button
                       key={item}
