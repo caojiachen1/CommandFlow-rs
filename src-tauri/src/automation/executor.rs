@@ -354,6 +354,11 @@ async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<()>
     let output = if use_shell {
         #[cfg(target_os = "windows")]
         {
+            if should_spawn_terminal_window(command) {
+                spawn_windows_terminal(command).await?;
+                return Ok(());
+            }
+
             Command::new("cmd")
                 .arg("/C")
                 .arg(command)
@@ -389,6 +394,44 @@ async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<()>
         Err(CommandFlowError::Automation(
             String::from_utf8_lossy(&output.stderr).to_string(),
         ))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn should_spawn_terminal_window(command: &str) -> bool {
+    let normalized = command.trim().to_lowercase();
+    normalized == "cmd"
+        || normalized == "cmd.exe"
+        || normalized.starts_with("cmd ")
+        || normalized.starts_with("cmd.exe ")
+        || normalized == "powershell"
+        || normalized == "powershell.exe"
+        || normalized.starts_with("powershell ")
+        || normalized.starts_with("powershell.exe ")
+        || normalized == "pwsh"
+        || normalized == "pwsh.exe"
+        || normalized.starts_with("pwsh ")
+        || normalized.starts_with("pwsh.exe ")
+}
+
+#[cfg(target_os = "windows")]
+async fn spawn_windows_terminal(command: &str) -> CommandResult<()> {
+    let status = Command::new("cmd")
+        .arg("/C")
+        .arg("start")
+        .arg("")
+        .arg(command)
+        .status()
+        .await
+        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(CommandFlowError::Automation(format!(
+            "failed to launch terminal window for command: {}",
+            command
+        )))
     }
 }
 
