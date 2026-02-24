@@ -49,11 +49,27 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  mouseDown: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  mouseUp: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   keyboardKey: {
     inputs: singleIn(),
     outputs: singleOut(),
   },
   keyboardInput: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  keyboardDown: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  keyboardUp: {
     inputs: singleIn(),
     outputs: singleOut(),
   },

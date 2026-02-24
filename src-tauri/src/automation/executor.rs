@@ -368,6 +368,20 @@ impl WorkflowExecutor {
                 mouse::wheel(vertical)?;
                 Ok(NextDirective::Default)
             }
+            NodeKind::MouseDown => {
+                let x = get_i32(node, "x", 0);
+                let y = get_i32(node, "y", 0);
+                let button = get_string(node, "button", "left");
+                mouse::button_down(x, y, &button)?;
+                Ok(NextDirective::Default)
+            }
+            NodeKind::MouseUp => {
+                let x = get_i32(node, "x", 0);
+                let y = get_i32(node, "y", 0);
+                let button = get_string(node, "button", "left");
+                mouse::button_up(x, y, &button)?;
+                Ok(NextDirective::Default)
+            }
             NodeKind::KeyboardKey => {
                 let key = get_string(node, "key", "Enter");
                 keyboard::key_tap_by_name(&key)?;
@@ -376,6 +390,16 @@ impl WorkflowExecutor {
             NodeKind::KeyboardInput => {
                 let text = get_string(node, "text", "");
                 keyboard::text_input(&text)?;
+                Ok(NextDirective::Default)
+            }
+            NodeKind::KeyboardDown => {
+                let key = get_string(node, "key", "Shift");
+                keyboard::key_down_by_name(&key)?;
+                Ok(NextDirective::Default)
+            }
+            NodeKind::KeyboardUp => {
+                let key = get_string(node, "key", "Shift");
+                keyboard::key_up_by_name(&key)?;
                 Ok(NextDirective::Default)
             }
             NodeKind::Shortcut => {

@@ -93,6 +93,44 @@ const metas: Record<NodeKind, NodeMeta> = {
     defaultParams: { vertical: -1 },
     fields: [{ key: 'vertical', label: '滚动值', type: 'number', step: 1 }],
   },
+  mouseDown: {
+    label: '鼠标按下',
+    description: '将鼠标移动到坐标并按下（不松开）鼠标按键。',
+    defaultParams: { x: 0, y: 0, button: 'left' },
+    fields: [
+      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
+      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
+      {
+        key: 'button',
+        label: '按键',
+        type: 'select',
+        options: [
+          { label: '左键', value: 'left' },
+          { label: '右键', value: 'right' },
+          { label: '中键', value: 'middle' },
+        ],
+      },
+    ],
+  },
+  mouseUp: {
+    label: '鼠标松开',
+    description: '将鼠标移动到坐标并松开鼠标按键。',
+    defaultParams: { x: 0, y: 0, button: 'left' },
+    fields: [
+      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
+      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
+      {
+        key: 'button',
+        label: '按键',
+        type: 'select',
+        options: [
+          { label: '左键', value: 'left' },
+          { label: '右键', value: 'right' },
+          { label: '中键', value: 'middle' },
+        ],
+      },
+    ],
+  },
   keyboardKey: {
     label: '键盘按键',
     description: '模拟单个按键点击。',
@@ -104,6 +142,18 @@ const metas: Record<NodeKind, NodeMeta> = {
     description: '输入一段文本。',
     defaultParams: { text: 'Hello CommandFlow' },
     fields: [{ key: 'text', label: '文本', type: 'string', placeholder: '请输入文本' }],
+  },
+  keyboardDown: {
+    label: '键盘按下',
+    description: '按下指定按键（不松开）。',
+    defaultParams: { key: 'Shift' },
+    fields: [{ key: 'key', label: '按键', type: 'string', placeholder: 'Shift' }],
+  },
+  keyboardUp: {
+    label: '键盘松开',
+    description: '松开指定按键。',
+    defaultParams: { key: 'Shift' },
+    fields: [{ key: 'key', label: '按键', type: 'string', placeholder: 'Shift' }],
   },
   shortcut: {
     label: '组合键',

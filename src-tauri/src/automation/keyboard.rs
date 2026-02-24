@@ -32,6 +32,22 @@ pub fn key_tap_by_name(name: &str) -> CommandResult<()> {
     key_press(key)
 }
 
+pub fn key_down_by_name(name: &str) -> CommandResult<()> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .key(parse_key(name), Direction::Press)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    Ok(())
+}
+
+pub fn key_up_by_name(name: &str) -> CommandResult<()> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .key(parse_key(name), Direction::Release)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    Ok(())
+}
+
 pub fn shortcut(modifiers: &[String], key: &str) -> CommandResult<()> {
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     for modifier in modifiers {
