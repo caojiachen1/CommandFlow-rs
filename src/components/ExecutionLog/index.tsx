@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useExecutionStore } from '../../stores/executionStore'
 
 const levelTone = {
@@ -9,6 +10,14 @@ const levelTone = {
 
 export default function ExecutionLog() {
   const { logs, clearLogs } = useExecutionStore()
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // 当日志更新时，自动滚动到底部
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight
+    }
+  }, [logs])
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -22,7 +31,7 @@ export default function ExecutionLog() {
           清空
         </button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-3 py-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+      <div ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-3 py-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
         {logs.length === 0 ? (
           <div className="flex h-full w-full items-center justify-center text-slate-400 italic font-medium opacity-50">
             等待系统活动...
