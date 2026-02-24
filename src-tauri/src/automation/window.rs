@@ -5,8 +5,8 @@ use crate::error::CommandFlowError;
 use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindowVisible,
-    SetForegroundWindow, ShowWindow, SW_RESTORE,
+    EnumWindows, GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, IsIconic,
+    IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
 };
 
 #[cfg(target_os = "windows")]
@@ -56,6 +56,29 @@ fn enumerate_windows() -> Vec<WindowEntry> {
     entries
 }
 
+#[cfg(target_os = "windows")]
+fn read_window_title(hwnd: HWND) -> Option<String> {
+    let len = unsafe { GetWindowTextLengthW(hwnd) };
+    if len <= 0 {
+        return None;
+    }
+
+    let mut buffer = vec![0u16; (len as usize) + 1];
+    let copied = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+    if copied <= 0 {
+        return None;
+    }
+
+    let title = String::from_utf16_lossy(&buffer[..copied as usize])
+        .trim()
+        .to_string();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title)
+    }
+}
+
 pub fn list_open_window_titles() -> CommandResult<Vec<String>> {
     #[cfg(target_os = "windows")]
     {
@@ -80,18 +103,25 @@ pub fn window_title_exists(title: &str, match_mode: &str) -> CommandResult<bool>
             return Err(CommandFlowError::Validation("window title is empty".to_string()));
         }
 
-        let target_lower = target.to_lowercase();
         let mode = match_mode.to_lowercase();
+        let target_lower = target.to_lowercase();
 
-        let matched = enumerate_windows().into_iter().any(|entry| {
-            let current = entry.title.to_lowercase();
-            match mode.as_str() {
-                "exact" => current == target_lower,
-                _ => current.contains(&target_lower),
-            }
-        });
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.is_null() {
+            return Ok(false);
+        }
 
-        return Ok(matched);
+        let Some(current_title) = read_window_title(hwnd) else {
+            return Ok(false);
+        };
+
+        let current = current_title.to_lowercase();
+        let matched = match mode.as_str() {
+            "exact" => current == target_lower,
+            _ => current.contains(&target_lower),
+        };
+
+        Ok(matched)
     }
 
     #[cfg(not(target_os = "windows"))]

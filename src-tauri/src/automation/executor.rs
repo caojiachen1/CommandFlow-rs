@@ -206,7 +206,7 @@ impl WorkflowExecutor {
 
                     if started.elapsed() >= deadline {
                         return Err(CommandFlowError::Automation(format!(
-                            "window trigger timed out after {} ms for title '{}'",
+                            "window trigger timed out after {} ms waiting for foreground window title '{}'",
                             timeout_ms, title
                         )));
                     }
