@@ -27,10 +27,13 @@ interface StepRuntimeContext {
   variables: Map<string, unknown>
   loopRemaining: Map<string, number>
   whileIterations: Map<string, number>
+  loopStack: string[]
+  startQueue: string[]
 }
 
 const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
   kind === 'hotkeyTrigger' || kind === 'timerTrigger' || kind === 'manualTrigger' || kind === 'windowTrigger'
+const isManualTriggerKind = (kind: WorkflowNode['data']['kind']) => kind === 'manualTrigger'
 
 function App() {
   const {
@@ -60,9 +63,14 @@ function App() {
     variables: new Map(),
     loopRemaining: new Map(),
     whileIterations: new Map(),
+    loopStack: [],
+    startQueue: [],
   })
   const stepNextNodeIdRef = useRef<string | null>(null)
   const loopRoundRef = useRef<Map<string, number>>(new Map())
+  const runSingleStepRef = useRef<() => Promise<void>>(async () => {})
+  const addLogRef = useRef(addLog)
+  const lastGlobalStepTriggerAtRef = useRef(0)
 
   useShortcutBindings()
 
@@ -318,17 +326,14 @@ function App() {
         variables: new Map(),
         loopRemaining: new Map(),
         whileIterations: new Map(),
+        loopStack: [],
+        startQueue: [],
       }
       loopRoundRef.current.clear()
     }
 
-    const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
-
-    const pickDefaultStartNode = () => {
-      if (nodes.length === 0) return null
-
-      const triggerNode = nodes.find((node) => isTriggerKind(node.data.kind))
-      if (triggerNode) return triggerNode
+    const pickStepStartQueue = () => {
+      if (nodes.length === 0) return [] as string[]
 
       const incomingCount = new Map<string, number>()
       for (const node of nodes) {
@@ -338,28 +343,55 @@ function App() {
         incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1)
       }
 
-      const root = nodes.find((node) => (incomingCount.get(node.id) ?? 0) === 0)
-      return root ?? nodes[0]
+      const manualTriggerStarts = nodes.filter((node) => isManualTriggerKind(node.data.kind)).map((node) => node.id)
+      const autoTriggerStarts = nodes
+        .filter((node) => isTriggerKind(node.data.kind) && !isManualTriggerKind(node.data.kind))
+        .map((node) => node.id)
+
+      if (manualTriggerStarts.length > 0) {
+        return manualTriggerStarts
+      }
+
+      if (autoTriggerStarts.length === 1) {
+        return autoTriggerStarts
+      }
+
+      if (autoTriggerStarts.length > 1) {
+        addLog('error', '工作流存在多个非手动触发器，单步执行要求仅有一个，或至少有一个手动触发器。')
+        return []
+      }
+
+      const roots = nodes
+        .filter((node) => (incomingCount.get(node.id) ?? 0) === 0)
+        .map((node) => node.id)
+      if (roots.length > 0) {
+        return roots
+      }
+
+      return [nodes[0].id]
     }
 
     let currentNodeId = stepNextNodeIdRef.current
-    const switchedSelection = Boolean(selectedNodeId) && selectedNodeId !== stepNextNodeIdRef.current
-    if (switchedSelection && selectedNode) {
-      resetStepSession()
-      currentNodeId = selectedNode.id
-      addLog('info', `单步调试已切换起点：${selectedNode.data.label}`)
-    }
 
     if (!currentNodeId) {
-      const startNode = selectedNode ?? pickDefaultStartNode()
-      if (!startNode) {
+      const startQueue = pickStepStartQueue()
+      if (startQueue.length === 0) {
         addLog('warn', '当前工作流没有可执行节点。')
         return
       }
-      currentNodeId = startNode.id
+
       resetStepSession()
       clearVariables()
-      addLog('info', `单步调试开始：${startNode.data.label}`)
+      stepCtxRef.current.startQueue = [...startQueue]
+      currentNodeId = stepCtxRef.current.startQueue.shift() ?? null
+
+      if (!currentNodeId) {
+        addLog('warn', '无法确定单步执行起点。')
+        return
+      }
+
+      const startNode = nodes.find((node) => node.id === currentNodeId)
+      addLog('info', `单步调试开始：${startNode?.data.label ?? currentNodeId}`)
     }
 
     const currentNode = nodes.find((node) => node.id === currentNodeId)
@@ -391,8 +423,22 @@ function App() {
 
       const nextNodeId = pickNextNodeId(currentNode, stepCtxRef.current)
       if (!nextNodeId) {
-        resetStepSession()
-        addLog('success', `单步完成：${message}（已到流程末尾）`)
+        const nextEntryStart = stepCtxRef.current.startQueue.shift() ?? null
+        if (!nextEntryStart) {
+          resetStepSession()
+          addLog('success', `单步完成：${message}（已到流程末尾）`)
+          return
+        }
+
+        stepCtxRef.current.loopStack = []
+        stepNextNodeIdRef.current = nextEntryStart
+        const nextEntryNode = nodes.find((node) => node.id === nextEntryStart)
+        if (nextEntryNode) {
+          setSelectedNode(nextEntryNode.id)
+          addLog('success', `单步完成：${message}，下一步将执行新的起点：${nextEntryNode.data.label}`)
+        } else {
+          addLog('warn', '单步完成，但下一起点节点不存在，请检查流程。')
+        }
         return
       }
 
@@ -410,7 +456,15 @@ function App() {
     } finally {
       setRunning(false)
     }
-  }, [addLog, clearVariables, edges, exportWorkflow, nodes, running, selectedNodeId, setRunning, setSelectedNode, setVariables])
+  }, [addLog, clearVariables, edges, exportWorkflow, nodes, running, setRunning, setSelectedNode, setVariables])
+
+  useEffect(() => {
+    runSingleStepRef.current = runSingleStep
+  }, [runSingleStep])
+
+  useEffect(() => {
+    addLogRef.current = addLog
+  }, [addLog])
 
   const getParamString = (node: WorkflowNode, key: string, fallback = '') => {
     const value = node.data.params[key]
@@ -491,42 +545,80 @@ function App() {
 
   const pickNextNodeId = (node: WorkflowNode, ctx: StepRuntimeContext) => {
     const outgoing = edges.filter((edge) => edge.source === node.id)
-    if (outgoing.length === 0) return null
 
-    const chooseByHandle = (handle: string) =>
-      outgoing.find((edge) => edge.sourceHandle === handle || edge.sourceHandle === `${handle}`)
-
-    if (node.data.kind === 'condition') {
-      const result = evaluateCondition(node, ctx.variables)
-      return (result ? chooseByHandle('true') : chooseByHandle('false') ?? outgoing[0])?.target ?? null
-    }
+    const chooseByHandle = (handle: string) => outgoing.find((edge) => edge.sourceHandle === handle)
+    const chooseBranchLikeBackend = (handle: string) => chooseByHandle(handle) ?? outgoing[0]
 
     if (node.data.kind === 'loop') {
+      const loopEdge = chooseByHandle('loop') ?? outgoing[0]
+      const doneEdge = chooseByHandle('done') ?? outgoing.find((edge) => edge.sourceHandle !== 'loop')
       const times = Math.max(0, Math.floor(getParamNumber(node, 'times', 1)))
       const remaining = ctx.loopRemaining.get(node.id) ?? times
+
       if (remaining > 0) {
-        ctx.loopRemaining.set(node.id, remaining - 1)
-        return (chooseByHandle('loop') ?? outgoing[0])?.target ?? null
+        if (loopEdge) {
+          ctx.loopRemaining.set(node.id, remaining - 1)
+          if (ctx.loopStack[ctx.loopStack.length - 1] !== node.id) {
+            ctx.loopStack.push(node.id)
+          }
+          return loopEdge.target
+        }
+        ctx.loopRemaining.set(node.id, 0)
       }
+
       ctx.loopRemaining.delete(node.id)
-      return (chooseByHandle('done') ?? outgoing[0])?.target ?? null
+      if (ctx.loopStack[ctx.loopStack.length - 1] === node.id) {
+        ctx.loopStack.pop()
+      }
+
+      if (doneEdge) {
+        return doneEdge.target
+      }
+
+      return ctx.loopStack[ctx.loopStack.length - 1] ?? null
     }
 
     if (node.data.kind === 'whileLoop') {
+      const loopEdge = chooseByHandle('loop') ?? outgoing[0]
+      const doneEdge = chooseByHandle('done') ?? outgoing.find((edge) => edge.sourceHandle !== 'loop')
       const maxIterations = Math.max(1, Math.floor(getParamNumber(node, 'maxIterations', 1000)))
       const currentIterations = ctx.whileIterations.get(node.id) ?? 0
       const conditionTrue = evaluateCondition(node, ctx.variables)
 
       if (conditionTrue && currentIterations < maxIterations) {
-        ctx.whileIterations.set(node.id, currentIterations + 1)
-        return (chooseByHandle('loop') ?? outgoing[0])?.target ?? null
+        if (loopEdge) {
+          ctx.whileIterations.set(node.id, currentIterations + 1)
+          if (ctx.loopStack[ctx.loopStack.length - 1] !== node.id) {
+            ctx.loopStack.push(node.id)
+          }
+          return loopEdge.target
+        }
+      } else if (conditionTrue && currentIterations >= maxIterations) {
+        addLog('warn', `while 节点 '${node.data.label}' 达到最大循环次数 ${maxIterations}，已自动切换 done 分支。`)
       }
 
       ctx.whileIterations.delete(node.id)
-      return (chooseByHandle('done') ?? outgoing[0])?.target ?? null
+      if (ctx.loopStack[ctx.loopStack.length - 1] === node.id) {
+        ctx.loopStack.pop()
+      }
+
+      if (doneEdge) {
+        return doneEdge.target
+      }
+
+      return ctx.loopStack[ctx.loopStack.length - 1] ?? null
     }
 
-    return outgoing[0]?.target ?? null
+    if (node.data.kind === 'condition') {
+      const result = evaluateCondition(node, ctx.variables)
+      return (result ? chooseBranchLikeBackend('true') : chooseBranchLikeBackend('false'))?.target ?? null
+    }
+
+    if (outgoing.length > 0) {
+      return outgoing[0].target
+    }
+
+    return ctx.loopStack[ctx.loopStack.length - 1] ?? null
   }
 
   const runContinuousStep = useCallback(async () => {
@@ -544,7 +636,7 @@ function App() {
     continuousStepStopRef.current = false
     continuousStepRunningRef.current = true
     stepNextNodeIdRef.current = null
-    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
+    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map(), loopStack: [], startQueue: [] }
     loopRoundRef.current.clear()
     clearVariables()
     setRunning(true)
@@ -606,7 +698,7 @@ function App() {
   const stopAllExecution = useCallback(async () => {
     continuousStepStopRef.current = true
     stepNextNodeIdRef.current = null
-    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
+    stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map(), loopStack: [], startQueue: [] }
     loopRoundRef.current.clear()
     try {
       const message = await stopWorkflow()
@@ -621,7 +713,7 @@ function App() {
   useEffect(() => {
     const resetStepDebug = () => {
       stepNextNodeIdRef.current = null
-      stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
+      stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map(), loopStack: [], startQueue: [] }
     }
 
     window.addEventListener('commandflow:reset-step-debug', resetStepDebug)
@@ -630,28 +722,41 @@ function App() {
 
   useEffect(() => {
     const handleRunStep = () => {
-      void runSingleStep()
+      void runSingleStepRef.current()
     }
+
     window.addEventListener('commandflow:run-step', handleRunStep)
+    let disposed = false
     let unlistenGlobalStep: (() => void) | null = null
 
     if ('__TAURI_INTERNALS__' in window) {
       void listen('commandflow-global-run-step', () => {
-        void runSingleStep()
+        const now = Date.now()
+        if (now - lastGlobalStepTriggerAtRef.current < 120) {
+          return
+        }
+
+        lastGlobalStepTriggerAtRef.current = now
+        void runSingleStepRef.current()
       })
         .then((cleanup) => {
+          if (disposed) {
+            cleanup()
+            return
+          }
           unlistenGlobalStep = cleanup
         })
         .catch((error) => {
-          addLog('warn', `监听全局单步快捷键失败：${String(error)}`)
+          addLogRef.current('warn', `监听全局单步快捷键失败：${String(error)}`)
         })
     }
 
     return () => {
+      disposed = true
       window.removeEventListener('commandflow:run-step', handleRunStep)
       unlistenGlobalStep?.()
     }
-  }, [addLog, runSingleStep])
+  }, [])
 
   useEffect(() => {
     const handleRunContinuousStep = () => {
@@ -748,7 +853,7 @@ function App() {
       case '运行':
         if (running) return
         stepNextNodeIdRef.current = null
-        stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map() }
+        stepCtxRef.current = { variables: new Map(), loopRemaining: new Map(), whileIterations: new Map(), loopStack: [], startQueue: [] }
         loopRoundRef.current.clear()
         setRunning(true)
         clearVariables()
@@ -827,6 +932,11 @@ function App() {
               <button
                 type="button"
                 onClick={() => setActiveMenu(activeMenu === group ? null : group)}
+                onMouseEnter={() => {
+                  if (activeMenu) {
+                    setActiveMenu(group)
+                  }
+                }}
                 className={`rounded-md px-2.5 py-1 text-xs transition-colors hover:bg-slate-200/50 dark:hover:bg-slate-800/70 ${
                   activeMenu === group ? 'bg-slate-200/70 dark:bg-neutral-800/90 text-cyan-600 dark:text-cyan-400 font-semibold' : ''
                 }`}

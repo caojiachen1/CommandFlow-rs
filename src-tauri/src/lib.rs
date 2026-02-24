@@ -20,7 +20,7 @@ pub fn run() {
                     tauri_plugin_global_shortcut::Builder::new()
                         .with_shortcuts(["F10"])?
                         .with_handler(|app, _shortcut, event| {
-                            if event.state == ShortcutState::Pressed {
+                            if event.state == ShortcutState::Released {
                                 let _ = app.emit("commandflow-global-run-step", ());
                             }
                         })
