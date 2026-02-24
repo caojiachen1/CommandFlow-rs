@@ -46,7 +46,7 @@ interface WorkflowState {
   setSelectedNode: (id: string | null) => void
   setSelectedNodes: (ids: string[]) => void
   setCursor: (x: number, y: number) => void
-  addNode: (kind: NodeKind, position: { x: number; y: number }) => void
+  addNode: (kind: NodeKind, position: { x: number; y: number }) => string
   deleteSelectedNodes: () => void
   duplicateSelectedNode: () => void
   updateNodeParams: (id: string, params: Record<string, unknown>) => void
@@ -258,28 +258,29 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         y,
       },
     })),
-  addNode: (kind, position) =>
-    set((state) => {
-      const meta = getNodeMeta(kind)
-      return {
-        past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
-        future: [],
-        nodes: [
-          ...state.nodes,
-          {
-            id: crypto.randomUUID(),
-            type: kind,
-            position,
-            data: {
-              kind,
-              label: meta.label,
-              description: meta.description,
-              params: structuredClone(meta.defaultParams),
-            },
+  addNode: (kind, position) => {
+    const id = crypto.randomUUID()
+    const meta = getNodeMeta(kind)
+    set((state) => ({
+      past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
+      future: [],
+      nodes: [
+        ...state.nodes,
+        {
+          id,
+          type: kind,
+          position,
+          data: {
+            kind,
+            label: meta.label,
+            description: meta.description,
+            params: structuredClone(meta.defaultParams),
           },
-        ],
-      }
-    }),
+        },
+      ],
+    }))
+    return id
+  },
   deleteSelectedNodes: () =>
     set((state) => {
       const selectedIds = resolveSelectedIds(state)
