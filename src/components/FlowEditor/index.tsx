@@ -4,6 +4,7 @@ import {
   Controls,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   type Connection,
   type Edge,
   type NodeMouseHandler,
@@ -229,6 +230,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         reconnectRadius={28}
         connectionRadius={24}
         fitView
+        selectionMode={SelectionMode.Partial}
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"
         panOnDrag={[0, 1, 2]}
@@ -247,7 +249,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
           className="dark:opacity-[0.6] opacity-[0.3]"
         />
         <Controls
-          className="!flex !flex-col !gap-1 !p-1 !mb-20 !mr-6 !bg-white/90 !shadow-2xl backdrop-blur-md dark:!bg-slate-900/90 dark:border dark:border-neutral-800 rounded-xl overflow-hidden"
+          className="!flex !flex-col !mb-20 !mr-6 !bg-white/80 dark:!bg-neutral-900/80 !border !border-slate-200 dark:!border-neutral-800 !shadow-2xl !rounded-lg overflow-hidden !p-0"
           showInteractive={false}
           position="bottom-right"
         />

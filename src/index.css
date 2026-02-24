@@ -24,6 +24,10 @@ body,
   overflow: hidden;
 }
 
+body {
+  background: #202020;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -59,29 +63,45 @@ body,
 }
 
 /* React Flow Controls Style Adjustments */
+.react-flow__controls {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
 .react-flow__controls-button {
-  background: white !important;
+  background: transparent !important;
   fill: #475569 !important;
+  border: none !important;
   border-bottom: 1px solid #e2e8f0 !important;
-  width: 26px !important;
-  height: 26px !important;
-  transition: all 0.2s ease !important;
+  width: 28px !important;
+  height: 28px !important;
+  transition: all 0.1s ease !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
 }
 
 .react-flow__controls-button:hover {
-  background: #f1f5f9 !important;
+  background: #f8fafc !important;
   fill: #0891b2 !important;
 }
 
 .dark .react-flow__controls-button {
-  background: #171717 !important; /* neutral-900 */
-  fill: #f8fafc !important;      /* White/slate-50 icon */
-  border-bottom: 1px solid #262626 !important; /* neutral-800 */
+  background: transparent !important;
+  fill: #f8fafc !important;
+  border-bottom: 1px solid #262626 !important;
+}
+
+.dark .react-flow__controls-button:last-child {
+  border-bottom: none !important;
 }
 
 .dark .react-flow__controls-button:hover {
-  background: #262626 !important; /* neutral-800 */
-  fill: #22d3ee !important;      /* Cyan-400 on hover */
+  background: #262626 !important;
+  fill: #22d3ee !important;
 }
 
 .dark .react-flow__controls-button svg {
