@@ -145,9 +145,19 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   keyboardDown: {
     label: '键盘按下',
-    description: '按下指定按键（不松开）。',
-    defaultParams: { key: 'Shift' },
-    fields: [{ key: 'key', label: '按键', type: 'string', placeholder: 'Shift' }],
+    description: '按下指定按键（不松开）。可选模拟“长按重复输入”。',
+    defaultParams: { key: 'Shift', simulateRepeat: false, repeatCount: 8, repeatIntervalMs: 35 },
+    fields: [
+      { key: 'key', label: '按键', type: 'string', placeholder: 'Shift' },
+      {
+        key: 'simulateRepeat',
+        label: '模拟长按重复输入',
+        type: 'boolean',
+        description: '开启后会连续触发多次按键点击，更接近“长按出连字”的效果。',
+      },
+      { key: 'repeatCount', label: '重复次数', type: 'number', min: 1, step: 1 },
+      { key: 'repeatIntervalMs', label: '重复间隔(ms)', type: 'number', min: 1, step: 1 },
+    ],
   },
   keyboardUp: {
     label: '键盘松开',

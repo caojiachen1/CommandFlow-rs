@@ -148,7 +148,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       }
       return []
     }
-    if (kind === 'keyboardKey' && field.key === 'key') {
+    if ((kind === 'keyboardKey' || kind === 'keyboardDown' || kind === 'keyboardUp') && field.key === 'key') {
       return COMMON_KEYS
     }
     if (kind === 'shortcut' && field.key === 'key') {
@@ -336,6 +336,19 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
               <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-slate-400">
                 {selectedMeta?.description}
               </p>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">节点后置间隔(ms)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={Number(selectedNode.data.params.postDelayMs ?? 50)}
+                  onChange={(event) => updateParam('postDelayMs', Math.max(0, Number(event.target.value) || 0))}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+                />
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">每个节点执行完成后都会等待该时长再进入下个节点，默认 50ms。</p>
+              </div>
 
               {selectedMeta?.fields.length ? (
                 <div className="space-y-3">

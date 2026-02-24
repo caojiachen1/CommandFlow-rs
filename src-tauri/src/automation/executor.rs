@@ -8,6 +8,8 @@ use std::io::ErrorKind;
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
+const DEFAULT_POST_DELAY_MS: u64 = 50;
+
 #[derive(Debug, Default)]
 pub struct WorkflowExecutor;
 
@@ -178,6 +180,7 @@ impl WorkflowExecutor {
                                     loop_stack.push(node.id.clone());
                                 }
 
+                                sleep_after_node(node).await;
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -191,15 +194,18 @@ impl WorkflowExecutor {
                         }
 
                         if let Some(edge) = done_edge {
+                            sleep_after_node(node).await;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
+                            sleep_after_node(node).await;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
 
+                        sleep_after_node(node).await;
                         return Ok(());
                     }
                     NodeKind::WhileLoop => {
@@ -215,6 +221,7 @@ impl WorkflowExecutor {
                                     loop_stack.push(node.id.clone());
                                 }
 
+                                sleep_after_node(node).await;
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -234,15 +241,18 @@ impl WorkflowExecutor {
                         }
 
                         if let Some(edge) = done_edge {
+                            sleep_after_node(node).await;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
+                            sleep_after_node(node).await;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
 
+                        sleep_after_node(node).await;
                         return Ok(());
                     }
                     _ => {}
@@ -250,6 +260,7 @@ impl WorkflowExecutor {
             }
 
             let directive = self.execute_single_node(node, ctx, on_log).await?;
+            sleep_after_node(node).await;
             on_variables_update(&ctx.variables);
 
             let outgoing = graph.edges.iter().filter(|edge| edge.source == current_id);
@@ -394,7 +405,22 @@ impl WorkflowExecutor {
             }
             NodeKind::KeyboardDown => {
                 let key = get_string(node, "key", "Shift");
-                keyboard::key_down_by_name(&key)?;
+                let simulate_repeat = get_bool(node, "simulateRepeat", false);
+
+                if simulate_repeat {
+                    let repeat_count = get_u64(node, "repeatCount", 8).max(1);
+                    let repeat_interval_ms = get_u64(node, "repeatIntervalMs", 35).max(1);
+
+                    for i in 0..repeat_count {
+                        keyboard::key_tap_by_name(&key)?;
+                        if i + 1 < repeat_count {
+                            sleep(Duration::from_millis(repeat_interval_ms)).await;
+                        }
+                    }
+                } else {
+                    keyboard::key_down_by_name(&key)?;
+                }
+
                 Ok(NextDirective::Default)
             }
             NodeKind::KeyboardUp => {
@@ -826,4 +852,11 @@ fn as_optional_f64(value: &Value) -> Option<f64> {
         .or_else(|| value.as_i64().map(|n| n as f64))
         .or_else(|| value.as_u64().map(|n| n as f64))
         .or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
+}
+
+async fn sleep_after_node(node: &WorkflowNode) {
+    let post_delay_ms = get_u64(node, "postDelayMs", DEFAULT_POST_DELAY_MS);
+    if post_delay_ms > 0 {
+        sleep(Duration::from_millis(post_delay_ms)).await;
+    }
 }
