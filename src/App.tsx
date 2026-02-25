@@ -921,12 +921,8 @@ function App() {
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#202020] text-slate-900 selection:bg-cyan-100 dark:bg-[#202020] dark:text-slate-100 dark:selection:bg-cyan-900/30">
-      <header className="relative z-[100] flex h-10 shrink-0 items-center justify-between border-b border-slate-200 bg-[#202020]/70 px-3 backdrop-blur-xl dark:border-neutral-800 dark:bg-[#202020]/70">
+      <header className="relative z-[100] flex h-8 shrink-0 items-center justify-between border-b border-slate-200 bg-[#202020]/70 px-3 backdrop-blur-xl dark:border-neutral-800 dark:bg-[#202020]/70">
         <div className="flex items-center gap-2 text-sm font-medium" ref={menuRef}>
-          <div className="mr-3 flex items-center gap-2">
-            <div className="h-5 w-5 rounded bg-cyan-600 shadow-sm shadow-cyan-500/50"></div>
-            <span className="font-semibold tracking-tight">CommandFlow-rs</span>
-          </div>
           {menu.map(([group, items]) => (
             <div key={group} className="relative">
               <button
