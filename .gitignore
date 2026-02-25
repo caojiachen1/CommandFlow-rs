@@ -28,3 +28,6 @@ dist-ssr
 */dist
 
 *.py
+
+# ignore tauri generated schemas
+src-tauri/gen/
