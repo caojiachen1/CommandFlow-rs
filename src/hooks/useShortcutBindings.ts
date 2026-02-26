@@ -21,8 +21,10 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
 
 export const useShortcutBindings = () => {
   const {
+    nodes,
     undo,
     redo,
+    setSelectedNodes,
     deleteSelectedNodes,
     duplicateSelectedNode,
     resetWorkflow,
@@ -49,6 +51,10 @@ export const useShortcutBindings = () => {
       if (ctrl && key === 'z') {
         event.preventDefault()
         undo()
+      } else if (ctrl && key === 'a') {
+        event.preventDefault()
+        setSelectedNodes(nodes.map((node) => node.id))
+        addLog('info', `已全选 ${nodes.length} 个节点。`)
       } else if (ctrl && key === 'y') {
         event.preventDefault()
         redo()
@@ -66,6 +72,15 @@ export const useShortcutBindings = () => {
         event.preventDefault()
         const pasted = pasteCopiedNode()
         addLog(pasted ? 'info' : 'warn', pasted ? '已粘贴节点。' : '剪贴板为空，请先复制节点。')
+      } else if (ctrl && key === 'x') {
+        event.preventDefault()
+        const copied = copySelectedNode()
+        if (copied) {
+          deleteSelectedNodes()
+          addLog('info', '已剪切选中节点。')
+        } else {
+          addLog('warn', '未选中节点，无法剪切。')
+        }
       } else if (ctrl && key === 'n') {
         event.preventDefault()
         resetWorkflow()
@@ -119,6 +134,7 @@ export const useShortcutBindings = () => {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     addLog,
+    nodes,
     copySelectedNode,
     deleteSelectedNodes,
     duplicateSelectedNode,
@@ -126,6 +142,7 @@ export const useShortcutBindings = () => {
     pasteCopiedNode,
     redo,
     resetWorkflow,
+    setSelectedNodes,
     setRunning,
     clearVariables,
     undo,

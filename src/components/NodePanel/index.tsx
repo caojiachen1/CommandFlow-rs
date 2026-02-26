@@ -58,6 +58,7 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
     items: [
       { label: '变量定义', kind: 'varDefine', color: 'bg-pink-500' },
       { label: '变量赋值', kind: 'varSet', color: 'bg-emerald-500' },
+      { label: '变量运算', kind: 'varMath', color: 'bg-teal-500' },
     ],
   },
 ]

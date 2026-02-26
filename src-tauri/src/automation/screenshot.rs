@@ -9,6 +9,7 @@ use xcap::{Frame, Monitor, VideoRecorder};
 
 const STREAM_START_RETRY: usize = 3;
 const STREAM_START_RETRY_DELAY: Duration = Duration::from_millis(60);
+const STREAM_STOP_SETTLE_DELAY: Duration = Duration::from_millis(80);
 
 pub struct PrimaryFrameStream {
     recorder: VideoRecorder,
@@ -30,6 +31,7 @@ impl PrimaryFrameStream {
 impl Drop for PrimaryFrameStream {
     fn drop(&mut self) {
         let _ = self.recorder.stop();
+        thread::sleep(STREAM_STOP_SETTLE_DELAY);
     }
 }
 

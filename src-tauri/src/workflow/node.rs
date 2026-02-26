@@ -34,6 +34,7 @@ pub enum NodeKind {
     ImageMatch,
     VarDefine,
     VarSet,
+    VarMath,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

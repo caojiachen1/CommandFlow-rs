@@ -75,14 +75,14 @@ const dedupe = (values: string[]) => Array.from(new Set(values.filter((value) =>
 const isVariableOperandField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'condition' || kind === 'whileLoop') && (fieldKey === 'left' || fieldKey === 'right')
 
+const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath') && fieldKey === 'name'
+
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if ((kind === 'fileCopy' || kind === 'fileMove') && (fieldKey === 'sourcePath' || fieldKey === 'targetPath')) {
     return true
   }
   if (kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')) {
-    return true
-  }
-  if (kind === 'imageMatch' && fieldKey === 'debugDir') {
     return true
   }
   if (kind === 'screenshot' && fieldKey === 'path') {
@@ -93,9 +93,6 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
 
 const isImageMatchImageField = (kind: NodeKind, fieldKey: string) =>
   kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')
-
-const isImageMatchDebugDirField = (kind: NodeKind, fieldKey: string) =>
-  kind === 'imageMatch' && fieldKey === 'debugDir'
 
 const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
@@ -163,6 +160,9 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     if (kind === 'varSet' && field.key === 'name') {
       return variableNames
     }
+    if (kind === 'varMath' && field.key === 'name') {
+      return variableNames
+    }
     if (isVariableOperandField(kind, field.key)) {
       const typeKey = field.key === 'left' ? 'leftType' : 'rightType'
       const typeValue = selectedNode.data.params[typeKey]
@@ -206,15 +206,48 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
 
   const shouldShowField = (field: ParamField): boolean => {
     if (!selectedNode) return true
-    if (selectedNode.data.kind !== 'windowActivate') return true
+    if (selectedNode.data.kind === 'windowActivate') {
+      const mode = String(selectedNode.data.params.switchMode ?? selectedMeta?.defaultParams.switchMode ?? 'title')
+      if (mode === 'title') {
+        return !['shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
+      }
+      if (mode === 'shortcut') {
+        return field.key !== 'title'
+      }
+    }
 
-    const mode = String(selectedNode.data.params.switchMode ?? selectedMeta?.defaultParams.switchMode ?? 'title')
-    if (mode === 'title') {
-      return !['shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
+    if (selectedNode.data.kind === 'varMath' && field.key === 'operand') {
+      const unaryOperations = new Set([
+        'neg',
+        'abs',
+        'sign',
+        'square',
+        'cube',
+        'sqrt',
+        'cbrt',
+        'exp',
+        'ln',
+        'log2',
+        'log10',
+        'sin',
+        'cos',
+        'tan',
+        'asin',
+        'acos',
+        'atan',
+        'ceil',
+        'floor',
+        'round',
+        'trunc',
+        'frac',
+        'recip',
+        'lnot',
+        'bnot',
+      ])
+      const operation = String(selectedNode.data.params.operation ?? selectedMeta?.defaultParams.operation ?? 'add')
+      return !unaryOperations.has(operation)
     }
-    if (mode === 'shortcut') {
-      return field.key !== 'title'
-    }
+
     return true
   }
 
@@ -358,9 +391,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
                   pickerMode={
                     isImageMatchImageField(selectedNode.data.kind, field.key)
                       ? 'file'
-                      : isImageMatchDebugDirField(selectedNode.data.kind, field.key)
-                        ? 'directory'
-                        : 'menu'
+                      : 'menu'
                   }
                   filters={isImageMatchImageField(selectedNode.data.kind, field.key) ? IMAGE_FILE_FILTERS : undefined}
                 />
@@ -370,6 +401,25 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
         }
 
         const suggestions = getStringSuggestions(field)
+        const variableReferenceField =
+          isVariableOperandField(selectedNode.data.kind, field.key) &&
+          (field.key === 'left'
+            ? selectedNode.data.params.leftType === 'var'
+            : selectedNode.data.params.rightType === 'var')
+
+        if (isVariableNameField(selectedNode.data.kind, field.key) || variableReferenceField) {
+          return (
+            <SmartInputSelect
+              value={String(currentValue ?? '')}
+              placeholder={field.placeholder}
+              options={variableNames}
+              onChange={(nextValue) => updateParam(field.key, nextValue)}
+              onEnter={handleClose}
+              hint="输入可筛选变量名，也可手动输入"
+            />
+          )
+        }
+
         if (suggestions.length > 0) {
           return (
             <SmartInputSelect

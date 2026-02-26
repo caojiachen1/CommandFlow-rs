@@ -57,6 +57,7 @@ const allowedKinds: NodeKind[] = [
   'imageMatch',
   'varDefine',
   'varSet',
+  'varMath',
 ]
 
 const isNodeKind = (value: string): value is NodeKind => allowedKinds.includes(value as NodeKind)
@@ -120,6 +121,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       whileLoop: LoopNode,
       varDefine: VariableNode,
       varSet: VariableNode,
+      varMath: VariableNode,
       manualTrigger: VariableNode,
       hotkeyTrigger: VariableNode,
       timerTrigger: VariableNode,

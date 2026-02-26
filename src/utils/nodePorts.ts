@@ -145,6 +145,10 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  varMath: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
 }
 
 export const getNodePortSpec = (kind: NodeKind): NodePortSpec => specs[kind]

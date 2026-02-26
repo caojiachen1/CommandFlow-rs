@@ -12,6 +12,7 @@ use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
 const DEFAULT_POST_DELAY_MS: u64 = 50;
+const IMAGE_MATCH_DEBUG_SAVE_EVERY: u64 = 15;
 
 #[derive(Debug, Default)]
 pub struct WorkflowExecutor;
@@ -269,19 +270,10 @@ impl WorkflowExecutor {
             let outgoing = graph.edges.iter().filter(|edge| edge.source == current_id);
             let next = match directive {
                 NextDirective::Default => outgoing.into_iter().next(),
-                NextDirective::Branch(handle) => {
-                    let mut chosen = None;
-                    for edge in graph.edges.iter().filter(|edge| edge.source == current_id) {
-                        if edge.source_handle.as_deref() == Some(handle) {
-                            chosen = Some(edge);
-                            break;
-                        }
-                        if chosen.is_none() {
-                            chosen = Some(edge);
-                        }
-                    }
-                    chosen
-                }
+                NextDirective::Branch(handle) => graph
+                    .edges
+                    .iter()
+                    .find(|edge| edge.source == current_id && edge.source_handle.as_deref() == Some(handle)),
             };
 
             match next {
@@ -588,26 +580,31 @@ impl WorkflowExecutor {
                 }
 
                 let source_path = get_string(node, "sourcePath", "");
-                let threshold = get_f32(node, "threshold", 0.9).clamp(0.0, 1.0);
-                let timeout_ms = get_u64(node, "timeoutMs", 3000);
+                let threshold = get_f32(node, "threshold", 0.99).clamp(0.0, 1.0);
+                let timeout_ms = get_u64(node, "timeoutMs", 10_000);
                 let poll_ms = get_u64(node, "pollMs", 16).max(1);
                 let click_on_match = get_bool(node, "clickOnMatch", false);
                 let click_times = get_u64(node, "clickTimes", 1).max(1) as usize;
-                let warmup_frames = get_u64(node, "warmupFrames", 3);
                 let confirm_frames = get_u64(node, "confirmFrames", 2).max(1);
-                let debug_cache = get_bool(node, "debugCache", true);
-                let debug_save_every = get_u64(node, "debugSaveEvery", 15).max(1);
-                let debug_dir_input = get_string(node, "debugDir", "");
+                let debug_save_every = IMAGE_MATCH_DEBUG_SAVE_EVERY;
                 let mut matcher = image_match::TemplateMatcher::from_path(&template_path, threshold)?;
-                let debug_dir = if debug_cache {
-                    Some(prepare_image_match_debug_dir(node, &debug_dir_input)?)
-                } else {
-                    None
-                };
+                let debug_dir = Some(prepare_image_match_debug_dir(node)?);
+
+                if let Some(dir) = &debug_dir {
+                    on_log(
+                        "info",
+                        format!(
+                            "图像匹配节点 '{}' 调试缓存目录：{}",
+                            node.label,
+                            dir.display()
+                        ),
+                    );
+                }
 
                 let started = tokio::time::Instant::now();
                 let deadline = Duration::from_millis(timeout_ms);
                 let poll_interval = Duration::from_millis(poll_ms);
+                let fast_confirm_interval = Duration::from_millis(1);
                 let mut attempts: u64 = 0;
                 let mut matched_streak: u64 = 0;
                 let mut best_similarity_seen = 0.0_f32;
@@ -694,19 +691,36 @@ impl WorkflowExecutor {
                 };
 
                 loop {
+                    let fast_confirm_mode = matched_streak > 0 && matched_streak < confirm_frames;
                     let frame = if stream_mode {
-                        tokio::task::block_in_place(|| {
+                        let stream_recv_timeout = if fast_confirm_mode {
+                            fast_confirm_interval
+                        } else {
+                            poll_interval
+                        };
+
+                        let recv_result = tokio::task::block_in_place(|| {
                             stream
                                 .as_mut()
                                 .expect("stream should exist in stream mode")
-                                .recv_gray_timeout(poll_interval)
-                        })
-                        .map_err(|error| {
-                            CommandFlowError::Automation(format!(
-                                "imageMatch stream recv failed at node '{}' (likely 0x80070057 in recorder/driver): {}",
-                                node.label, error
-                            ))
-                        })?
+                                .recv_gray_timeout(stream_recv_timeout)
+                        });
+
+                        match recv_result {
+                            Ok(frame) => frame,
+                            Err(error) => {
+                                stream_mode = false;
+                                stream = None;
+                                on_log(
+                                    "warn",
+                                    format!(
+                                        "图像匹配节点 '{}' 帧流接收异常，已降级为单帧抓取轮询：{}",
+                                        node.label, error
+                                    ),
+                                );
+                                continue;
+                            }
+                        }
                     } else {
                         Some(screenshot::capture_fullscreen_gray().map_err(|error| {
                             CommandFlowError::Automation(format!(
@@ -731,44 +745,6 @@ impl WorkflowExecutor {
                     };
 
                     attempts += 1;
-
-                    if warmup_frames > 0 && attempts <= warmup_frames {
-                        on_log(
-                            "info",
-                            format!(
-                                "图像匹配节点 '{}' 预热帧 {}/{}，本帧不参与判定。",
-                                node.label, attempts, warmup_frames
-                            ),
-                        );
-
-                        if let Some(dir) = &debug_dir {
-                            if attempts == 1 || attempts % debug_save_every == 0 {
-                                let frame_path = dir.join(format!("warmup-{:04}.png", attempts));
-                                let _ = screenshot::save_gray_with_box(
-                                    path_to_string(&frame_path)?,
-                                    &frame,
-                                    None,
-                                    false,
-                                );
-                            }
-                        }
-
-                        if started.elapsed() >= deadline {
-                            on_log(
-                                "warn",
-                                format!(
-                                    "图像匹配节点 '{}' 在预热期间超时，已走 false 分支。",
-                                    node.label
-                                ),
-                            );
-                            return Ok(NextDirective::Branch("false"));
-                        }
-
-                        if !stream_mode {
-                            sleep(poll_interval).await;
-                        }
-                        continue;
-                    }
 
                     let evaluation = matcher.evaluate(&frame);
                     best_similarity_seen = best_similarity_seen.max(evaluation.best_similarity);
@@ -868,7 +844,9 @@ impl WorkflowExecutor {
                     }
 
                     if !stream_mode {
-                        sleep(poll_interval).await;
+                        if !fast_confirm_mode {
+                            sleep(poll_interval).await;
+                        }
                     }
                 }
             }
@@ -886,6 +864,144 @@ impl WorkflowExecutor {
                     let value = node.params.get("value").cloned().unwrap_or(Value::Null);
                     ctx.variables.insert(name, value);
                 }
+                Ok(NextDirective::Default)
+            }
+            NodeKind::VarMath => {
+                let name = get_string(node, "name", "");
+                if name.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' variable name cannot be empty",
+                        node.id
+                    )));
+                }
+
+                let operation = get_string(node, "operation", "add").to_lowercase();
+                let operand = get_f64(node, "operand", 1.0);
+                let current = ctx.variables.get(&name).map(as_f64).unwrap_or(0.0);
+                let current_i64 = current as i64;
+                let operand_i64 = operand as i64;
+                let shift_bits = operand_i64.max(0) as u32;
+
+                let bool_to_num = |v: bool| if v { 1.0 } else { 0.0 };
+                let as_bool = |v: f64| v.abs() > f64::EPSILON;
+
+                let result = match operation.as_str() {
+                    "add" | "+" => current + operand,
+                    "sub" | "-" => current - operand,
+                    "mul" | "*" => current * operand,
+                    "div" | "/" => {
+                        if operand.abs() < f64::EPSILON {
+                            return Err(CommandFlowError::Validation(format!(
+                                "node '{}' division by zero",
+                                node.id
+                            )));
+                        }
+                        current / operand
+                    }
+                    "mod" | "%" => {
+                        if operand.abs() < f64::EPSILON {
+                            return Err(CommandFlowError::Validation(format!(
+                                "node '{}' modulo by zero",
+                                node.id
+                            )));
+                        }
+                        current.rem_euclid(operand)
+                    }
+                    "rem" => {
+                        if operand.abs() < f64::EPSILON {
+                            return Err(CommandFlowError::Validation(format!(
+                                "node '{}' remainder by zero",
+                                node.id
+                            )));
+                        }
+                        current % operand
+                    }
+                    "floordiv" => {
+                        if operand.abs() < f64::EPSILON {
+                            return Err(CommandFlowError::Validation(format!(
+                                "node '{}' floor division by zero",
+                                node.id
+                            )));
+                        }
+                        (current / operand).floor()
+                    }
+                    "pow" => current.powf(operand),
+                    "max" => current.max(operand),
+                    "min" => current.min(operand),
+                    "hypot" => current.hypot(operand),
+                    "atan2" => current.atan2(operand),
+                    "eq" | "==" => bool_to_num((current - operand).abs() < f64::EPSILON),
+                    "ne" | "!=" => bool_to_num((current - operand).abs() >= f64::EPSILON),
+                    "gt" | ">" => bool_to_num(current > operand),
+                    "ge" | ">=" => bool_to_num(current >= operand),
+                    "lt" | "<" => bool_to_num(current < operand),
+                    "le" | "<=" => bool_to_num(current <= operand),
+                    "land" | "&&" => bool_to_num(as_bool(current) && as_bool(operand)),
+                    "lor" | "||" => bool_to_num(as_bool(current) || as_bool(operand)),
+                    "lxor" => bool_to_num(as_bool(current) ^ as_bool(operand)),
+                    "band" | "&" => (current_i64 & operand_i64) as f64,
+                    "bor" | "|" => (current_i64 | operand_i64) as f64,
+                    "bxor" | "^" => (current_i64 ^ operand_i64) as f64,
+                    "shl" | "<<" => (current_i64.wrapping_shl(shift_bits)) as f64,
+                    "shr" | ">>" => (current_i64.wrapping_shr(shift_bits)) as f64,
+                    "ushr" | ">>>" => ((current_i64 as u64).wrapping_shr(shift_bits)) as f64,
+                    "neg" => -current,
+                    "abs" => current.abs(),
+                    "sign" => current.signum(),
+                    "square" => current * current,
+                    "cube" => current * current * current,
+                    "sqrt" => current.sqrt(),
+                    "cbrt" => current.cbrt(),
+                    "exp" => current.exp(),
+                    "ln" => current.ln(),
+                    "log2" => current.log2(),
+                    "log10" => current.log10(),
+                    "sin" => current.sin(),
+                    "cos" => current.cos(),
+                    "tan" => current.tan(),
+                    "asin" => current.asin(),
+                    "acos" => current.acos(),
+                    "atan" => current.atan(),
+                    "ceil" => current.ceil(),
+                    "floor" => current.floor(),
+                    "round" => current.round(),
+                    "trunc" => current.trunc(),
+                    "frac" => current.fract(),
+                    "recip" => {
+                        if current.abs() < f64::EPSILON {
+                            return Err(CommandFlowError::Validation(format!(
+                                "node '{}' reciprocal of zero",
+                                node.id
+                            )));
+                        }
+                        current.recip()
+                    }
+                    "lnot" | "!" => bool_to_num(!as_bool(current)),
+                    "bnot" | "~" => (!current_i64) as f64,
+                    "set" | "=" => operand,
+                    _ => {
+                        return Err(CommandFlowError::Validation(format!(
+                            "node '{}' has unsupported varMath operation '{}'",
+                            node.id, operation
+                        )));
+                    }
+                };
+
+                if !result.is_finite() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' varMath result is not finite",
+                        node.id
+                    )));
+                }
+
+                let result_value = Number::from_f64(result).ok_or_else(|| {
+                    CommandFlowError::Validation(format!(
+                        "node '{}' varMath failed to serialize numeric result",
+                        node.id
+                    ))
+                })?;
+
+                ctx.variables.insert(name, Value::Number(result_value));
                 Ok(NextDirective::Default)
             }
         }
@@ -1118,6 +1234,13 @@ fn get_f32(node: &WorkflowNode, key: &str, default: f32) -> f32 {
         .unwrap_or(default)
 }
 
+fn get_f64(node: &WorkflowNode, key: &str, default: f64) -> f64 {
+    node.params
+        .get(key)
+        .and_then(|value| value.as_f64())
+        .unwrap_or(default)
+}
+
 fn get_bool(node: &WorkflowNode, key: &str, default: bool) -> bool {
     node.params
         .get(key)
@@ -1223,14 +1346,9 @@ async fn sleep_after_node(node: &WorkflowNode) {
     }
 }
 
-fn prepare_image_match_debug_dir(node: &WorkflowNode, debug_dir_input: &str) -> CommandResult<PathBuf> {
-    let base = if debug_dir_input.trim().is_empty() {
-        let mut temp = std::env::temp_dir();
-        temp.push("commandflow-image-match-debug");
-        temp
-    } else {
-        PathBuf::from(debug_dir_input)
-    };
+fn prepare_image_match_debug_dir(node: &WorkflowNode) -> CommandResult<PathBuf> {
+    let mut base = std::env::temp_dir();
+    base.push("commandflow-image-match-debug");
 
     fs::create_dir_all(&base).map_err(|error| CommandFlowError::Io(error.to_string()))?;
 
