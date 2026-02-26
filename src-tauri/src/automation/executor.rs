@@ -3,6 +3,7 @@ use crate::error::{CommandFlowError, CommandResult};
 use crate::workflow::graph::WorkflowGraph;
 use crate::workflow::node::{NodeKind, WorkflowNode};
 use serde_json::{Number, Value};
+use std::backtrace::Backtrace;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
@@ -697,77 +698,76 @@ impl WorkflowExecutor {
                     return Ok(NextDirective::Branch("false"));
                 }
 
-                let mut stream_mode = true;
-                let mut stream = match screenshot::start_primary_frame_stream() {
-                    Ok(s) => {
-                        on_log(
-                            "info",
-                            format!(
-                                "图像匹配节点 '{}' 已启用 xcap 实时帧流匹配。",
-                                node.label
-                            ),
-                        );
-                        Some(s)
-                    }
-                    Err(error) => {
-                        stream_mode = false;
-                        on_log(
-                            "warn",
-                            format!(
-                                "图像匹配节点 '{}' 启动帧流失败，将降级为单帧抓取轮询：{}",
-                                node.label, error
-                            ),
-                        );
-                        None
-                    }
-                };
+                screenshot::ensure_primary_frame_stream().map_err(|error| {
+                    let bt = Backtrace::force_capture();
+                    CommandFlowError::Automation(format!(
+                        "imageMatch xcap stream init failed at node '{}': {}\nbacktrace:\n{}",
+                        node.label, error, bt
+                    ))
+                })?;
+
+                on_log(
+                    "info",
+                    format!(
+                        "图像匹配节点 '{}' 已启用 xcap 实时帧流匹配（复用单例实例）。",
+                        node.label
+                    ),
+                );
+
+                let mut stream_recover_attempted = false;
 
                 loop {
                     if should_cancel() {
+                        let _ = screenshot::stop_primary_frame_stream();
                         return Err(CommandFlowError::Canceled);
                     }
 
                     let fast_confirm_mode = matched_streak > 0 && matched_streak < confirm_frames;
-                    let frame = if stream_mode {
-                        let stream_recv_timeout = if fast_confirm_mode {
-                            fast_confirm_interval
-                        } else {
-                            poll_interval
-                        };
+                    let stream_recv_timeout = if fast_confirm_mode {
+                        fast_confirm_interval
+                    } else {
+                        poll_interval
+                    };
 
-                        let recv_result = tokio::task::block_in_place(|| {
-                            stream
-                                .as_mut()
-                                .expect("stream should exist in stream mode")
-                                .recv_gray_timeout(stream_recv_timeout)
-                        });
+                    let recv_result = tokio::task::block_in_place(|| {
+                        screenshot::recv_primary_frame_gray_timeout(stream_recv_timeout)
+                    });
 
-                        match recv_result {
-                            Ok(frame) => frame,
-                            Err(error) => {
-                                stream_mode = false;
-                                stream = None;
+                    let frame = match recv_result {
+                        Ok(frame) => frame,
+                        Err(error) => {
+                            if !stream_recover_attempted {
+                                stream_recover_attempted = true;
                                 on_log(
                                     "warn",
                                     format!(
-                                        "图像匹配节点 '{}' 帧流接收异常，已降级为单帧抓取轮询：{}",
+                                        "图像匹配节点 '{}' 帧流接收异常，尝试重置并重建 xcap 实例：{}",
                                         node.label, error
                                     ),
                                 );
+
+                                let _ = screenshot::reset_primary_frame_stream("image_match_recv_failed");
+                                screenshot::ensure_primary_frame_stream().map_err(|reinit_error| {
+                                    let bt = Backtrace::force_capture();
+                                    CommandFlowError::Automation(format!(
+                                        "imageMatch xcap stream recover failed at node '{}': recv_error={}, reinit_error={}\nbacktrace:\n{}",
+                                        node.label, error, reinit_error, bt
+                                    ))
+                                })?;
                                 continue;
                             }
+
+                            let bt = Backtrace::force_capture();
+                            return Err(CommandFlowError::Automation(format!(
+                                "imageMatch xcap stream recv failed at node '{}': {}\nbacktrace:\n{}",
+                                node.label, error, bt
+                            )));
                         }
-                    } else {
-                        Some(screenshot::capture_fullscreen_gray().map_err(|error| {
-                            CommandFlowError::Automation(format!(
-                                "imageMatch snapshot capture failed at node '{}': {}",
-                                node.label, error
-                            ))
-                        })?)
                     };
 
                     let Some(frame) = frame else {
                         if started.elapsed() >= deadline {
+                            let _ = screenshot::stop_primary_frame_stream();
                             on_log(
                                 "warn",
                                 format!(
@@ -833,6 +833,7 @@ impl WorkflowExecutor {
                         let (x, y) = evaluation
                             .matched_point
                             .ok_or_else(|| CommandFlowError::Automation("matched point missing".to_string()))?;
+                        let _ = screenshot::stop_primary_frame_stream();
                         on_log(
                             "info",
                             format!(
@@ -869,6 +870,7 @@ impl WorkflowExecutor {
                     }
 
                     if started.elapsed() >= deadline {
+                        let _ = screenshot::stop_primary_frame_stream();
                         on_log(
                             "warn",
                             format!(
@@ -877,12 +879,6 @@ impl WorkflowExecutor {
                             ),
                         );
                         return Ok(NextDirective::Branch("false"));
-                    }
-
-                    if !stream_mode {
-                        if !fast_confirm_mode {
-                            interruptible_sleep(poll_interval, should_cancel).await?;
-                        }
                     }
                 }
             }

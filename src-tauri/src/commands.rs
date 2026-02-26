@@ -1,4 +1,5 @@
 use crate::automation::executor::WorkflowExecutor;
+use crate::automation::screenshot;
 use crate::automation::window;
 use crate::workflow::graph::WorkflowGraph;
 use serde::{Deserialize, Serialize};
@@ -151,10 +152,24 @@ pub async fn stop_workflow() -> Result<String, String> {
     let control = execution_control();
     control.cancel_requested.store(true, Ordering::SeqCst);
 
+    let reset_result = screenshot::reset_primary_frame_stream("stop_workflow");
+
     if control.running.load(Ordering::SeqCst) {
-        Ok("停止信号已发送，正在中断当前执行...".to_string())
+        match reset_result {
+            Ok(()) => Ok("停止信号已发送，已重置 xcap 帧流实例，正在中断当前执行...".to_string()),
+            Err(error) => Ok(format!(
+                "停止信号已发送，但重置 xcap 帧流实例失败：{}",
+                error
+            )),
+        }
     } else {
-        Ok("当前没有正在执行的工作流。".to_string())
+        match reset_result {
+            Ok(()) => Ok("当前没有正在执行的工作流；已清理 xcap 帧流实例。".to_string()),
+            Err(error) => Ok(format!(
+                "当前没有正在执行的工作流；但清理 xcap 帧流实例失败：{}",
+                error
+            )),
+        }
     }
 }
 

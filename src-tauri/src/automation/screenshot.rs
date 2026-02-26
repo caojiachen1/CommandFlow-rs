@@ -3,13 +3,14 @@ use image::{GrayImage, ImageBuffer, Luma, Rgba};
 use std::fs;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use xcap::{Frame, Monitor, VideoRecorder};
 
-const STREAM_START_RETRY: usize = 3;
-const STREAM_START_RETRY_DELAY: Duration = Duration::from_millis(60);
-const STREAM_STOP_SETTLE_DELAY: Duration = Duration::from_millis(80);
+const STREAM_START_RETRY: usize = 5;
+const STREAM_START_RETRY_DELAY: Duration = Duration::from_millis(250);
+const STREAM_STOP_SETTLE_DELAY: Duration = Duration::from_millis(450);
 
 pub struct PrimaryFrameStream {
     recorder: VideoRecorder,
@@ -33,6 +34,11 @@ impl Drop for PrimaryFrameStream {
         let _ = self.recorder.stop();
         thread::sleep(STREAM_STOP_SETTLE_DELAY);
     }
+}
+
+fn primary_stream_store() -> &'static Mutex<Option<PrimaryFrameStream>> {
+    static PRIMARY_STREAM: OnceLock<Mutex<Option<PrimaryFrameStream>>> = OnceLock::new();
+    PRIMARY_STREAM.get_or_init(|| Mutex::new(None))
 }
 
 fn ensure_output_parent(path: &str) -> CommandResult<()> {
@@ -77,49 +83,127 @@ pub fn capture_fullscreen_gray() -> CommandResult<GrayImage> {
 
 pub fn start_primary_frame_stream() -> CommandResult<PrimaryFrameStream> {
     let mut last_error: Option<String> = None;
+    let monitors = monitor_candidates()?;
+
+    if monitors.is_empty() {
+        return Err(CommandFlowError::Automation(
+            "failed to start xcap frame stream: no monitor candidate found".to_string(),
+        ));
+    }
 
     for attempt in 1..=STREAM_START_RETRY {
-        let monitor = primary_monitor()?;
-        let stream = monitor
-            .video_recorder()
-            .map_err(|error| {
-                CommandFlowError::Automation(format!(
-                    "xcap video_recorder init failed (attempt {}): {}",
-                    attempt, error
-                ))
-            });
+        for monitor in &monitors {
+            let monitor_label = describe_monitor(monitor);
+            let stream = monitor
+                .video_recorder()
+                .map_err(|error| {
+                    CommandFlowError::Automation(format!(
+                        "xcap video_recorder init failed (attempt {}, monitor={}): {}",
+                        attempt, monitor_label, error
+                    ))
+                });
 
-        let (recorder, receiver) = match stream {
-            Ok(v) => v,
-            Err(error) => {
-                last_error = Some(error.to_string());
-                if attempt < STREAM_START_RETRY {
-                    thread::sleep(STREAM_START_RETRY_DELAY);
+            let (recorder, receiver) = match stream {
+                Ok(v) => v,
+                Err(error) => {
+                    last_error = Some(error.to_string());
                     continue;
                 }
-                break;
-            }
-        };
+            };
 
-        match recorder.start() {
-            Ok(()) => return Ok(PrimaryFrameStream { recorder, receiver }),
-            Err(error) => {
-                last_error = Some(format!(
-                    "xcap recorder.start failed (attempt {}): {}",
-                    attempt, error
-                ));
-                if attempt < STREAM_START_RETRY {
-                    thread::sleep(STREAM_START_RETRY_DELAY);
-                    continue;
+            match recorder.start() {
+                Ok(()) => return Ok(PrimaryFrameStream { recorder, receiver }),
+                Err(error) => {
+                    let _ = recorder.stop();
+                    thread::sleep(STREAM_STOP_SETTLE_DELAY);
+                    last_error = Some(format!(
+                        "xcap recorder.start failed (attempt {}, monitor={}): {}",
+                        attempt, monitor_label, error
+                    ));
                 }
             }
         }
+
+        if attempt < STREAM_START_RETRY {
+            thread::sleep(STREAM_START_RETRY_DELAY);
+        }
     }
 
+    let detail = last_error.unwrap_or_else(|| "unknown error".to_string());
     Err(CommandFlowError::Automation(format!(
-        "failed to start xcap frame stream: {}",
-        last_error.unwrap_or_else(|| "unknown error".to_string())
+        "failed to start xcap frame stream after {} attempts: {}",
+        STREAM_START_RETRY, detail
     )))
+}
+
+pub fn ensure_primary_frame_stream() -> CommandResult<()> {
+    let store = primary_stream_store();
+    let mut guard = store
+        .lock()
+        .map_err(|_| CommandFlowError::Automation("primary stream mutex poisoned".to_string()))?;
+
+    if guard.is_none() {
+        let stream = start_primary_frame_stream()?;
+        *guard = Some(stream);
+    }
+
+    let stream = guard
+        .as_ref()
+        .ok_or_else(|| CommandFlowError::Automation("primary frame stream unavailable".to_string()))?;
+
+    stream
+        .recorder
+        .start()
+        .map_err(|error| CommandFlowError::Automation(format!("xcap recorder.start failed: {}", error)))?;
+
+    Ok(())
+}
+
+pub fn recv_primary_frame_gray_timeout(timeout: Duration) -> CommandResult<Option<GrayImage>> {
+    let store = primary_stream_store();
+    let mut guard = store
+        .lock()
+        .map_err(|_| CommandFlowError::Automation("primary stream mutex poisoned".to_string()))?;
+
+    let stream = guard
+        .as_mut()
+        .ok_or_else(|| CommandFlowError::Automation("primary frame stream has not been initialized".to_string()))?;
+
+    stream.recv_gray_timeout(timeout)
+}
+
+pub fn stop_primary_frame_stream() -> CommandResult<()> {
+    let store = primary_stream_store();
+    let guard = store
+        .lock()
+        .map_err(|_| CommandFlowError::Automation("primary stream mutex poisoned".to_string()))?;
+
+    if let Some(stream) = guard.as_ref() {
+        stream
+            .recorder
+            .stop()
+            .map_err(|error| CommandFlowError::Automation(format!("xcap recorder.stop failed: {}", error)))?;
+    }
+
+    Ok(())
+}
+
+pub fn reset_primary_frame_stream(reason: &str) -> CommandResult<()> {
+    let store = primary_stream_store();
+    let mut guard = store
+        .lock()
+        .map_err(|_| CommandFlowError::Automation("primary stream mutex poisoned".to_string()))?;
+
+    if let Some(stream) = guard.take() {
+        let _ = stream.recorder.stop();
+        thread::sleep(STREAM_STOP_SETTLE_DELAY);
+    }
+
+    if reason.trim().is_empty() {
+        return Ok(());
+    }
+
+    Ok(())
 }
 
 pub fn save_gray(path: &str, gray: &GrayImage) -> CommandResult<String> {
@@ -229,6 +313,27 @@ fn primary_monitor() -> CommandResult<Monitor> {
         .find(|monitor| monitor.is_primary().unwrap_or(false))
         .or_else(|| Monitor::from_point(0, 0).ok())
         .ok_or_else(|| CommandFlowError::Automation("failed to resolve primary monitor".to_string()))
+}
+
+fn monitor_candidates() -> CommandResult<Vec<Monitor>> {
+    let mut monitors = Monitor::all().map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+
+    if let Some(from_point) = Monitor::from_point(0, 0).ok() {
+        monitors.insert(0, from_point);
+    }
+
+    Ok(monitors)
+}
+
+fn describe_monitor(monitor: &Monitor) -> String {
+    let name = monitor
+        .name()
+        .unwrap_or_else(|_| "unknown".to_string());
+    let x = monitor.x().unwrap_or_default();
+    let y = monitor.y().unwrap_or_default();
+    let w = monitor.width().unwrap_or_default();
+    let h = monitor.height().unwrap_or_default();
+    format!("{}@({}, {}) {}x{}", name, x, y, w, h)
 }
 
 fn save_rgba(path: &str, rgba: Vec<u8>, width: u32, height: u32) -> CommandResult<String> {
