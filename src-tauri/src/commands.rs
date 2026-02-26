@@ -4,6 +4,7 @@ use crate::workflow::graph::WorkflowGraph;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size};
 
@@ -22,6 +23,17 @@ struct WindowSnapshot {
 fn window_snapshot_store() -> &'static Mutex<Option<WindowSnapshot>> {
     static WINDOW_SNAPSHOT: OnceLock<Mutex<Option<WindowSnapshot>>> = OnceLock::new();
     WINDOW_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
+#[derive(Debug, Default)]
+struct ExecutionControl {
+    running: AtomicBool,
+    cancel_requested: AtomicBool,
+}
+
+fn execution_control() -> &'static ExecutionControl {
+    static EXECUTION_CONTROL: OnceLock<ExecutionControl> = OnceLock::new();
+    EXECUTION_CONTROL.get_or_init(ExecutionControl::default)
 }
 
 #[cfg(target_os = "windows")]
@@ -76,6 +88,17 @@ pub async fn health_check() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String, String> {
+    let control = execution_control();
+    if control
+        .running
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("已有工作流在执行中，请先停止当前执行。".to_string());
+    }
+
+    control.cancel_requested.store(false, Ordering::SeqCst);
+
     let executor = WorkflowExecutor::default();
     let mut emit_progress = |node: &crate::workflow::node::WorkflowNode| {
         let _ = app.emit(
@@ -105,16 +128,34 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             },
         );
     };
-    executor
-        .execute_with_progress(&graph, &mut emit_progress, &mut emit_variables, &mut emit_log)
-        .await
-        .map_err(|e| e.to_string())?;
+
+    let run_result = executor
+        .execute_with_progress(
+            &graph,
+            &mut emit_progress,
+            &mut emit_variables,
+            &mut emit_log,
+            &|| control.cancel_requested.load(Ordering::Relaxed),
+        )
+        .await;
+
+    control.cancel_requested.store(false, Ordering::SeqCst);
+    control.running.store(false, Ordering::SeqCst);
+
+    run_result.map_err(|e| e.to_string())?;
     Ok("workflow finished".to_string())
 }
 
 #[tauri::command]
 pub async fn stop_workflow() -> Result<String, String> {
-    Ok("stop signal delivered".to_string())
+    let control = execution_control();
+    control.cancel_requested.store(true, Ordering::SeqCst);
+
+    if control.running.load(Ordering::SeqCst) {
+        Ok("停止信号已发送，正在中断当前执行...".to_string())
+    } else {
+        Ok("当前没有正在执行的工作流。".to_string())
+    }
 }
 
 #[tauri::command]

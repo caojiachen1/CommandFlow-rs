@@ -34,21 +34,30 @@ impl WorkflowExecutor {
         let mut noop = |_node: &WorkflowNode| {};
         let mut noop_vars = |_variables: &HashMap<String, Value>| {};
         let mut noop_log = |_level: &str, _message: String| {};
-        self.execute_with_progress(graph, &mut noop, &mut noop_vars, &mut noop_log)
+        let never_cancel = || false;
+        self.execute_with_progress(
+            graph,
+            &mut noop,
+            &mut noop_vars,
+            &mut noop_log,
+            &never_cancel,
+        )
             .await
     }
 
-    pub async fn execute_with_progress<F, G, H>(
+    pub async fn execute_with_progress<F, G, H, I>(
         &self,
         graph: &WorkflowGraph,
         on_node_start: &mut F,
         on_variables_update: &mut G,
         on_log: &mut H,
+        should_cancel: &I,
     ) -> CommandResult<()>
     where
         F: FnMut(&WorkflowNode),
         G: FnMut(&HashMap<String, Value>),
         H: FnMut(&str, String),
+        I: Fn() -> bool,
     {
         if graph.nodes.is_empty() {
             return Err(CommandFlowError::Validation(
@@ -115,6 +124,7 @@ impl WorkflowExecutor {
                     on_node_start,
                     on_variables_update,
                     on_log,
+                    should_cancel,
                 )
                     .await?;
             }
@@ -132,12 +142,17 @@ impl WorkflowExecutor {
         on_node_start: &mut impl FnMut(&WorkflowNode),
         on_variables_update: &mut impl FnMut(&HashMap<String, Value>),
         on_log: &mut impl FnMut(&str, String),
+        should_cancel: &impl Fn() -> bool,
     ) -> CommandResult<()> {
         let mut current_id = start_id.to_string();
         let mut guard_steps = 0usize;
         let mut loop_stack: Vec<String> = Vec::new();
 
         while guard_steps < 10_000 {
+            if should_cancel() {
+                return Err(CommandFlowError::Canceled);
+            }
+
             guard_steps += 1;
             let node = node_map.get(current_id.as_str()).ok_or_else(|| {
                 CommandFlowError::Validation(format!("node '{}' not found", current_id))
@@ -184,7 +199,7 @@ impl WorkflowExecutor {
                                     loop_stack.push(node.id.clone());
                                 }
 
-                                sleep_after_node(node).await;
+                                sleep_after_node(node, should_cancel).await?;
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -198,18 +213,18 @@ impl WorkflowExecutor {
                         }
 
                         if let Some(edge) = done_edge {
-                            sleep_after_node(node).await;
+                            sleep_after_node(node, should_cancel).await?;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
-                            sleep_after_node(node).await;
+                            sleep_after_node(node, should_cancel).await?;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
 
-                        sleep_after_node(node).await;
+                        sleep_after_node(node, should_cancel).await?;
                         return Ok(());
                     }
                     NodeKind::WhileLoop => {
@@ -225,7 +240,7 @@ impl WorkflowExecutor {
                                     loop_stack.push(node.id.clone());
                                 }
 
-                                sleep_after_node(node).await;
+                                sleep_after_node(node, should_cancel).await?;
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -245,26 +260,28 @@ impl WorkflowExecutor {
                         }
 
                         if let Some(edge) = done_edge {
-                            sleep_after_node(node).await;
+                            sleep_after_node(node, should_cancel).await?;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
-                            sleep_after_node(node).await;
+                            sleep_after_node(node, should_cancel).await?;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
 
-                        sleep_after_node(node).await;
+                        sleep_after_node(node, should_cancel).await?;
                         return Ok(());
                     }
                     _ => {}
                 }
             }
 
-            let directive = self.execute_single_node(node, ctx, on_log).await?;
-            sleep_after_node(node).await;
+            let directive = self
+                .execute_single_node(node, ctx, on_log, should_cancel)
+                .await?;
+            sleep_after_node(node, should_cancel).await?;
             on_variables_update(&ctx.variables);
 
             let outgoing = graph.edges.iter().filter(|edge| edge.source == current_id);
@@ -299,6 +316,7 @@ impl WorkflowExecutor {
         node: &WorkflowNode,
         ctx: &mut ExecutionContext,
         on_log: &mut impl FnMut(&str, String),
+        should_cancel: &impl Fn() -> bool,
     ) -> CommandResult<NextDirective> {
         match node.kind {
             NodeKind::HotkeyTrigger => {
@@ -310,7 +328,7 @@ impl WorkflowExecutor {
             }
             NodeKind::TimerTrigger => {
                 let interval_ms = get_u64(node, "intervalMs", 1000);
-                sleep(Duration::from_millis(interval_ms)).await;
+                interruptible_sleep(Duration::from_millis(interval_ms), should_cancel).await?;
                 Ok(NextDirective::Default)
             }
             NodeKind::ManualTrigger => Ok(NextDirective::Default),
@@ -332,6 +350,10 @@ impl WorkflowExecutor {
                 let started = tokio::time::Instant::now();
 
                 loop {
+                    if should_cancel() {
+                        return Err(CommandFlowError::Canceled);
+                    }
+
                     if window::window_title_exists(&title, &match_mode)? {
                         break;
                     }
@@ -343,7 +365,7 @@ impl WorkflowExecutor {
                         )));
                     }
 
-                    sleep(poll_interval).await;
+                    interruptible_sleep(poll_interval, should_cancel).await?;
                 }
 
                 Ok(NextDirective::Default)
@@ -407,9 +429,14 @@ impl WorkflowExecutor {
                     let repeat_interval_ms = get_u64(node, "repeatIntervalMs", 35).max(1);
 
                     for i in 0..repeat_count {
+                        if should_cancel() {
+                            return Err(CommandFlowError::Canceled);
+                        }
+
                         keyboard::key_tap_by_name(&key)?;
                         if i + 1 < repeat_count {
-                            sleep(Duration::from_millis(repeat_interval_ms)).await;
+                            interruptible_sleep(Duration::from_millis(repeat_interval_ms), should_cancel)
+                                .await?;
                         }
                     }
                 } else {
@@ -448,9 +475,14 @@ impl WorkflowExecutor {
                     let times = get_u64(node, "shortcutTimes", 1).max(1);
                     let interval_ms = get_u64(node, "shortcutIntervalMs", 120).max(1);
                     for i in 0..times {
+                        if should_cancel() {
+                            return Err(CommandFlowError::Canceled);
+                        }
+
                         keyboard::shortcut_by_hotkey(&shortcut)?;
                         if i + 1 < times {
-                            sleep(Duration::from_millis(interval_ms)).await;
+                            interruptible_sleep(Duration::from_millis(interval_ms), should_cancel)
+                                .await?;
                         }
                     }
                 } else {
@@ -522,7 +554,7 @@ impl WorkflowExecutor {
             }
             NodeKind::Delay => {
                 let duration = get_u64(node, "ms", 100);
-                sleep(Duration::from_millis(duration)).await;
+                interruptible_sleep(Duration::from_millis(duration), should_cancel).await?;
                 Ok(NextDirective::Default)
             }
             NodeKind::Condition => {
@@ -691,6 +723,10 @@ impl WorkflowExecutor {
                 };
 
                 loop {
+                    if should_cancel() {
+                        return Err(CommandFlowError::Canceled);
+                    }
+
                     let fast_confirm_mode = matched_streak > 0 && matched_streak < confirm_frames;
                     let frame = if stream_mode {
                         let stream_recv_timeout = if fast_confirm_mode {
@@ -845,7 +881,7 @@ impl WorkflowExecutor {
 
                     if !stream_mode {
                         if !fast_confirm_mode {
-                            sleep(poll_interval).await;
+                            interruptible_sleep(poll_interval, should_cancel).await?;
                         }
                     }
                 }
@@ -1362,10 +1398,36 @@ fn as_optional_f64(value: &Value) -> Option<f64> {
         .or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
 }
 
-async fn sleep_after_node(node: &WorkflowNode) {
+async fn sleep_after_node(
+    node: &WorkflowNode,
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<()> {
     let post_delay_ms = get_u64(node, "postDelayMs", DEFAULT_POST_DELAY_MS);
     if post_delay_ms > 0 {
-        sleep(Duration::from_millis(post_delay_ms)).await;
+        interruptible_sleep(Duration::from_millis(post_delay_ms), should_cancel).await?;
+    }
+    Ok(())
+}
+
+async fn interruptible_sleep(
+    duration: Duration,
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<()> {
+    const SLEEP_SLICE: Duration = Duration::from_millis(25);
+
+    let deadline = tokio::time::Instant::now() + duration;
+    loop {
+        if should_cancel() {
+            return Err(CommandFlowError::Canceled);
+        }
+
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return Ok(());
+        }
+
+        let remaining = deadline.saturating_duration_since(now);
+        sleep(remaining.min(SLEEP_SLICE)).await;
     }
 }
 
