@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Positio
 struct WindowSnapshot {
     size: PhysicalSize<u32>,
     position: PhysicalPosition<i32>,
+    was_maximized: bool,
 }
 
 fn window_snapshot_store() -> &'static Mutex<Option<WindowSnapshot>> {
@@ -146,8 +147,17 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
             if snapshot_guard.is_none() {
                 let size = window.inner_size().map_err(|error| error.to_string())?;
                 let position = window.outer_position().map_err(|error| error.to_string())?;
-                *snapshot_guard = Some(WindowSnapshot { size, position });
+                let was_maximized = window.is_maximized().map_err(|error| error.to_string())?;
+                *snapshot_guard = Some(WindowSnapshot {
+                    size,
+                    position,
+                    was_maximized,
+                });
             }
+        }
+
+        if window.is_maximized().map_err(|error| error.to_string())? {
+            window.unmaximize().map_err(|error| error.to_string())?;
         }
 
         window
@@ -158,12 +168,17 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
             .map_err(|error| error.to_string())?;
 
         if let Some(monitor) = window.current_monitor().map_err(|error| error.to_string())? {
-            let margin = 16i32;
+            let margin_x = 20i32;
+            let margin_y = 64i32;
             let monitor_pos = monitor.position();
             let monitor_size = monitor.size();
 
-            let x = monitor_pos.x + monitor_size.width as i32 - compact_width as i32 - margin;
-            let y = monitor_pos.y + monitor_size.height as i32 - compact_height as i32 - margin;
+            let min_x = monitor_pos.x;
+            let min_y = monitor_pos.y;
+            let target_x = monitor_pos.x + monitor_size.width as i32 - compact_width as i32 - margin_x;
+            let target_y = monitor_pos.y + monitor_size.height as i32 - compact_height as i32 - margin_y;
+            let x = target_x.max(min_x);
+            let y = target_y.max(min_y);
 
             window
                 .set_position(Position::Physical(PhysicalPosition { x, y }))
@@ -188,6 +203,11 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
     };
 
     if let Some(snapshot) = previous_snapshot {
+        if snapshot.was_maximized {
+            window.maximize().map_err(|error| error.to_string())?;
+            return Ok("已退出后台模式。".to_string());
+        }
+
         window
             .set_size(Size::Physical(snapshot.size))
             .map_err(|error| error.to_string())?;

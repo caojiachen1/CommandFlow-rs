@@ -222,19 +222,31 @@ function App() {
         return
       }
 
-      backgroundModeRef.current = enabled
-      setBackgroundModeState(enabled)
       setActiveMenu(null)
+
       if (enabled) {
+        backgroundModeRef.current = true
+        setBackgroundModeState(true)
         setHelpModalOpen(false)
+
+        try {
+          const message = await setBackgroundMode(true)
+          addLog('info', message)
+        } catch (error) {
+          backgroundModeRef.current = previous
+          setBackgroundModeState(previous)
+          addLog('error', `切换后台模式失败：${String(error)}`)
+        }
+        return
       }
 
       try {
-        const message = await setBackgroundMode(enabled)
+        const message = await setBackgroundMode(false)
+        await new Promise((resolve) => window.setTimeout(resolve, 80))
+        backgroundModeRef.current = false
+        setBackgroundModeState(false)
         addLog('info', message)
       } catch (error) {
-        backgroundModeRef.current = previous
-        setBackgroundModeState(previous)
         addLog('error', `切换后台模式失败：${String(error)}`)
       }
     },
