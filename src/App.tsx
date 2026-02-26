@@ -217,12 +217,24 @@ function App() {
 
   const applyBackgroundMode = useCallback(
     async (enabled: boolean) => {
+      const previous = backgroundModeRef.current
+      if (previous === enabled) {
+        return
+      }
+
+      backgroundModeRef.current = enabled
+      setBackgroundModeState(enabled)
+      setActiveMenu(null)
+      if (enabled) {
+        setHelpModalOpen(false)
+      }
+
       try {
         const message = await setBackgroundMode(enabled)
-        backgroundModeRef.current = enabled
-        setBackgroundModeState(enabled)
         addLog('info', message)
       } catch (error) {
+        backgroundModeRef.current = previous
+        setBackgroundModeState(previous)
         addLog('error', `切换后台模式失败：${String(error)}`)
       }
     },

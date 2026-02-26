@@ -97,7 +97,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     onReconnect,
     disconnectHandleConnections,
     setSelectedNode,
-    setSelectedNodes,
     addNode,
     setCursor,
   } = useWorkflowStore()
@@ -239,6 +238,17 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     }
   }, [reactFlow, setZoom])
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void reactFlow.fitView({ duration: 0, padding: 0.2 })
+      setZoom(reactFlow.getZoom())
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [reactFlow, setZoom])
+
   const [modalOpen, setModalOpen] = useState(false)
 
   useEffect(() => {
@@ -271,13 +281,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       setCursor(Math.round(point.x), Math.round(point.y))
     },
     [reactFlow, setCursor],
-  )
-
-  const onSelectionChange = useCallback(
-    ({ nodes: selectedNodes }: { nodes: Array<{ id: string }> }) => {
-      setSelectedNodes(selectedNodes.map((node) => node.id))
-    },
-    [setSelectedNodes],
   )
 
   const onConnectStart = useCallback(
@@ -397,13 +400,11 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         onReconnect={onReconnectEdge}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeDoubleClick={onNodeDoubleClick}
-        onSelectionChange={onSelectionChange}
         onPaneClick={handlePaneClick}
         onPaneMouseMove={onPaneMouseMove}
         edgesReconnectable
         reconnectRadius={28}
         connectionRadius={24}
-        fitView
         selectionMode={SelectionMode.Partial}
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"

@@ -77,6 +77,14 @@ const resolveSelectedIds = (state: WorkflowState) => {
   return state.selectedNodeId ? [state.selectedNodeId] : []
 }
 
+const shallowEqualArray = (a: string[], b: string[]) => {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
 const initialNodes: WorkflowNode[] = [
   {
     id: crypto.randomUUID(),
@@ -205,6 +213,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   future: [],
   onNodesChange: (changes) =>
     set((state) => {
+      if (changes.length === 0) return state
       const nextNodes = applyNodeChanges<WorkflowNode>(changes, state.nodes)
       const selectedNodeIds = deriveSelectedNodeIds(nextNodes)
       return {
@@ -214,9 +223,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       }
     }),
   onEdgesChange: (changes) =>
-    set((state) => ({
-      edges: applyEdgeChanges<WorkflowEdge>(changes, state.edges),
-    })),
+    set((state) => {
+      if (changes.length === 0) return state
+      return {
+        edges: applyEdgeChanges<WorkflowEdge>(changes, state.edges),
+      }
+    }),
   onConnect: (connection) =>
     set((state) => {
       const nextEdges = applyConnectionWithReplacement(state.edges, state.nodes, connection)
@@ -256,10 +268,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   setSelectedNode: (id) =>
     set((state) => {
       const selectedNodeIds = id ? [id] : []
+      if (state.selectedNodeId === id && shallowEqualArray(state.selectedNodeIds, selectedNodeIds)) {
+        return state
+      }
+
       return {
         selectedNodeId: id,
         selectedNodeIds,
-        nodes: state.nodes.map((node) => ({ ...node, selected: id !== null && node.id === id })),
       }
     }),
   setSelectedNodes: (ids) =>
@@ -268,10 +283,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const selectedNodeIds = state.nodes
         .filter((node) => selectedSet.has(node.id))
         .map((node) => node.id)
+      const nextPrimaryId = pickPrimarySelectedId(selectedNodeIds, state.selectedNodeId)
+
+      if (
+        shallowEqualArray(state.selectedNodeIds, selectedNodeIds) &&
+        state.selectedNodeId === nextPrimaryId
+      ) {
+        return state
+      }
+
       return {
         selectedNodeIds,
-        selectedNodeId: pickPrimarySelectedId(selectedNodeIds, state.selectedNodeId),
-        nodes: state.nodes.map((node) => ({ ...node, selected: selectedSet.has(node.id) })),
+        selectedNodeId: nextPrimaryId,
       }
     }),
   setCursor: (x, y) =>
