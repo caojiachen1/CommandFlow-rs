@@ -7,6 +7,11 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size};
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::RECT;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
+
 #[derive(Debug, Clone, Copy)]
 struct WindowSnapshot {
     size: PhysicalSize<u32>,
@@ -17,6 +22,24 @@ struct WindowSnapshot {
 fn window_snapshot_store() -> &'static Mutex<Option<WindowSnapshot>> {
     static WINDOW_SNAPSHOT: OnceLock<Mutex<Option<WindowSnapshot>>> = OnceLock::new();
     WINDOW_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(target_os = "windows")]
+fn get_work_area() -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let mut rect: RECT = std::mem::zeroed();
+        let result = SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            &mut rect as *mut _ as *mut _,
+            0,
+        );
+        if result != 0 {
+            Some((rect.left, rect.top, rect.right, rect.bottom))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,22 +190,39 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
             }))
             .map_err(|error| error.to_string())?;
 
-        if let Some(monitor) = window.current_monitor().map_err(|error| error.to_string())? {
-            let margin_x = 20i32;
-            let margin_y = 64i32;
-            let monitor_pos = monitor.position();
-            let monitor_size = monitor.size();
+        // 获取窗口外边框尺寸，用于精确计算位置
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let outer_size = window.outer_size().unwrap_or_else(|_| PhysicalSize { width: compact_width, height: compact_height });
 
-            let min_x = monitor_pos.x;
-            let min_y = monitor_pos.y;
-            let target_x = monitor_pos.x + monitor_size.width as i32 - compact_width as i32 - margin_x;
-            let target_y = monitor_pos.y + monitor_size.height as i32 - compact_height as i32 - margin_y;
-            let x = target_x.max(min_x);
-            let y = target_y.max(min_y);
+        #[cfg(target_os = "windows")]
+        {
+            // Windows: 使用工作区域（排除任务栏）
+            let margin = 12i32;
+            if let Some((_, _, work_right, work_bottom)) = get_work_area() {
+                // 工作区域右下角作为基准
+                let target_x = work_right - outer_size.width as i32 - margin;
+                let target_y = work_bottom - outer_size.height as i32 - margin;
+                window
+                    .set_position(Position::Physical(PhysicalPosition { x: target_x, y: target_y }))
+                    .map_err(|error| error.to_string())?;
+            }
+        }
 
-            window
-                .set_position(Position::Physical(PhysicalPosition { x, y }))
-                .map_err(|error| error.to_string())?;
+        #[cfg(not(target_os = "windows"))]
+        {
+            // 其他平台：使用显示器尺寸
+            if let Some(monitor) = window.current_monitor().map_err(|error| error.to_string())? {
+                let margin = 12i32;
+                let monitor_pos = monitor.position();
+                let monitor_size = monitor.size();
+
+                let target_x = monitor_pos.x + monitor_size.width as i32 - outer_size.width as i32 - margin;
+                let target_y = monitor_pos.y + monitor_size.height as i32 - outer_size.height as i32 - margin;
+
+                window
+                    .set_position(Position::Physical(PhysicalPosition { x: target_x, y: target_y }))
+                    .map_err(|error| error.to_string())?;
+            }
         }
 
         window
