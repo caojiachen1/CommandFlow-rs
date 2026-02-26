@@ -463,7 +463,7 @@ const metas: Record<NodeKind, NodeMeta> = {
     defaultParams: { name: 'counter', value: 0 },
     fields: [
       { key: 'name', label: '变量名', type: 'string', placeholder: 'counter' },
-      { key: 'value', label: '初始值(JSON)', type: 'json' },
+      { key: 'value', label: '初始值', type: 'number', step: 1 },
     ],
   },
   varSet: {
@@ -472,13 +472,13 @@ const metas: Record<NodeKind, NodeMeta> = {
     defaultParams: { name: 'counter', value: 1 },
     fields: [
       { key: 'name', label: '变量名', type: 'string', placeholder: 'counter' },
-      { key: 'value', label: '新值(JSON)', type: 'json' },
+      { key: 'value', label: '新值', type: 'number', step: 1 },
     ],
   },
   varMath: {
     label: '变量运算',
     description: '对变量执行扩展数值运算（算术/比较/逻辑/位运算/常见函数）。',
-    defaultParams: { name: 'counter', operation: 'add', operand: 1 },
+    defaultParams: { name: 'counter', operation: 'add', operand: 1, assignToVariable: true },
     fields: [
       { key: 'name', label: '变量名', type: 'string', placeholder: 'counter' },
       {
@@ -547,6 +547,12 @@ const metas: Record<NodeKind, NodeMeta> = {
         type: 'number',
         step: 1,
         description: '一元运算符会忽略该值。',
+      },
+      {
+        key: 'assignToVariable',
+        label: '是否赋值给原变量',
+        type: 'boolean',
+        description: '关闭后仅计算并输出日志，不会回写变量。',
       },
     ],
   },

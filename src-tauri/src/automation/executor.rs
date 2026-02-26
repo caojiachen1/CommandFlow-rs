@@ -876,6 +876,7 @@ impl WorkflowExecutor {
                 }
 
                 let operation = get_string(node, "operation", "add").to_lowercase();
+                let assign_to_variable = get_bool(node, "assignToVariable", true);
                 let operand = get_f64(node, "operand", 1.0);
                 let current = ctx.variables.get(&name).map(as_f64).unwrap_or(0.0);
                 let current_i64 = current as i64;
@@ -1001,7 +1002,29 @@ impl WorkflowExecutor {
                     ))
                 })?;
 
-                ctx.variables.insert(name, Value::Number(result_value));
+                let result_json = Value::Number(result_value.clone());
+                if assign_to_variable {
+                    ctx.variables.insert(name.clone(), Value::Number(result_value));
+                }
+
+                on_log(
+                    "info",
+                    format!(
+                        "变量运算节点 '{}' 详情：变量='{}'，操作='{}'，当前值={}，操作数={}，结果={}，是否赋值={}{}",
+                        node.label,
+                        name,
+                        operation,
+                        current,
+                        operand,
+                        result,
+                        if assign_to_variable { "是" } else { "否" },
+                        if assign_to_variable {
+                            format!("，已写回变量快照值={}", result_json)
+                        } else {
+                            "，未写回变量".to_string()
+                        }
+                    ),
+                );
                 Ok(NextDirective::Default)
             }
         }
