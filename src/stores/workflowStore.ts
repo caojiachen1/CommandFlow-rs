@@ -93,6 +93,29 @@ const initialNodes: WorkflowNode[] = [
 
 const makeInitialNodes = (): WorkflowNode[] => structuredClone(initialNodes)
 
+const normalizeImportedNodes = (nodes: WorkflowNode[]): WorkflowNode[] =>
+  nodes.map((node) => {
+    const meta = getNodeMeta(node.data.kind)
+    const rawParams =
+      node.data.params && typeof node.data.params === 'object'
+        ? (node.data.params as Record<string, unknown>)
+        : {}
+
+    return {
+      ...node,
+      type: node.type ?? node.data.kind,
+      data: {
+        ...node.data,
+        label: node.data.label || meta.label,
+        description: node.data.description || meta.description,
+        params: {
+          ...structuredClone(meta.defaultParams),
+          ...rawParams,
+        },
+      },
+    }
+  })
+
 const applyConnectionWithReplacement = (
   edges: WorkflowEdge[],
   nodes: WorkflowNode[],
@@ -383,7 +406,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       future: [],
       graphId: file.graph.id,
       graphName: file.graph.name,
-      nodes: file.graph.nodes,
+      nodes: normalizeImportedNodes(file.graph.nodes),
       edges: file.graph.edges,
       selectedNodeId: null,
       selectedNodeIds: [],

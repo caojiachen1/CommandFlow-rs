@@ -50,6 +50,7 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500' },
       { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500' },
       { label: 'while 循环', kind: 'whileLoop', color: 'bg-purple-600' },
+      { label: '图像匹配', kind: 'imageMatch', color: 'bg-teal-500' },
     ],
   },
   {

@@ -79,8 +79,27 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if ((kind === 'fileCopy' || kind === 'fileMove') && (fieldKey === 'sourcePath' || fieldKey === 'targetPath')) {
     return true
   }
+  if (kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')) {
+    return true
+  }
+  if (kind === 'imageMatch' && fieldKey === 'debugDir') {
+    return true
+  }
+  if (kind === 'screenshot' && fieldKey === 'path') {
+    return true
+  }
   return kind === 'fileDelete' && fieldKey === 'path'
 }
+
+const isImageMatchImageField = (kind: NodeKind, fieldKey: string) =>
+  kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')
+
+const isImageMatchDebugDirField = (kind: NodeKind, fieldKey: string) =>
+  kind === 'imageMatch' && fieldKey === 'debugDir'
+
+const IMAGE_FILE_FILTERS = [
+  { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
+]
 
 export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps) {
   const { selectedNodeId, nodes, updateNodeParams } = useWorkflowStore()
@@ -311,6 +330,14 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 <PathPickerDropdown
                   fieldLabel={field.label ?? field.key}
                   onSelect={(value) => updateParam(field.key, value)}
+                  pickerMode={
+                    isImageMatchImageField(selectedNode.data.kind, field.key)
+                      ? 'file'
+                      : isImageMatchDebugDirField(selectedNode.data.kind, field.key)
+                        ? 'directory'
+                        : 'menu'
+                  }
+                  filters={isImageMatchImageField(selectedNode.data.kind, field.key) ? IMAGE_FILE_FILTERS : undefined}
                 />
               </div>
             </div>

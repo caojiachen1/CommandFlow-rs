@@ -54,6 +54,7 @@ const allowedKinds: NodeKind[] = [
   'condition',
   'loop',
   'whileLoop',
+  'imageMatch',
   'varDefine',
   'varSet',
 ]

@@ -1,10 +1,13 @@
-use crate::automation::{file_ops, keyboard, mouse, screenshot, window};
+use crate::automation::{file_ops, image_match, keyboard, mouse, screenshot, window};
 use crate::error::{CommandFlowError, CommandResult};
 use crate::workflow::graph::WorkflowGraph;
 use crate::workflow::node::{NodeKind, WorkflowNode};
 use serde_json::{Number, Value};
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
@@ -575,6 +578,300 @@ impl WorkflowExecutor {
                     Ok(NextDirective::Branch("done"))
                 }
             }
+            NodeKind::ImageMatch => {
+                let template_path = get_string(node, "templatePath", "");
+                if template_path.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' templatePath cannot be empty",
+                        node.id
+                    )));
+                }
+
+                let source_path = get_string(node, "sourcePath", "");
+                let threshold = get_f32(node, "threshold", 0.9).clamp(0.0, 1.0);
+                let timeout_ms = get_u64(node, "timeoutMs", 3000);
+                let poll_ms = get_u64(node, "pollMs", 16).max(1);
+                let click_on_match = get_bool(node, "clickOnMatch", false);
+                let click_times = get_u64(node, "clickTimes", 1).max(1) as usize;
+                let warmup_frames = get_u64(node, "warmupFrames", 3);
+                let confirm_frames = get_u64(node, "confirmFrames", 2).max(1);
+                let debug_cache = get_bool(node, "debugCache", true);
+                let debug_save_every = get_u64(node, "debugSaveEvery", 15).max(1);
+                let debug_dir_input = get_string(node, "debugDir", "");
+                let mut matcher = image_match::TemplateMatcher::from_path(&template_path, threshold)?;
+                let debug_dir = if debug_cache {
+                    Some(prepare_image_match_debug_dir(node, &debug_dir_input)?)
+                } else {
+                    None
+                };
+
+                let started = tokio::time::Instant::now();
+                let deadline = Duration::from_millis(timeout_ms);
+                let poll_interval = Duration::from_millis(poll_ms);
+                let mut attempts: u64 = 0;
+                let mut matched_streak: u64 = 0;
+                let mut best_similarity_seen = 0.0_f32;
+
+                if !source_path.trim().is_empty() {
+                    let source = image::open(&source_path)
+                        .map_err(|error| CommandFlowError::Automation(error.to_string()))?
+                        .to_luma8();
+                    let evaluation = matcher.evaluate(&source);
+                    best_similarity_seen = best_similarity_seen.max(evaluation.best_similarity);
+                    on_log(
+                        "info",
+                        format!(
+                            "图像匹配节点 '{}'：静态源图匹配，bestSimilarity={:.4}，threshold={:.2}。",
+                            node.label, evaluation.best_similarity, threshold
+                        ),
+                    );
+
+                    if let Some((x, y)) = evaluation.matched_point {
+                        on_log(
+                            "info",
+                            format!(
+                                "图像匹配节点 '{}' 命中，坐标=({}, {})，阈值={}。",
+                                node.label, x, y, threshold
+                            ),
+                        );
+                        if click_on_match {
+                            mouse::click(x, y, click_times)?;
+                        }
+                        return Ok(NextDirective::Branch("true"));
+                    }
+
+                    if let Some(dir) = &debug_dir {
+                        let debug_path = dir.join("static-source-gray.png");
+                        let rect = evaluation.best_top_left.map(|(x, y)| {
+                            (
+                                x,
+                                y,
+                                evaluation.template_size.0,
+                                evaluation.template_size.1,
+                            )
+                        });
+                        let _ = screenshot::save_gray_with_box(
+                            path_to_string(&debug_path)?,
+                            &source,
+                            rect,
+                            evaluation.matched_point.is_some(),
+                        );
+                    }
+
+                    on_log(
+                        "warn",
+                        format!(
+                            "图像匹配节点 '{}' 静态源图未命中（bestSimilarity={:.4}），已走 false 分支。",
+                            node.label, best_similarity_seen
+                        ),
+                    );
+                    return Ok(NextDirective::Branch("false"));
+                }
+
+                let mut stream_mode = true;
+                let mut stream = match screenshot::start_primary_frame_stream() {
+                    Ok(s) => {
+                        on_log(
+                            "info",
+                            format!(
+                                "图像匹配节点 '{}' 已启用 xcap 实时帧流匹配。",
+                                node.label
+                            ),
+                        );
+                        Some(s)
+                    }
+                    Err(error) => {
+                        stream_mode = false;
+                        on_log(
+                            "warn",
+                            format!(
+                                "图像匹配节点 '{}' 启动帧流失败，将降级为单帧抓取轮询：{}",
+                                node.label, error
+                            ),
+                        );
+                        None
+                    }
+                };
+
+                loop {
+                    let frame = if stream_mode {
+                        tokio::task::block_in_place(|| {
+                            stream
+                                .as_mut()
+                                .expect("stream should exist in stream mode")
+                                .recv_gray_timeout(poll_interval)
+                        })
+                        .map_err(|error| {
+                            CommandFlowError::Automation(format!(
+                                "imageMatch stream recv failed at node '{}' (likely 0x80070057 in recorder/driver): {}",
+                                node.label, error
+                            ))
+                        })?
+                    } else {
+                        Some(screenshot::capture_fullscreen_gray().map_err(|error| {
+                            CommandFlowError::Automation(format!(
+                                "imageMatch snapshot capture failed at node '{}': {}",
+                                node.label, error
+                            ))
+                        })?)
+                    };
+
+                    let Some(frame) = frame else {
+                        if started.elapsed() >= deadline {
+                            on_log(
+                                "warn",
+                                format!(
+                                    "图像匹配节点 '{}' 在 {}ms 内未命中，bestSimilarity={:.4}，已走 false 分支。",
+                                    node.label, timeout_ms, best_similarity_seen
+                                ),
+                            );
+                            return Ok(NextDirective::Branch("false"));
+                        }
+                        continue;
+                    };
+
+                    attempts += 1;
+
+                    if warmup_frames > 0 && attempts <= warmup_frames {
+                        on_log(
+                            "info",
+                            format!(
+                                "图像匹配节点 '{}' 预热帧 {}/{}，本帧不参与判定。",
+                                node.label, attempts, warmup_frames
+                            ),
+                        );
+
+                        if let Some(dir) = &debug_dir {
+                            if attempts == 1 || attempts % debug_save_every == 0 {
+                                let frame_path = dir.join(format!("warmup-{:04}.png", attempts));
+                                let _ = screenshot::save_gray_with_box(
+                                    path_to_string(&frame_path)?,
+                                    &frame,
+                                    None,
+                                    false,
+                                );
+                            }
+                        }
+
+                        if started.elapsed() >= deadline {
+                            on_log(
+                                "warn",
+                                format!(
+                                    "图像匹配节点 '{}' 在预热期间超时，已走 false 分支。",
+                                    node.label
+                                ),
+                            );
+                            return Ok(NextDirective::Branch("false"));
+                        }
+
+                        if !stream_mode {
+                            sleep(poll_interval).await;
+                        }
+                        continue;
+                    }
+
+                    let evaluation = matcher.evaluate(&frame);
+                    best_similarity_seen = best_similarity_seen.max(evaluation.best_similarity);
+                    let elapsed_ms = started.elapsed().as_millis();
+
+                    if let Some(dir) = &debug_dir {
+                        if attempts % debug_save_every == 0 {
+                            let frame_path = dir.join(format!(
+                                "frame-{:05}-sim-{:.4}.png",
+                                attempts, evaluation.best_similarity
+                            ));
+                            let rect = evaluation.best_top_left.map(|(x, y)| {
+                                (
+                                    x,
+                                    y,
+                                    evaluation.template_size.0,
+                                    evaluation.template_size.1,
+                                )
+                            });
+                            let _ = screenshot::save_gray_with_box(
+                                path_to_string(&frame_path)?,
+                                &frame,
+                                rect,
+                                evaluation.matched_point.is_some(),
+                            );
+                        }
+                    }
+
+                    on_log(
+                        "info",
+                        format!(
+                            "图像匹配节点 '{}' 第 {} 帧匹配，elapsed={}ms，bestSimilarity={:.4}，threshold={:.2}，confirm={}/{}。",
+                            node.label,
+                            attempts,
+                            elapsed_ms,
+                            evaluation.best_similarity,
+                            threshold,
+                            matched_streak,
+                            confirm_frames
+                        ),
+                    );
+
+                    if evaluation.matched_point.is_some() {
+                        matched_streak += 1;
+                    } else {
+                        matched_streak = 0;
+                    }
+
+                    if matched_streak >= confirm_frames {
+                        let (x, y) = evaluation
+                            .matched_point
+                            .ok_or_else(|| CommandFlowError::Automation("matched point missing".to_string()))?;
+                        on_log(
+                            "info",
+                            format!(
+                                "图像匹配节点 '{}' 连续命中 {} 帧，坐标=({}, {})，阈值={}，已确认通过。",
+                                node.label, confirm_frames, x, y, threshold
+                            ),
+                        );
+
+                        if let Some(dir) = &debug_dir {
+                            let frame_path = dir.join(format!(
+                                "match-{:05}-sim-{:.4}.png",
+                                attempts, evaluation.best_similarity
+                            ));
+                            let rect = evaluation.best_top_left.map(|(x, y)| {
+                                (
+                                    x,
+                                    y,
+                                    evaluation.template_size.0,
+                                    evaluation.template_size.1,
+                                )
+                            });
+                            let _ = screenshot::save_gray_with_box(
+                                path_to_string(&frame_path)?,
+                                &frame,
+                                rect,
+                                true,
+                            );
+                        }
+
+                        if click_on_match {
+                            mouse::click(x, y, click_times)?;
+                        }
+                        return Ok(NextDirective::Branch("true"));
+                    }
+
+                    if started.elapsed() >= deadline {
+                        on_log(
+                            "warn",
+                            format!(
+                                "图像匹配节点 '{}' 在 {}ms 内未命中（peakSimilarity={:.4}），已走 false 分支。",
+                                node.label, timeout_ms, best_similarity_seen
+                            ),
+                        );
+                        return Ok(NextDirective::Branch("false"));
+                    }
+
+                    if !stream_mode {
+                        sleep(poll_interval).await;
+                    }
+                }
+            }
             NodeKind::VarDefine => {
                 let name = get_string(node, "name", "");
                 if !name.trim().is_empty() {
@@ -813,6 +1110,14 @@ fn get_u64(node: &WorkflowNode, key: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+fn get_f32(node: &WorkflowNode, key: &str, default: f32) -> f32 {
+    node.params
+        .get(key)
+        .and_then(|value| value.as_f64())
+        .map(|value| value as f32)
+        .unwrap_or(default)
+}
+
 fn get_bool(node: &WorkflowNode, key: &str, default: bool) -> bool {
     node.params
         .get(key)
@@ -916,4 +1221,35 @@ async fn sleep_after_node(node: &WorkflowNode) {
     if post_delay_ms > 0 {
         sleep(Duration::from_millis(post_delay_ms)).await;
     }
+}
+
+fn prepare_image_match_debug_dir(node: &WorkflowNode, debug_dir_input: &str) -> CommandResult<PathBuf> {
+    let base = if debug_dir_input.trim().is_empty() {
+        let mut temp = std::env::temp_dir();
+        temp.push("commandflow-image-match-debug");
+        temp
+    } else {
+        PathBuf::from(debug_dir_input)
+    };
+
+    fs::create_dir_all(&base).map_err(|error| CommandFlowError::Io(error.to_string()))?;
+
+    let unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let safe_label = node
+        .label
+        .chars()
+        .map(|ch| if ch.is_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    let run_dir = base.join(format!("{}-{}-{}", safe_label, node.id, unix_ms));
+    fs::create_dir_all(&run_dir).map_err(|error| CommandFlowError::Io(error.to_string()))?;
+
+    Ok(run_dir)
+}
+
+fn path_to_string(path: &Path) -> CommandResult<&str> {
+    path.to_str()
+        .ok_or_else(|| CommandFlowError::Validation("invalid debug path".to_string()))
 }

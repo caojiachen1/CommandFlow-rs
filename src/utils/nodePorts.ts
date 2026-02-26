@@ -130,6 +130,13 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'done', label: 'done', maxConnections: ONE },
     ],
   },
+  imageMatch: {
+    inputs: singleIn(),
+    outputs: [
+      { id: 'true', label: 'true', maxConnections: ONE },
+      { id: 'false', label: 'false', maxConnections: ONE },
+    ],
+  },
   varDefine: {
     inputs: singleIn(),
     outputs: singleOut(),

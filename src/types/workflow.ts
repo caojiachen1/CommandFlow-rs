@@ -21,7 +21,7 @@ export type ActionNodeKind =
   | 'runCommand'
   | 'pythonCode'
   | 'delay'
-export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop'
+export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch'
 export type DataNodeKind = 'varDefine' | 'varSet'
 
 export type NodeKind = TriggerNodeKind | ActionNodeKind | ControlNodeKind | DataNodeKind

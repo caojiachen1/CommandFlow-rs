@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 
+type PickerMode = 'menu' | 'file' | 'directory'
+
+interface PickerFilter {
+  name: string
+  extensions: string[]
+}
+
 interface PathPickerDropdownProps {
   fieldLabel: string
   onSelect: (value: string) => void
   buttonLabel?: string
   className?: string
+  pickerMode?: PickerMode
+  filters?: PickerFilter[]
 }
 
 const MENU_OPTIONS = [
@@ -21,6 +30,8 @@ export default function PathPickerDropdown({
   onSelect,
   buttonLabel = '浏览',
   className,
+  pickerMode = 'menu',
+  filters,
 }: PathPickerDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -52,6 +63,7 @@ export default function PathPickerDropdown({
       const picked = await openDialog({
         directory,
         multiple: false,
+        filters: directory ? undefined : filters,
         title: `${resolvedLabel}（${directory ? '选择文件夹' : '选择文件'}）`,
       })
       if (typeof picked === 'string' && picked.trim().length > 0) {
@@ -62,19 +74,28 @@ export default function PathPickerDropdown({
     }
   }
 
+  const handleTriggerClick = () => {
+    if (pickerMode === 'menu') {
+      setIsOpen((prev) => !prev)
+      return
+    }
+
+    void handleOptionClick(pickerMode === 'directory')
+  }
+
   return (
     <div ref={containerRef} className={`relative inline-flex ${className ?? ''}`}>
       <button
         type="button"
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
+        aria-expanded={pickerMode === 'menu' ? isOpen : undefined}
+        aria-haspopup={pickerMode === 'menu' ? 'menu' : undefined}
         className={`${TRIGGER_BUTTON_CLASS} flex items-center justify-center gap-1`}
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={handleTriggerClick}
       >
         {buttonLabel}
-        <span aria-hidden className="text-[9px]">▾</span>
+        {pickerMode === 'menu' ? <span aria-hidden className="text-[9px]">▾</span> : null}
       </button>
-      {isOpen && (
+      {pickerMode === 'menu' && isOpen && (
         <div className="absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-slate-900/5 dark:border-neutral-700 dark:bg-neutral-900/95">
           {MENU_OPTIONS.map((option) => (
             <button
