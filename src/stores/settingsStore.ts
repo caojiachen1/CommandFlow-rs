@@ -47,6 +47,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     applyTheme(theme)
     set(() => ({ theme }))
   },
-  setZoom: (zoom) => set(() => ({ zoom })),
-  setCoordinateMode: (coordinateMode) => set(() => ({ coordinateMode })),
+  setZoom: (zoom) =>
+    set((state) => {
+      if (state.zoom === zoom) return state
+      return { zoom }
+    }),
+  setCoordinateMode: (coordinateMode) =>
+    set((state) => {
+      if (state.coordinateMode === coordinateMode) return state
+      return { coordinateMode }
+    }),
 }))

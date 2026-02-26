@@ -11,14 +11,14 @@ import { useWorkflowStore } from './stores/workflowStore'
 import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
-import { runWorkflow, stopWorkflow } from './utils/execution'
+import { runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
 const menuGroups = {
   文件: ['新建', '打开', '保存', '另存为'],
   编辑: ['撤销', '重做', '复制', '粘贴'],
-  视图: ['放大', '缩小', '重置缩放'],
+  视图: ['放大', '缩小', '重置缩放', '后台模式'],
   运行: ['运行', '停止', '单步'],
   帮助: ['文档', '快捷键'],
 }
@@ -55,6 +55,7 @@ function App() {
   const [lastFilePath, setLastFilePath] = useState<string | null>(null)
   const [helpModalOpen, setHelpModalOpen] = useState(false)
   const [helpType, setHelpType] = useState<'docs' | 'shortcuts'>('docs')
+  const [backgroundMode, setBackgroundModeState] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const continuousStepRunningRef = useRef(false)
@@ -71,6 +72,7 @@ function App() {
   const runSingleStepRef = useRef<() => Promise<void>>(async () => {})
   const addLogRef = useRef(addLog)
   const lastGlobalStepTriggerAtRef = useRef(0)
+  const backgroundModeRef = useRef(false)
 
   useShortcutBindings()
 
@@ -212,6 +214,48 @@ function App() {
   }
 
   const isTauriRuntime = '__TAURI_INTERNALS__' in window
+
+  const applyBackgroundMode = useCallback(
+    async (enabled: boolean) => {
+      const previous = backgroundModeRef.current
+      if (previous === enabled) {
+        return
+      }
+
+      setActiveMenu(null)
+
+      if (enabled) {
+        backgroundModeRef.current = true
+        setBackgroundModeState(true)
+        setHelpModalOpen(false)
+
+        try {
+          const message = await setBackgroundMode(true)
+          addLog('info', message)
+        } catch (error) {
+          backgroundModeRef.current = previous
+          setBackgroundModeState(previous)
+          addLog('error', `切换后台模式失败：${String(error)}`)
+        }
+        return
+      }
+
+      try {
+        const message = await setBackgroundMode(false)
+        await new Promise((resolve) => window.setTimeout(resolve, 80))
+        backgroundModeRef.current = false
+        setBackgroundModeState(false)
+        addLog('info', message)
+      } catch (error) {
+        addLog('error', `切换后台模式失败：${String(error)}`)
+      }
+    },
+    [addLog],
+  )
+
+  const toggleBackgroundMode = useCallback(async () => {
+    await applyBackgroundMode(!backgroundModeRef.current)
+  }, [applyBackgroundMode])
 
   const toDisplayFileName = (path: string) => {
     const segments = path.split(/[/\\]/)
@@ -465,6 +509,10 @@ function App() {
   useEffect(() => {
     addLogRef.current = addLog
   }, [addLog])
+
+  useEffect(() => {
+    backgroundModeRef.current = backgroundMode
+  }, [backgroundMode])
 
   const getParamString = (node: WorkflowNode, key: string, fallback = '') => {
     const value = node.data.params[key]
@@ -781,6 +829,42 @@ function App() {
     }
   }, [addLog, runContinuousStep, stopAllExecution])
 
+  useEffect(() => {
+    const handleToggleBackgroundMode = () => {
+      void toggleBackgroundMode()
+    }
+
+    window.addEventListener('commandflow:toggle-background-mode', handleToggleBackgroundMode)
+
+    let disposed = false
+    let unlistenGlobalToggle: (() => void) | null = null
+
+    if ('__TAURI_INTERNALS__' in window) {
+      void listen('commandflow-global-toggle-background-mode', () => {
+        if (disposed) {
+          return
+        }
+        void toggleBackgroundMode()
+      })
+        .then((cleanup) => {
+          if (disposed) {
+            cleanup()
+            return
+          }
+          unlistenGlobalToggle = cleanup
+        })
+        .catch((error) => {
+          addLogRef.current('warn', `监听全局后台模式快捷键失败：${String(error)}`)
+        })
+    }
+
+    return () => {
+      disposed = true
+      window.removeEventListener('commandflow:toggle-background-mode', handleToggleBackgroundMode)
+      unlistenGlobalToggle?.()
+    }
+  }, [toggleBackgroundMode])
+
   const handleMenuAction = async (item: string) => {
     setActiveMenu(null)
     switch (item) {
@@ -850,6 +934,9 @@ function App() {
       case '重置缩放':
         window.dispatchEvent(new Event('commandflow:zoom-reset'))
         break
+      case '后台模式':
+        await toggleBackgroundMode()
+        break
       case '运行':
         if (running) return
         stepNextNodeIdRef.current = null
@@ -913,6 +1000,14 @@ function App() {
     }
   }, [handleMenuAction])
 
+  useEffect(() => {
+    return () => {
+      if (backgroundModeRef.current) {
+        void setBackgroundMode(false)
+      }
+    }
+  }, [])
+
   const handleHelpModalBackdropClick = (event: React.MouseEvent) => {
     if (event.target === event.currentTarget) {
       setHelpModalOpen(false)
@@ -921,42 +1016,44 @@ function App() {
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#202020] text-slate-900 selection:bg-cyan-100 dark:bg-[#202020] dark:text-slate-100 dark:selection:bg-cyan-900/30">
-      <header className="relative z-[100] flex h-8 shrink-0 items-center justify-between border-b border-slate-200 bg-[#202020]/70 px-3 backdrop-blur-xl dark:border-neutral-800 dark:bg-[#202020]/70">
-        <div className="flex items-center gap-2 text-sm font-medium" ref={menuRef}>
-          {menu.map(([group, items]) => (
-            <div key={group} className="relative">
-              <button
-                type="button"
-                onClick={() => setActiveMenu(activeMenu === group ? null : group)}
-                onMouseEnter={() => {
-                  if (activeMenu) {
-                    setActiveMenu(group)
-                  }
-                }}
-                className={`rounded-md px-2.5 py-1 text-xs transition-colors hover:bg-slate-200/50 dark:hover:bg-slate-800/70 ${
-                  activeMenu === group ? 'bg-slate-200/70 dark:bg-neutral-800/90 text-cyan-600 dark:text-cyan-400 font-semibold' : ''
-                }`}
-              >
-                {group}
-              </button>
-              {activeMenu === group && (
-                <div className="menu-dropdown-enter absolute left-0 z-[110] mt-1.5 min-w-[140px] rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-2xl dark:border-neutral-700 dark:bg-neutral-900/95">
-                  {items.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => handleMenuAction(item)}
-                      className="block w-full truncate rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-cyan-500 hover:text-white dark:hover:bg-cyan-600"
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </header>
+      {!backgroundMode && (
+        <header className="relative z-[100] flex h-8 shrink-0 items-center justify-between border-b border-slate-200 bg-[#202020]/70 px-3 backdrop-blur-xl dark:border-neutral-800 dark:bg-[#202020]/70">
+          <div className="flex items-center gap-2 text-sm font-medium" ref={menuRef}>
+            {menu.map(([group, items]) => (
+              <div key={group} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setActiveMenu(activeMenu === group ? null : group)}
+                  onMouseEnter={() => {
+                    if (activeMenu) {
+                      setActiveMenu(group)
+                    }
+                  }}
+                  className={`rounded-md px-2.5 py-1 text-xs transition-colors hover:bg-slate-200/50 dark:hover:bg-slate-800/70 ${
+                    activeMenu === group ? 'bg-slate-200/70 dark:bg-neutral-800/90 text-cyan-600 dark:text-cyan-400 font-semibold' : ''
+                  }`}
+                >
+                  {group}
+                </button>
+                {activeMenu === group && (
+                  <div className="menu-dropdown-enter absolute left-0 z-[110] mt-1.5 min-w-[140px] rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-2xl dark:border-neutral-700 dark:bg-neutral-900/95">
+                    {items.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => handleMenuAction(item)}
+                        className="block w-full truncate rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-cyan-500 hover:text-white dark:hover:bg-cyan-600"
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </header>
+      )}
 
       {helpModalOpen && (
         <div
@@ -1008,6 +1105,7 @@ function App() {
                     ['删除节点', 'Delete'],
                     ['运行流程', 'F5'],
                     ['停止执行', 'F6'],
+                    ['后台模式', 'F8'],
                     ['连续单步', 'F9'],
                     ['单步执行', 'F10'],
                     ['放大画布', 'Ctrl + ='],
@@ -1026,26 +1124,74 @@ function App() {
         </div>
       )}
 
-      <div className="shrink-0 flex flex-col">
-        <Toolbar />
-      </div>
-
-      <main className="flex min-h-0 flex-1 grid-cols-[280px_1fr_320px] overflow-hidden lg:grid">
-        <NodePanel />
-        <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
-        <div className="flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
-          <div className="flex h-1/3 min-h-0 flex-col border-b border-slate-200 dark:border-neutral-800">
-            <VariablePanel />
+      {backgroundMode ? (
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50/40 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => void handleMenuAction('运行')}
+              className="rounded-md bg-cyan-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              启动
+            </button>
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => void handleMenuAction('单步')}
+              className="rounded-md bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              单步
+            </button>
+            <button
+              type="button"
+              disabled={!running}
+              onClick={() => void handleMenuAction('停止')}
+              className="rounded-md bg-rose-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              停止
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleMenuAction('后台模式')}
+              className="ml-auto rounded-md bg-slate-700 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-600 dark:bg-slate-600 dark:hover:bg-slate-500"
+            >
+              退出后台模式
+            </button>
           </div>
-          <div className="flex h-2/3 min-h-0 flex-col">
+          <div className="min-h-0 flex-1">
             <ExecutionLog />
           </div>
-        </div>
-      </main>
+        </main>
+      ) : (
+        <>
+          <div className="shrink-0 flex flex-col">
+            <Toolbar
+              backgroundMode={backgroundMode}
+              onToggleBackgroundMode={() => {
+                void handleMenuAction('后台模式')
+              }}
+            />
+          </div>
 
-      <div className="shrink-0">
-        <StatusBar />
-      </div>
+          <main className="flex min-h-0 flex-1 grid-cols-[280px_1fr_320px] overflow-hidden lg:grid">
+            <NodePanel />
+            <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
+            <div className="flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
+              <div className="flex h-1/3 min-h-0 flex-col border-b border-slate-200 dark:border-neutral-800">
+                <VariablePanel />
+              </div>
+              <div className="flex h-2/3 min-h-0 flex-col">
+                <ExecutionLog />
+              </div>
+            </div>
+          </main>
+
+          <div className="shrink-0">
+            <StatusBar />
+          </div>
+        </>
+      )}
 
       <input
         ref={fileInputRef}
