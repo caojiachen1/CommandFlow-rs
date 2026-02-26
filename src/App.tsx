@@ -304,7 +304,7 @@ function App() {
         throw new Error('文件格式不是有效的 CommandFlow 工作流 JSON。')
       }
 
-      importWorkflow(parsed)
+      importWorkflow(parsed, toDisplayFileName(selectedPath))
       setLastFileName(toDisplayFileName(selectedPath))
       setLastFilePath(selectedPath)
       addLog('success', `已打开工作流：${toDisplayFileName(selectedPath)}`)
@@ -347,7 +347,7 @@ function App() {
         throw new Error('文件格式不是有效的 CommandFlow 工作流 JSON。')
       }
 
-      importWorkflow(parsed)
+      importWorkflow(parsed, file.name)
       setLastFileName(file.name)
       setLastFilePath(null)
       addLog('success', `已打开工作流：${file.name}`)

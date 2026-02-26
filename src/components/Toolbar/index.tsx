@@ -3,6 +3,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { runWorkflow, stopWorkflow } from '../../utils/execution'
 import { toBackendGraph } from '../../utils/workflowBridge'
+import { useState } from 'react'
 
 interface ToolbarProps {
   backgroundMode: boolean
@@ -12,7 +13,9 @@ interface ToolbarProps {
 export default function Toolbar({ backgroundMode, onToggleBackgroundMode }: ToolbarProps) {
   const { running, setRunning, addLog, clearVariables } = useExecutionStore()
   const { zoom } = useSettingsStore()
-  const { undo, redo, exportWorkflow } = useWorkflowStore()
+  const { undo, redo, exportWorkflow, graphName, setGraphName } = useWorkflowStore()
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editName, setEditName] = useState(graphName)
 
   const run = async () => {
     if (running) return
@@ -91,7 +94,44 @@ export default function Toolbar({ backgroundMode, onToggleBackgroundMode }: Tool
       <button type="button" onClick={redo} className={buttonClass}>
         重做
       </button>
-      
+
+      <div className="mx-2 h-5 w-[1px] bg-slate-200 dark:bg-neutral-800" />
+
+      {isEditingName ? (
+        <input
+          type="text"
+          value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          onBlur={() => {
+            setGraphName(editName.trim() || '未命名工作流')
+            setIsEditingName(false)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              setGraphName(editName.trim() || '未命名工作流')
+              setIsEditingName(false)
+            } else if (e.key === 'Escape') {
+              setEditName(graphName)
+              setIsEditingName(false)
+            }
+          }}
+          className="h-7 w-40 rounded border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none focus:border-cyan-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-slate-200 dark:focus:border-cyan-500"
+          autoFocus
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setEditName(graphName)
+            setIsEditingName(true)
+          }}
+          className="rounded-lg bg-white/60 px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:bg-white hover:shadow-sm dark:bg-neutral-900/60 dark:text-slate-300"
+          title="点击修改工作流名称"
+        >
+          {graphName}
+        </button>
+      )}
+
       <div className="ml-auto flex items-center gap-3">
         <div className="rounded-full bg-slate-200/50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:bg-neutral-800/50 dark:text-slate-400">
           缩放: {Math.round(zoom * 100)}%

@@ -50,8 +50,9 @@ interface WorkflowState {
   deleteSelectedNodes: () => void
   duplicateSelectedNode: () => void
   updateNodeParams: (id: string, params: Record<string, unknown>) => void
+  setGraphName: (name: string) => void
   exportWorkflow: () => WorkflowFile
-  importWorkflow: (file: WorkflowFile) => void
+  importWorkflow: (file: WorkflowFile, fileName?: string) => void
   resetWorkflow: () => void
   undo: () => void
   redo: () => void
@@ -409,6 +410,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           : node,
       ),
     })),
+  setGraphName: (name) =>
+    set(() => ({
+      graphName: name,
+    })),
   exportWorkflow: () => {
     const state = get()
     return {
@@ -423,12 +428,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       },
     }
   },
-  importWorkflow: (file) =>
+  importWorkflow: (file, fileName?: string) =>
     set((state) => ({
       past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
       future: [],
       graphId: file.graph.id,
-      graphName: file.graph.name,
+      graphName: fileName ?? file.graph.name,
       nodes: normalizeImportedNodes(file.graph.nodes),
       edges: file.graph.edges,
       selectedNodeId: null,

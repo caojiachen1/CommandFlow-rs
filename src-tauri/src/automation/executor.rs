@@ -621,18 +621,7 @@ impl WorkflowExecutor {
                 let confirm_frames = get_u64(node, "confirmFrames", 2).max(1);
                 let debug_save_every = IMAGE_MATCH_DEBUG_SAVE_EVERY;
                 let mut matcher = image_match::TemplateMatcher::from_path(&template_path, threshold)?;
-                let debug_dir = Some(prepare_image_match_debug_dir(node)?);
-
-                if let Some(dir) = &debug_dir {
-                    on_log(
-                        "info",
-                        format!(
-                            "图像匹配节点 '{}' 调试缓存目录：{}",
-                            node.label,
-                            dir.display()
-                        ),
-                    );
-                }
+                let debug_dir = prepare_image_match_debug_dir(node)?;
 
                 let started = tokio::time::Instant::now();
                 let deadline = Duration::from_millis(timeout_ms);
@@ -670,23 +659,21 @@ impl WorkflowExecutor {
                         return Ok(NextDirective::Branch("true"));
                     }
 
-                    if let Some(dir) = &debug_dir {
-                        let debug_path = dir.join("static-source-gray.png");
-                        let rect = evaluation.best_top_left.map(|(x, y)| {
-                            (
-                                x,
-                                y,
-                                evaluation.template_size.0,
-                                evaluation.template_size.1,
-                            )
-                        });
-                        let _ = screenshot::save_gray_with_box(
-                            path_to_string(&debug_path)?,
-                            &source,
-                            rect,
-                            evaluation.matched_point.is_some(),
-                        );
-                    }
+                    let debug_path = debug_dir.join("static-source-gray.png");
+                    let rect = evaluation.best_top_left.map(|(x, y)| {
+                        (
+                            x,
+                            y,
+                            evaluation.template_size.0,
+                            evaluation.template_size.1,
+                        )
+                    });
+                    let _ = screenshot::save_gray_with_box(
+                        path_to_string(&debug_path)?,
+                        &source,
+                        rect,
+                        evaluation.matched_point.is_some(),
+                    );
 
                     on_log(
                         "warn",
@@ -709,7 +696,7 @@ impl WorkflowExecutor {
                 on_log(
                     "info",
                     format!(
-                        "图像匹配节点 '{}' 已启用 xcap 实时帧流匹配（复用单例实例）。",
+                        "图像匹配节点 '{}' 已启用 xcap 实时帧流匹配。",
                         node.label
                     ),
                 );
@@ -786,27 +773,25 @@ impl WorkflowExecutor {
                     best_similarity_seen = best_similarity_seen.max(evaluation.best_similarity);
                     let elapsed_ms = started.elapsed().as_millis();
 
-                    if let Some(dir) = &debug_dir {
-                        if attempts % debug_save_every == 0 {
-                            let frame_path = dir.join(format!(
-                                "frame-{:05}-sim-{:.4}.png",
-                                attempts, evaluation.best_similarity
-                            ));
-                            let rect = evaluation.best_top_left.map(|(x, y)| {
-                                (
-                                    x,
-                                    y,
-                                    evaluation.template_size.0,
-                                    evaluation.template_size.1,
-                                )
-                            });
-                            let _ = screenshot::save_gray_with_box(
-                                path_to_string(&frame_path)?,
-                                &frame,
-                                rect,
-                                evaluation.matched_point.is_some(),
-                            );
-                        }
+                    if attempts % debug_save_every == 0 {
+                        let frame_path = debug_dir.join(format!(
+                            "frame-{:05}-sim-{:.4}.png",
+                            attempts, evaluation.best_similarity
+                        ));
+                        let rect = evaluation.best_top_left.map(|(x, y)| {
+                            (
+                                x,
+                                y,
+                                evaluation.template_size.0,
+                                evaluation.template_size.1,
+                            )
+                        });
+                        let _ = screenshot::save_gray_with_box(
+                            path_to_string(&frame_path)?,
+                            &frame,
+                            rect,
+                            evaluation.matched_point.is_some(),
+                        );
                     }
 
                     on_log(
@@ -842,26 +827,24 @@ impl WorkflowExecutor {
                             ),
                         );
 
-                        if let Some(dir) = &debug_dir {
-                            let frame_path = dir.join(format!(
-                                "match-{:05}-sim-{:.4}.png",
-                                attempts, evaluation.best_similarity
-                            ));
-                            let rect = evaluation.best_top_left.map(|(x, y)| {
-                                (
-                                    x,
-                                    y,
-                                    evaluation.template_size.0,
-                                    evaluation.template_size.1,
-                                )
-                            });
-                            let _ = screenshot::save_gray_with_box(
-                                path_to_string(&frame_path)?,
-                                &frame,
-                                rect,
-                                true,
-                            );
-                        }
+                        let frame_path = debug_dir.join(format!(
+                            "match-{:05}-sim-{:.4}.png",
+                            attempts, evaluation.best_similarity
+                        ));
+                        let rect = evaluation.best_top_left.map(|(x, y)| {
+                            (
+                                x,
+                                y,
+                                evaluation.template_size.0,
+                                evaluation.template_size.1,
+                            )
+                        });
+                        let _ = screenshot::save_gray_with_box(
+                            path_to_string(&frame_path)?,
+                            &frame,
+                            rect,
+                            true,
+                        );
 
                         if click_on_match {
                             mouse::click(x, y, click_times)?;
