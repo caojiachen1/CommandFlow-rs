@@ -1,10 +1,22 @@
 use crate::automation::executor::WorkflowExecutor;
 use crate::automation::window;
 use crate::workflow::graph::WorkflowGraph;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use std::sync::{Mutex, OnceLock};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size};
+
+#[derive(Debug, Clone, Copy)]
+struct WindowSnapshot {
+    size: PhysicalSize<u32>,
+    position: PhysicalPosition<i32>,
+}
+
+fn window_snapshot_store() -> &'static Mutex<Option<WindowSnapshot>> {
+    static WINDOW_SNAPSHOT: OnceLock<Mutex<Option<WindowSnapshot>>> = OnceLock::new();
+    WINDOW_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinateInfo {
@@ -112,4 +124,77 @@ pub async fn pick_coordinate(mode: Option<String>) -> Result<CoordinateInfo, Str
 #[tauri::command]
 pub async fn list_open_windows() -> Result<Vec<String>, String> {
     window::list_open_window_titles().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "未找到主窗口。".to_string())?;
+
+    let snapshot_mutex = window_snapshot_store();
+
+    if enabled {
+        let compact_width = 460u32;
+        let compact_height = 340u32;
+
+        {
+            let mut snapshot_guard = snapshot_mutex
+                .lock()
+                .map_err(|_| "读取窗口状态失败。".to_string())?;
+
+            if snapshot_guard.is_none() {
+                let size = window.inner_size().map_err(|error| error.to_string())?;
+                let position = window.outer_position().map_err(|error| error.to_string())?;
+                *snapshot_guard = Some(WindowSnapshot { size, position });
+            }
+        }
+
+        window
+            .set_size(Size::Physical(PhysicalSize {
+                width: compact_width,
+                height: compact_height,
+            }))
+            .map_err(|error| error.to_string())?;
+
+        if let Some(monitor) = window.current_monitor().map_err(|error| error.to_string())? {
+            let margin = 16i32;
+            let monitor_pos = monitor.position();
+            let monitor_size = monitor.size();
+
+            let x = monitor_pos.x + monitor_size.width as i32 - compact_width as i32 - margin;
+            let y = monitor_pos.y + monitor_size.height as i32 - compact_height as i32 - margin;
+
+            window
+                .set_position(Position::Physical(PhysicalPosition { x, y }))
+                .map_err(|error| error.to_string())?;
+        }
+
+        window
+            .set_always_on_top(true)
+            .map_err(|error| error.to_string())?;
+        return Ok("已进入后台模式（紧凑置顶窗口）。".to_string());
+    }
+
+    window
+        .set_always_on_top(false)
+        .map_err(|error| error.to_string())?;
+
+    let previous_snapshot = {
+        let mut snapshot_guard = snapshot_mutex
+            .lock()
+            .map_err(|_| "读取窗口状态失败。".to_string())?;
+        snapshot_guard.take()
+    };
+
+    if let Some(snapshot) = previous_snapshot {
+        window
+            .set_size(Size::Physical(snapshot.size))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_position(Position::Physical(snapshot.position))
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok("已退出后台模式。".to_string())
 }

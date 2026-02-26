@@ -4,7 +4,12 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { runWorkflow, stopWorkflow } from '../../utils/execution'
 import { toBackendGraph } from '../../utils/workflowBridge'
 
-export default function Toolbar() {
+interface ToolbarProps {
+  backgroundMode: boolean
+  onToggleBackgroundMode: () => void
+}
+
+export default function Toolbar({ backgroundMode, onToggleBackgroundMode }: ToolbarProps) {
   const { running, setRunning, addLog, clearVariables } = useExecutionStore()
   const { zoom } = useSettingsStore()
   const { undo, redo, exportWorkflow } = useWorkflowStore()
@@ -59,6 +64,14 @@ export default function Toolbar() {
       >
         <span className="h-2 w-2 rounded-full bg-white" />
         F10 单步
+      </button>
+      <button
+        type="button"
+        onClick={onToggleBackgroundMode}
+        className="flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-slate-700/20 transition-all hover:bg-slate-600 hover:shadow-slate-600/30 active:scale-95 dark:bg-slate-600 dark:hover:bg-slate-500"
+      >
+        <span className="h-2 w-2 rounded-full bg-white" />
+        {backgroundMode ? '退出后台' : 'F8 后台模式'}
       </button>
       <button 
         type="button" 

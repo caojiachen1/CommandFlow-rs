@@ -121,6 +121,9 @@ export const useShortcutBindings = () => {
       } else if (event.key === 'F9') {
         event.preventDefault()
         window.dispatchEvent(new Event('commandflow:run-continuous-step'))
+      } else if (event.key === 'F8') {
+        event.preventDefault()
+        window.dispatchEvent(new Event('commandflow:toggle-background-mode'))
       } else if (event.key === 'F10') {
         if ('__TAURI_INTERNALS__' in window) {
           return

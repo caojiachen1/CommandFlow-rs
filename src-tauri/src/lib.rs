@@ -18,10 +18,15 @@ pub fn run() {
             {
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
-                        .with_shortcuts(["F10"])?
-                        .with_handler(|app, _shortcut, event| {
+                        .with_shortcuts(["F8", "F10"])?
+                        .with_handler(|app, shortcut, event| {
                             if event.state == ShortcutState::Released {
-                                let _ = app.emit("commandflow-global-run-step", ());
+                                let key = shortcut.to_string();
+                                if key.eq_ignore_ascii_case("F8") {
+                                    let _ = app.emit("commandflow-global-toggle-background-mode", ());
+                                } else if key.eq_ignore_ascii_case("F10") {
+                                    let _ = app.emit("commandflow-global-run-step", ());
+                                }
                             }
                         })
                         .build(),
@@ -43,6 +48,7 @@ pub fn run() {
             commands::pick_coordinate,
             commands::list_open_windows,
             commands::health_check,
+            commands::set_background_mode,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");

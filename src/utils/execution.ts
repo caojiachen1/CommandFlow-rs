@@ -23,3 +23,10 @@ export const listOpenWindows = async (): Promise<string[]> => {
   }
   return invoke<string[]>('list_open_windows')
 }
+
+export const setBackgroundMode = async (enabled: boolean): Promise<string> => {
+  if (!isTauriRuntime()) {
+    return enabled ? '浏览器模式：已切换到紧凑视图。' : '浏览器模式：已恢复标准视图。'
+  }
+  return invoke<string>('set_background_mode', { enabled })
+}
