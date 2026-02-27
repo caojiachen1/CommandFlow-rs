@@ -78,11 +78,17 @@ const isVariableOperandField = (kind: NodeKind, fieldKey: string) =>
 const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath') && fieldKey === 'name'
 
+const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') && fieldKey === 'inputVar'
+
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if ((kind === 'fileCopy' || kind === 'fileMove') && (fieldKey === 'sourcePath' || fieldKey === 'targetPath')) {
     return true
   }
   if (kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')) {
+    return true
+  }
+  if ((kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path') {
     return true
   }
   if (kind === 'screenshot' && fieldKey === 'path') {
@@ -93,6 +99,9 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
 
 const isImageMatchImageField = (kind: NodeKind, fieldKey: string) =>
   kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')
+
+const isTextFilePathField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path'
 
 const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
@@ -169,6 +178,9 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       return variableNames
     }
     if (kind === 'varMath' && field.key === 'name') {
+      return variableNames
+    }
+    if (isInputVariableField(kind, field.key)) {
       return variableNames
     }
     if (isVariableOperandField(kind, field.key)) {
@@ -254,6 +266,19 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       ])
       const operation = String(selectedNode.data.params.operation ?? selectedMeta?.defaultParams.operation ?? 'add')
       return !unaryOperations.has(operation)
+    }
+
+    if (
+      (selectedNode.data.kind === 'clipboardWrite' || selectedNode.data.kind === 'fileWriteText' || selectedNode.data.kind === 'showMessage') &&
+      (field.key === 'inputText' || field.key === 'inputVar')
+    ) {
+      const inputMode = String(selectedNode.data.params.inputMode ?? 'literal')
+      if (field.key === 'inputText') {
+        return inputMode === 'literal'
+      }
+      if (field.key === 'inputVar') {
+        return inputMode === 'var'
+      }
     }
 
     return true
@@ -364,7 +389,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                   fieldLabel={field.label ?? field.key}
                   onSelect={(value) => updateParam(field.key, value)}
                   pickerMode={
-                    isImageMatchImageField(selectedNode.data.kind, field.key)
+                    isImageMatchImageField(selectedNode.data.kind, field.key) || isTextFilePathField(selectedNode.data.kind, field.key)
                       ? 'file'
                       : 'menu'
                   }
@@ -382,7 +407,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
             ? selectedNode.data.params.leftType === 'var'
             : selectedNode.data.params.rightType === 'var')
 
-        if (isVariableNameField(selectedNode.data.kind, field.key) || variableReferenceField) {
+        if (isVariableNameField(selectedNode.data.kind, field.key) || isInputVariableField(selectedNode.data.kind, field.key) || variableReferenceField) {
           return (
             <SmartInputSelect
               value={String(currentValue ?? '')}

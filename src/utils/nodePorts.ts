@@ -105,6 +105,26 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  clipboardRead: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  clipboardWrite: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  fileReadText: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  fileWriteText: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  showMessage: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   delay: {
     inputs: singleIn(),
     outputs: singleOut(),

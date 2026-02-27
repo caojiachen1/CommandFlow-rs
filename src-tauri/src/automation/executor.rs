@@ -1,4 +1,6 @@
 use crate::automation::{file_ops, image_match, keyboard, mouse, screenshot, window};
+use arboard::Clipboard;
+use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use crate::error::{CommandFlowError, CommandResult};
 use crate::workflow::graph::WorkflowGraph;
 use crate::workflow::node::{NodeKind, WorkflowNode};
@@ -7,6 +9,7 @@ use std::backtrace::Backtrace;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
@@ -551,6 +554,138 @@ impl WorkflowExecutor {
             }
             NodeKind::PythonCode => {
                 run_python_code(node, on_log).await?;
+                Ok(NextDirective::Default)
+            }
+            NodeKind::ClipboardRead => {
+                let mut clipboard = Clipboard::new()
+                    .map_err(|error| CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error)))?;
+                let text = clipboard
+                    .get_text()
+                    .map_err(|error| CommandFlowError::Automation(format!("读取系统剪贴板失败：{}", error)))?;
+
+                let output_var = get_string(node, "outputVar", "clipboardText").trim().to_string();
+                if !output_var.is_empty() {
+                    ctx.variables.insert(output_var.clone(), Value::String(text.clone()));
+                    on_log(
+                        "info",
+                        format!(
+                            "剪贴板读取节点 '{}' 已输出 {} 字符到变量 '{}'。",
+                            node.label,
+                            text.chars().count(),
+                            output_var
+                        ),
+                    );
+                } else {
+                    on_log(
+                        "info",
+                        format!(
+                            "剪贴板读取节点 '{}' 读取到 {} 字符（未配置输出变量）。",
+                            node.label,
+                            text.chars().count()
+                        ),
+                    );
+                }
+
+                Ok(NextDirective::Default)
+            }
+            NodeKind::ClipboardWrite => {
+                let text = resolve_text_input(node, &ctx.variables);
+                let mut clipboard = Clipboard::new()
+                    .map_err(|error| CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error)))?;
+                clipboard
+                    .set_text(text.clone())
+                    .map_err(|error| CommandFlowError::Automation(format!("写入系统剪贴板失败：{}", error)))?;
+                on_log(
+                    "info",
+                    format!(
+                        "剪贴板写入节点 '{}' 已写入 {} 字符。",
+                        node.label,
+                        text.chars().count()
+                    ),
+                );
+                Ok(NextDirective::Default)
+            }
+            NodeKind::FileReadText => {
+                let path_raw = get_string(node, "path", "");
+                let path = resolve_text_template(&path_raw, &ctx.variables);
+                if path.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' path cannot be empty",
+                        node.id
+                    )));
+                }
+
+                let content = fs::read_to_string(&path)
+                    .map_err(|error| CommandFlowError::Io(format!("读取文本文件失败 '{}': {}", path, error)))?;
+                let output_var = get_string(node, "outputVar", "fileText").trim().to_string();
+
+                if !output_var.is_empty() {
+                    ctx.variables.insert(output_var.clone(), Value::String(content.clone()));
+                    on_log(
+                        "info",
+                        format!(
+                            "文本读取节点 '{}' 已读取 {} 字符到变量 '{}'。",
+                            node.label,
+                            content.chars().count(),
+                            output_var
+                        ),
+                    );
+                } else {
+                    on_log(
+                        "info",
+                        format!(
+                            "文本读取节点 '{}' 已读取 {} 字符（未配置输出变量）。",
+                            node.label,
+                            content.chars().count()
+                        ),
+                    );
+                }
+
+                Ok(NextDirective::Default)
+            }
+            NodeKind::FileWriteText => {
+                let path_raw = get_string(node, "path", "");
+                let path = resolve_text_template(&path_raw, &ctx.variables);
+                if path.trim().is_empty() {
+                    return Err(CommandFlowError::Validation(format!(
+                        "node '{}' path cannot be empty",
+                        node.id
+                    )));
+                }
+
+                let text = resolve_text_input(node, &ctx.variables);
+                let append = get_bool(node, "append", false);
+                let create_parent_dir = get_bool(node, "createParentDir", true);
+                write_text_file(&path, &text, append, create_parent_dir)?;
+
+                on_log(
+                    "info",
+                    format!(
+                        "文本写入节点 '{}' 已{} {} 字符到 '{}'。",
+                        node.label,
+                        if append { "追加" } else { "写入" },
+                        text.chars().count(),
+                        path
+                    ),
+                );
+                Ok(NextDirective::Default)
+            }
+            NodeKind::ShowMessage => {
+                let title_raw = get_string(node, "title", "CommandFlow");
+                let title = resolve_text_template(&title_raw, &ctx.variables);
+                let message = resolve_text_input(node, &ctx.variables);
+                let level = get_string(node, "level", "info");
+
+                show_message_dialog(&title, &message, &level)?;
+                on_log(
+                    "info",
+                    format!(
+                        "弹窗节点 '{}' 已显示（级别={}，{} 字符）。",
+                        node.label,
+                        level,
+                        message.chars().count()
+                    ),
+                );
                 Ok(NextDirective::Default)
             }
             NodeKind::Delay => {
@@ -1306,6 +1441,115 @@ fn get_string_array(node: &WorkflowNode, key: &str, default: Vec<String>) -> Vec
         })
         .filter(|values| !values.is_empty())
         .unwrap_or(default)
+}
+
+fn resolve_text_input(node: &WorkflowNode, variables: &HashMap<String, Value>) -> String {
+    let input_mode = get_string(node, "inputMode", "literal").to_lowercase();
+    if input_mode == "var" {
+        let var_name = get_string(node, "inputVar", "").trim().to_string();
+        if var_name.is_empty() {
+            return String::new();
+        }
+        return variables
+            .get(&var_name)
+            .map(stringify_value)
+            .unwrap_or_default();
+    }
+
+    let raw = get_string(node, "inputText", "");
+    resolve_text_template(&raw, variables)
+}
+
+fn resolve_text_template(raw: &str, variables: &HashMap<String, Value>) -> String {
+    let mut result = String::with_capacity(raw.len());
+    let mut cursor = 0usize;
+
+    while let Some(open_rel) = raw[cursor..].find("{{") {
+        let open = cursor + open_rel;
+        result.push_str(&raw[cursor..open]);
+
+        let body_start = open + 2;
+        if let Some(close_rel) = raw[body_start..].find("}}") {
+            let close = body_start + close_rel;
+            let key = raw[body_start..close].trim();
+            if !key.is_empty() {
+                if let Some(value) = variables.get(key) {
+                    result.push_str(&stringify_value(value));
+                }
+            }
+            cursor = close + 2;
+        } else {
+            result.push_str(&raw[open..]);
+            cursor = raw.len();
+            break;
+        }
+    }
+
+    if cursor < raw.len() {
+        result.push_str(&raw[cursor..]);
+    }
+
+    result
+}
+
+fn stringify_value(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number.to_string(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Null => String::new(),
+        _ => serde_json::to_string(value).unwrap_or_default(),
+    }
+}
+
+fn write_text_file(path: &str, text: &str, append: bool, create_parent_dir: bool) -> CommandResult<()> {
+    let target = Path::new(path);
+
+    if create_parent_dir {
+        if let Some(parent) = target.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| CommandFlowError::Io(format!("创建目录失败 '{}': {}", parent.display(), error)))?;
+            }
+        }
+    }
+
+    if append {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(target)
+            .map_err(|error| CommandFlowError::Io(format!("打开文件失败 '{}': {}", path, error)))?;
+        file.write_all(text.as_bytes())
+            .map_err(|error| CommandFlowError::Io(format!("写入文件失败 '{}': {}", path, error)))?;
+        return Ok(());
+    }
+
+    fs::write(target, text)
+        .map_err(|error| CommandFlowError::Io(format!("写入文件失败 '{}': {}", path, error)))
+}
+
+fn show_message_dialog(title: &str, message: &str, level: &str) -> CommandResult<()> {
+    let message_level = match level.to_lowercase().as_str() {
+        "warning" | "warn" => MessageLevel::Warning,
+        "error" => MessageLevel::Error,
+        _ => MessageLevel::Info,
+    };
+
+    let shown = MessageDialog::new()
+        .set_level(message_level)
+        .set_title(title)
+        .set_description(message)
+        .set_buttons(MessageButtons::Ok)
+        .show();
+
+    if matches!(shown, MessageDialogResult::Ok | MessageDialogResult::Yes) {
+        Ok(())
+    } else {
+        Err(CommandFlowError::Automation(
+            "弹窗显示失败或被系统阻止。".to_string(),
+        ))
+    }
 }
 
 fn evaluate_condition(node: &WorkflowNode, variables: &HashMap<String, Value>) -> bool {

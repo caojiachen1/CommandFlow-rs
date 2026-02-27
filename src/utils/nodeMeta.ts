@@ -289,6 +289,140 @@ const metas: Record<NodeKind, NodeMeta> = {
       },
     ],
   },
+  clipboardRead: {
+    label: '读取剪贴板',
+    description: '读取系统剪贴板文本并输出到变量。',
+    defaultParams: { outputVar: 'clipboardText' },
+    fields: [
+      {
+        key: 'outputVar',
+        label: '输出变量名',
+        type: 'string',
+        placeholder: 'clipboardText',
+        description: '读取到的文本将写入该变量；留空则仅记录日志。',
+      },
+    ],
+  },
+  clipboardWrite: {
+    label: '写入剪贴板',
+    description: '将文本写入系统剪贴板。',
+    defaultParams: {
+      inputMode: 'literal',
+      inputText: 'Hello from CommandFlow',
+      inputVar: 'clipboardText',
+    },
+    fields: [
+      {
+        key: 'inputMode',
+        label: '输入来源',
+        type: 'select',
+        options: [
+          { label: '文本', value: 'literal' },
+          { label: '变量', value: 'var' },
+        ],
+      },
+      {
+        key: 'inputText',
+        label: '文本内容',
+        type: 'text',
+        placeholder: '支持多行文本，也支持 {{变量名}} 模板占位。',
+      },
+      {
+        key: 'inputVar',
+        label: '变量名',
+        type: 'string',
+        placeholder: 'clipboardText',
+      },
+    ],
+  },
+  fileReadText: {
+    label: '读取文本文件',
+    description: '读取 UTF-8 文本文件并输出到变量。',
+    defaultParams: { path: '', outputVar: 'fileText' },
+    fields: [
+      { key: 'path', label: '文件路径', type: 'string', placeholder: 'C:\\temp\\note.txt' },
+      {
+        key: 'outputVar',
+        label: '输出变量名',
+        type: 'string',
+        placeholder: 'fileText',
+        description: '读取到的文本将写入该变量；留空则仅记录日志。',
+      },
+    ],
+  },
+  fileWriteText: {
+    label: '写入文本文件',
+    description: '将文本写入 UTF-8 文件（可追加）。',
+    defaultParams: {
+      path: '',
+      inputMode: 'literal',
+      inputText: 'Hello File',
+      inputVar: 'fileText',
+      append: false,
+      createParentDir: true,
+    },
+    fields: [
+      { key: 'path', label: '文件路径', type: 'string', placeholder: 'D:\\output\\result.txt' },
+      {
+        key: 'inputMode',
+        label: '输入来源',
+        type: 'select',
+        options: [
+          { label: '文本', value: 'literal' },
+          { label: '变量', value: 'var' },
+        ],
+      },
+      {
+        key: 'inputText',
+        label: '文本内容',
+        type: 'text',
+        placeholder: '支持多行文本，也支持 {{变量名}} 模板占位。',
+      },
+      { key: 'inputVar', label: '变量名', type: 'string', placeholder: 'fileText' },
+      { key: 'append', label: '追加写入', type: 'boolean' },
+      { key: 'createParentDir', label: '自动创建父目录', type: 'boolean' },
+    ],
+  },
+  showMessage: {
+    label: '弹窗提示',
+    description: '显示系统弹窗消息。',
+    defaultParams: {
+      title: 'CommandFlow',
+      inputMode: 'literal',
+      inputText: '执行完成',
+      inputVar: 'messageText',
+      level: 'info',
+    },
+    fields: [
+      { key: 'title', label: '标题', type: 'string', placeholder: 'CommandFlow' },
+      {
+        key: 'inputMode',
+        label: '消息来源',
+        type: 'select',
+        options: [
+          { label: '文本', value: 'literal' },
+          { label: '变量', value: 'var' },
+        ],
+      },
+      {
+        key: 'inputText',
+        label: '消息内容',
+        type: 'text',
+        placeholder: '支持多行文本，也支持 {{变量名}} 模板占位。',
+      },
+      { key: 'inputVar', label: '变量名', type: 'string', placeholder: 'messageText' },
+      {
+        key: 'level',
+        label: '弹窗级别',
+        type: 'select',
+        options: [
+          { label: '信息', value: 'info' },
+          { label: '警告', value: 'warning' },
+          { label: '错误', value: 'error' },
+        ],
+      },
+    ],
+  },
   delay: {
     label: '等待延时',
     description: '暂停指定时间后继续。',
@@ -463,7 +597,12 @@ const metas: Record<NodeKind, NodeMeta> = {
     defaultParams: { name: 'counter', value: 0 },
     fields: [
       { key: 'name', label: '变量名', type: 'string', placeholder: 'counter' },
-      { key: 'value', label: '初始值', type: 'number', step: 1 },
+      {
+        key: 'value',
+        label: '初始值(JSON)',
+        type: 'json',
+        description: '可填写字符串/数字/布尔/对象，例如 "hello"、123、true。',
+      },
     ],
   },
   varSet: {
@@ -472,7 +611,12 @@ const metas: Record<NodeKind, NodeMeta> = {
     defaultParams: { name: 'counter', value: 1 },
     fields: [
       { key: 'name', label: '变量名', type: 'string', placeholder: 'counter' },
-      { key: 'value', label: '新值', type: 'number', step: 1 },
+      {
+        key: 'value',
+        label: '新值(JSON)',
+        type: 'json',
+        description: '可填写字符串/数字/布尔/对象，例如 "world"、42、false。',
+      },
     ],
   },
   varMath: {
