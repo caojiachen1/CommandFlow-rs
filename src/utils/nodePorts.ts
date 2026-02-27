@@ -13,6 +13,7 @@ export interface NodePortSpec {
 }
 
 const ONE = 1
+const MANY = 8
 const singleIn = (): NodePort[] => [{ id: 'in', maxConnections: ONE }]
 const singleOut = (): NodePort[] => [{ id: 'next', maxConnections: ONE }]
 
@@ -194,6 +195,14 @@ const specs: Record<NodeKind, NodePortSpec> = {
   varMath: {
     inputs: singleIn(),
     outputs: singleOut(),
+  },
+  varGet: {
+    inputs: [],
+    outputs: [{ id: 'value', label: 'value', maxConnections: MANY }],
+  },
+  constValue: {
+    inputs: [],
+    outputs: [{ id: 'value', label: 'value', maxConnections: MANY }],
   },
 }
 

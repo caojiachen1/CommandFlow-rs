@@ -27,7 +27,7 @@ export type ActionNodeKind =
   | 'showMessage'
   | 'delay'
 export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch'
-export type DataNodeKind = 'varDefine' | 'varSet' | 'varMath'
+export type DataNodeKind = 'varDefine' | 'varSet' | 'varMath' | 'varGet' | 'constValue'
 
 export type NodeKind = TriggerNodeKind | ActionNodeKind | ControlNodeKind | DataNodeKind
 

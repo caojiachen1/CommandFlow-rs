@@ -64,6 +64,8 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
       { label: '变量定义', kind: 'varDefine', color: 'bg-pink-500' },
       { label: '变量赋值', kind: 'varSet', color: 'bg-emerald-500' },
       { label: '变量运算', kind: 'varMath', color: 'bg-teal-500' },
+      { label: '获取变量值', kind: 'varGet', color: 'bg-cyan-500' },
+      { label: '常量输出', kind: 'constValue', color: 'bg-slate-500' },
     ],
   },
 ]

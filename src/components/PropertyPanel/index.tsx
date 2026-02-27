@@ -206,10 +206,46 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
 
   const updateParam = (key: string, value: unknown) => {
     if (!selectedNode) return
-    updateNodeParams(selectedNode.id, {
+    const nextParams: Record<string, unknown> = {
       ...selectedNode.data.params,
       [key]: value,
-    })
+    }
+
+    if (selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet') {
+      const valueType = String(nextParams.valueType ?? 'number')
+      if (valueType === 'string') {
+        nextParams.value = String(nextParams.valueString ?? '')
+      } else if (valueType === 'number') {
+        nextParams.value = Number(nextParams.valueNumber ?? 0)
+      } else if (valueType === 'boolean') {
+        nextParams.value = String(nextParams.valueBoolean ?? 'false') === 'true'
+      } else {
+        try {
+          nextParams.value = JSON.parse(String(nextParams.valueJson ?? 'null'))
+        } catch {
+          nextParams.value = null
+        }
+      }
+    }
+
+    if (selectedNode.data.kind === 'varMath') {
+      const operandType = String(nextParams.operandType ?? 'number')
+      if (operandType === 'string') {
+        nextParams.operand = String(nextParams.operandString ?? '0')
+      } else if (operandType === 'number') {
+        nextParams.operand = Number(nextParams.operandNumber ?? 0)
+      } else if (operandType === 'boolean') {
+        nextParams.operand = String(nextParams.operandBoolean ?? 'false') === 'true'
+      } else {
+        try {
+          nextParams.operand = JSON.parse(String(nextParams.operandJson ?? '0'))
+        } catch {
+          nextParams.operand = 0
+        }
+      }
+    }
+
+    updateNodeParams(selectedNode.id, nextParams)
   }
 
   const getFieldDefaultValue = (field: ParamField): unknown =>
@@ -266,6 +302,56 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       ])
       const operation = String(selectedNode.data.params.operation ?? selectedMeta?.defaultParams.operation ?? 'add')
       return !unaryOperations.has(operation)
+    }
+
+    if ((selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet') && field.key.startsWith('value')) {
+      const valueType = String(selectedNode.data.params.valueType ?? 'number')
+      if (field.key === 'valueType') return true
+      if (field.key === 'valueString') return valueType === 'string'
+      if (field.key === 'valueNumber') return valueType === 'number'
+      if (field.key === 'valueBoolean') return valueType === 'boolean'
+      if (field.key === 'valueJson') return valueType === 'json'
+    }
+
+    if (selectedNode.data.kind === 'varMath' && field.key.startsWith('operand')) {
+      const unaryOperations = new Set([
+        'neg',
+        'abs',
+        'sign',
+        'square',
+        'cube',
+        'sqrt',
+        'cbrt',
+        'exp',
+        'ln',
+        'log2',
+        'log10',
+        'sin',
+        'cos',
+        'tan',
+        'asin',
+        'acos',
+        'atan',
+        'ceil',
+        'floor',
+        'round',
+        'trunc',
+        'frac',
+        'recip',
+        'lnot',
+        'bnot',
+      ])
+      const operation = String(selectedNode.data.params.operation ?? selectedMeta?.defaultParams.operation ?? 'add')
+      if (unaryOperations.has(operation)) {
+        return field.key === 'operandType'
+      }
+
+      const operandType = String(selectedNode.data.params.operandType ?? 'number')
+      if (field.key === 'operandType') return true
+      if (field.key === 'operandNumber') return operandType === 'number'
+      if (field.key === 'operandString') return operandType === 'string'
+      if (field.key === 'operandBoolean') return operandType === 'boolean'
+      if (field.key === 'operandJson') return operandType === 'json'
     }
 
     if (

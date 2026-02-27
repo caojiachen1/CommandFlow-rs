@@ -101,6 +101,58 @@ const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, param
     return !unaryOperations.has(operation)
   }
 
+  if ((kind === 'varDefine' || kind === 'varSet') && field.key.startsWith('value')) {
+    const valueType = String(params.valueType ?? 'number')
+    if (field.key === 'valueType') return true
+    if (field.key === 'valueString') return valueType === 'string'
+    if (field.key === 'valueNumber') return valueType === 'number'
+    if (field.key === 'valueBoolean') return valueType === 'boolean'
+    if (field.key === 'valueJson') return valueType === 'json'
+    return false
+  }
+
+  if (kind === 'varMath' && field.key.startsWith('operand')) {
+    const unaryOperations = new Set([
+      'neg',
+      'abs',
+      'sign',
+      'square',
+      'cube',
+      'sqrt',
+      'cbrt',
+      'exp',
+      'ln',
+      'log2',
+      'log10',
+      'sin',
+      'cos',
+      'tan',
+      'asin',
+      'acos',
+      'atan',
+      'ceil',
+      'floor',
+      'round',
+      'trunc',
+      'frac',
+      'recip',
+      'lnot',
+      'bnot',
+    ])
+    const operation = String(params.operation ?? 'add')
+    if (unaryOperations.has(operation)) {
+      return field.key === 'operandType'
+    }
+
+    const operandType = String(params.operandType ?? 'number')
+    if (field.key === 'operandType') return true
+    if (field.key === 'operandNumber') return operandType === 'number'
+    if (field.key === 'operandString') return operandType === 'string'
+    if (field.key === 'operandBoolean') return operandType === 'boolean'
+    if (field.key === 'operandJson') return operandType === 'json'
+    return false
+  }
+
   if (
     (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') &&
     (field.key === 'inputText' || field.key === 'inputVar')
@@ -137,10 +189,46 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const pathEditorPanelRef = useRef<HTMLDivElement | null>(null)
 
   const updateParam = (key: string, value: unknown) => {
-    updateNodeParams(id, {
+    const nextParams: Record<string, unknown> = {
       ...params,
       [key]: value,
-    })
+    }
+
+    if (data.kind === 'varDefine' || data.kind === 'varSet') {
+      const valueType = String(nextParams.valueType ?? 'number')
+      if (valueType === 'string') {
+        nextParams.value = String(nextParams.valueString ?? '')
+      } else if (valueType === 'number') {
+        nextParams.value = Number(nextParams.valueNumber ?? 0)
+      } else if (valueType === 'boolean') {
+        nextParams.value = String(nextParams.valueBoolean ?? 'false') === 'true'
+      } else {
+        try {
+          nextParams.value = JSON.parse(String(nextParams.valueJson ?? 'null'))
+        } catch {
+          nextParams.value = null
+        }
+      }
+    }
+
+    if (data.kind === 'varMath') {
+      const operandType = String(nextParams.operandType ?? 'number')
+      if (operandType === 'string') {
+        nextParams.operand = String(nextParams.operandString ?? '0')
+      } else if (operandType === 'number') {
+        nextParams.operand = Number(nextParams.operandNumber ?? 0)
+      } else if (operandType === 'boolean') {
+        nextParams.operand = String(nextParams.operandBoolean ?? 'false') === 'true'
+      } else {
+        try {
+          nextParams.operand = JSON.parse(String(nextParams.operandJson ?? '0'))
+        } catch {
+          nextParams.operand = 0
+        }
+      }
+    }
+
+    updateNodeParams(id, nextParams)
   }
 
   const shiftSelectValue = (field: ParamField, direction: -1 | 1) => {

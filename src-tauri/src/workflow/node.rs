@@ -40,6 +40,8 @@ pub enum NodeKind {
     VarDefine,
     VarSet,
     VarMath,
+    VarGet,
+    ConstValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

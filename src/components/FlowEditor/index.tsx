@@ -68,6 +68,8 @@ const allowedKinds: NodeKind[] = [
   'varDefine',
   'varSet',
   'varMath',
+  'varGet',
+  'constValue',
 ]
 
 const isNodeKind = (value: string): value is NodeKind => allowedKinds.includes(value as NodeKind)
@@ -85,6 +87,24 @@ interface NodeQuickInsertState {
   flowY: number
   panelX: number
   panelY: number
+}
+
+type QuickInsertSourceType = 'control' | 'data'
+
+const CONTROL_FLOW_SOURCE_HANDLES = new Set(['next', 'true', 'false', 'loop', 'done'])
+
+const resolveQuickInsertSourceType = (sourceHandleId: string | null): QuickInsertSourceType =>
+  sourceHandleId && CONTROL_FLOW_SOURCE_HANDLES.has(sourceHandleId) ? 'control' : 'data'
+
+const resolveQuickInsertTargetHandle = (kind: NodeKind, sourceType: QuickInsertSourceType): string | null => {
+  const spec = getNodePortSpec(kind)
+
+  if (sourceType === 'control') {
+    return spec.inputs.some((input) => input.id === 'in') ? 'in' : null
+  }
+
+  const firstParamInput = spec.inputs.find((input) => input.id.startsWith('param:'))
+  return firstParamInput?.id ?? null
 }
 
 const getClientPoint = (event: MouseEvent | TouchEvent) => {
@@ -131,6 +151,8 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       varDefine: VariableNode,
       varSet: VariableNode,
       varMath: VariableNode,
+      varGet: VariableNode,
+      constValue: VariableNode,
       manualTrigger: VariableNode,
       hotkeyTrigger: VariableNode,
       timerTrigger: VariableNode,
@@ -163,7 +185,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   const quickInsertItems = useMemo(
     () =>
       allowedKinds
-        .filter((kind) => getNodePortSpec(kind).inputs.some((port) => port.id === 'in'))
         .map((kind) => {
           const meta = getNodeMeta(kind)
           return {
@@ -176,10 +197,22 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   )
 
   const filteredQuickInsertItems = useMemo(() => {
+    if (!quickInsert) return []
+
     const keyword = quickInsertKeyword.trim().toLowerCase()
-    if (!keyword) return quickInsertItems
-    return quickInsertItems.filter((item) => item.searchText.includes(keyword))
-  }, [quickInsertItems, quickInsertKeyword])
+    const sourceNode = nodes.find((node) => node.id === quickInsert.sourceNodeId)
+    const normalizedSourceHandle = sourceNode
+      ? normalizeSourceHandleId(sourceNode.data.kind, quickInsert.sourceHandleId)
+      : null
+    const sourceType = resolveQuickInsertSourceType(normalizedSourceHandle)
+
+    const typeMatchedItems = quickInsertItems.filter((item) =>
+      Boolean(resolveQuickInsertTargetHandle(item.kind, sourceType)),
+    )
+
+    if (!keyword) return typeMatchedItems
+    return typeMatchedItems.filter((item) => item.searchText.includes(keyword))
+  }, [nodes, quickInsert, quickInsertItems, quickInsertKeyword])
 
   const closeQuickInsert = useCallback(() => {
     setQuickInsert(null)
@@ -362,8 +395,9 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         ? normalizeSourceHandleId(sourceNode.data.kind, quickInsert.sourceHandleId)
         : null
 
-      // 控制流快速插入默认连到新节点的进入触点（in）
-      const targetHandle = normalizeTargetHandleId(kind, 'in')
+      const sourceType = resolveQuickInsertSourceType(sourceHandle)
+      const quickTargetHandle = resolveQuickInsertTargetHandle(kind, sourceType)
+      const targetHandle = normalizeTargetHandleId(kind, quickTargetHandle)
 
       if (sourceNode && sourceHandle && targetHandle) {
         connectNodes({

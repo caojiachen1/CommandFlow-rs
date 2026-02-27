@@ -1019,7 +1019,7 @@ impl WorkflowExecutor {
             NodeKind::VarDefine => {
                 let name = get_string(node, "name", "");
                 if !name.trim().is_empty() {
-                    let value = node.params.get("value").cloned().unwrap_or(Value::Null);
+                    let value = resolve_typed_param_value(node, "value");
                     ctx.variables.entry(name).or_insert(value);
                 }
                 Ok(NextDirective::Default)
@@ -1027,7 +1027,7 @@ impl WorkflowExecutor {
             NodeKind::VarSet => {
                 let name = get_string(node, "name", "");
                 if !name.trim().is_empty() {
-                    let value = node.params.get("value").cloned().unwrap_or(Value::Null);
+                    let value = resolve_typed_param_value(node, "value");
                     ctx.variables.insert(name, value);
                 }
                 Ok(NextDirective::Default)
@@ -1043,7 +1043,7 @@ impl WorkflowExecutor {
 
                 let operation = get_string(node, "operation", "add").to_lowercase();
                 let assign_to_variable = get_bool(node, "assignToVariable", true);
-                let operand = get_f64(node, "operand", 1.0);
+                let operand = as_f64(&resolve_typed_param_value(node, "operand"));
                 let current = ctx.variables.get(&name).map(as_f64).unwrap_or(0.0);
                 let current_i64 = current as i64;
                 let operand_i64 = operand as i64;
@@ -1189,6 +1189,38 @@ impl WorkflowExecutor {
                         } else {
                             "，未写回变量".to_string()
                         }
+                    ),
+                );
+                Ok(NextDirective::Default)
+            }
+            NodeKind::VarGet => {
+                let name = get_string(node, "name", "");
+                let value = if name.trim().is_empty() {
+                    Value::Null
+                } else {
+                    ctx.variables.get(&name).cloned().unwrap_or(Value::Null)
+                };
+
+                on_log(
+                    "info",
+                    format!(
+                        "纯输出节点 '{}' 已读取变量 '{}'，当前值={}。",
+                        node.label,
+                        name,
+                        stringify_value(&value)
+                    ),
+                );
+
+                Ok(NextDirective::Default)
+            }
+            NodeKind::ConstValue => {
+                let value = node.params.get("value").cloned().unwrap_or(Value::Null);
+                on_log(
+                    "info",
+                    format!(
+                        "纯输出节点 '{}' 输出常量值={}。",
+                        node.label,
+                        stringify_value(&value)
                     ),
                 );
                 Ok(NextDirective::Default)
@@ -1645,6 +1677,44 @@ fn as_optional_f64(value: &Value) -> Option<f64> {
         .or_else(|| value.as_i64().map(|n| n as f64))
         .or_else(|| value.as_u64().map(|n| n as f64))
         .or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
+}
+
+fn resolve_typed_param_value(node: &WorkflowNode, base_key: &str) -> Value {
+    let type_key = format!("{}Type", base_key);
+    let selected_type = node
+        .params
+        .get(&type_key)
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+
+    if selected_type.is_empty() {
+        return node.params.get(base_key).cloned().unwrap_or(Value::Null);
+    }
+
+    match selected_type {
+        "string" => {
+            let key = format!("{}String", base_key);
+            Value::String(get_string(node, &key, ""))
+        }
+        "number" => {
+            let key = format!("{}Number", base_key);
+            let numeric = get_f64(node, &key, 0.0);
+            Number::from_f64(numeric)
+                .map(Value::Number)
+                .unwrap_or(Value::Null)
+        }
+        "boolean" => {
+            let key = format!("{}Boolean", base_key);
+            let raw = get_string(node, &key, "false");
+            Value::Bool(raw.eq_ignore_ascii_case("true"))
+        }
+        "json" => {
+            let key = format!("{}Json", base_key);
+            let raw = get_string(node, &key, "null");
+            serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null)
+        }
+        _ => node.params.get(base_key).cloned().unwrap_or(Value::Null),
+    }
 }
 
 async fn sleep_after_node(

@@ -289,6 +289,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       }
 
       return {
+        nodes: state.nodes.map((node) => ({
+          ...node,
+          selected: id ? node.id === id : false,
+        })),
         selectedNodeId: id,
         selectedNodeIds,
       }
@@ -309,6 +313,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       }
 
       return {
+        nodes: state.nodes.map((node) => ({
+          ...node,
+          selected: selectedSet.has(node.id),
+        })),
         selectedNodeIds,
         selectedNodeId: nextPrimaryId,
       }
