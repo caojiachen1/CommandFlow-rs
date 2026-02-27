@@ -12,6 +12,8 @@ import { getNodeMeta } from '../utils/nodeMeta'
 import {
   getInputHandleMaxConnections,
   getOutputHandleMaxConnections,
+  isParamInputHandleId,
+  isParamOutputHandleId,
   normalizeSourceHandleId,
   normalizeTargetHandleId,
 } from '../utils/nodePorts'
@@ -147,6 +149,19 @@ const applyConnectionWithReplacement = (
   const sourceHandle = normalizeSourceHandleId(sourceNode.data.kind, connection.sourceHandle)
   const targetHandle = normalizeTargetHandleId(targetNode.data.kind, connection.targetHandle)
   if (!sourceHandle || !targetHandle) {
+    return null
+  }
+
+  const sourceIsParam = isParamOutputHandleId(sourceHandle)
+  const targetIsParam = isParamInputHandleId(targetHandle)
+  if (sourceIsParam) {
+    return null
+  }
+  if (!sourceIsParam && !targetIsParam) {
+    // 控制流连接：继续走默认逻辑
+  } else if (!sourceIsParam && targetIsParam) {
+    // 允许流程输出口连接到参数输入口
+  } else {
     return null
   }
 

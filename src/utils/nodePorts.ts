@@ -1,4 +1,5 @@
 import type { NodeKind } from '../types/workflow'
+import { getNodeMeta } from './nodeMeta'
 
 export interface NodePort {
   id: string
@@ -12,9 +13,34 @@ export interface NodePortSpec {
 }
 
 const ONE = 1
-
 const singleIn = (): NodePort[] => [{ id: 'in', maxConnections: ONE }]
 const singleOut = (): NodePort[] => [{ id: 'next', maxConnections: ONE }]
+
+const PARAM_INPUT_PREFIX = 'param:'
+const PARAM_INPUT_SUFFIX = ':in'
+const PARAM_OUTPUT_SUFFIX = ':out'
+
+const isConnectableFieldType = (type: string) => type !== 'boolean'
+
+export const createParamInputHandleId = (fieldKey: string): string =>
+  `${PARAM_INPUT_PREFIX}${fieldKey}${PARAM_INPUT_SUFFIX}`
+
+export const createParamOutputHandleId = (fieldKey: string): string =>
+  `${PARAM_INPUT_PREFIX}${fieldKey}${PARAM_OUTPUT_SUFFIX}`
+
+export const isParamInputHandleId = (handleId: string | null | undefined): boolean =>
+  typeof handleId === 'string' && handleId.startsWith(PARAM_INPUT_PREFIX) && handleId.endsWith(PARAM_INPUT_SUFFIX)
+
+export const isParamOutputHandleId = (handleId: string | null | undefined): boolean =>
+  typeof handleId === 'string' && handleId.startsWith(PARAM_INPUT_PREFIX) && handleId.endsWith(PARAM_OUTPUT_SUFFIX)
+
+export const isParamHandleId = (handleId: string | null | undefined): boolean =>
+  isParamInputHandleId(handleId) || isParamOutputHandleId(handleId)
+
+export const getParamFieldKeyFromHandleId = (handleId: string | null | undefined): string | null => {
+  if (!handleId || !isParamHandleId(handleId)) return null
+  return handleId.slice(PARAM_INPUT_PREFIX.length, handleId.lastIndexOf(':'))
+}
 
 const specs: Record<NodeKind, NodePortSpec> = {
   hotkeyTrigger: {
@@ -171,7 +197,31 @@ const specs: Record<NodeKind, NodePortSpec> = {
   },
 }
 
-export const getNodePortSpec = (kind: NodeKind): NodePortSpec => specs[kind]
+const mergedSpecCache = new Map<NodeKind, NodePortSpec>()
+
+export const getNodePortSpec = (kind: NodeKind): NodePortSpec => {
+  const cached = mergedSpecCache.get(kind)
+  if (cached) return cached
+
+  const base = specs[kind]
+  const meta = getNodeMeta(kind)
+  const connectableFields = meta.fields.filter((field) => isConnectableFieldType(field.type))
+
+  const merged: NodePortSpec = {
+    inputs: [
+      ...base.inputs,
+      ...connectableFields.map((field) => ({
+        id: createParamInputHandleId(field.key),
+        label: field.label,
+        maxConnections: ONE,
+      })),
+    ],
+    outputs: [...base.outputs],
+  }
+
+  mergedSpecCache.set(kind, merged)
+  return merged
+}
 
 const normalizeHandleId = (
   ports: NodePort[],
@@ -188,13 +238,13 @@ const normalizeHandleId = (
 }
 
 export const normalizeSourceHandleId = (kind: NodeKind, handleId: string | null | undefined): string | null =>
-  normalizeHandleId(specs[kind].outputs, handleId)
+  normalizeHandleId(getNodePortSpec(kind).outputs, handleId)
 
 export const normalizeTargetHandleId = (kind: NodeKind, handleId: string | null | undefined): string | null =>
-  normalizeHandleId(specs[kind].inputs, handleId)
+  normalizeHandleId(getNodePortSpec(kind).inputs, handleId)
 
 export const getOutputHandleMaxConnections = (kind: NodeKind, handleId: string): number =>
-  specs[kind].outputs.find((port) => port.id === handleId)?.maxConnections ?? 0
+  getNodePortSpec(kind).outputs.find((port) => port.id === handleId)?.maxConnections ?? 0
 
 export const getInputHandleMaxConnections = (kind: NodeKind, handleId: string): number =>
-  specs[kind].inputs.find((port) => port.id === handleId)?.maxConnections ?? 0
+  getNodePortSpec(kind).inputs.find((port) => port.id === handleId)?.maxConnections ?? 0

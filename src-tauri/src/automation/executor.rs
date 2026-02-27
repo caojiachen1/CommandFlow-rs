@@ -75,6 +75,9 @@ impl WorkflowExecutor {
         let mut incoming_count: HashMap<&str, usize> =
             graph.nodes.iter().map(|node| (node.id.as_str(), 0)).collect();
         for edge in &graph.edges {
+            if !is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref()) {
+                continue;
+            }
             if let Some(in_count) = incoming_count.get_mut(edge.target.as_str()) {
                 *in_count += 1;
             }
@@ -168,7 +171,10 @@ impl WorkflowExecutor {
                 let outgoing: Vec<_> = graph
                     .edges
                     .iter()
-                    .filter(|edge| edge.source == current_id)
+                    .filter(|edge| {
+                        edge.source == current_id
+                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                    })
                     .collect();
 
                 let loop_edge = outgoing
@@ -288,13 +294,23 @@ impl WorkflowExecutor {
             sleep_after_node(node, should_cancel).await?;
             on_variables_update(&ctx.variables);
 
-            let outgoing = graph.edges.iter().filter(|edge| edge.source == current_id);
+            let outgoing = graph
+                .edges
+                .iter()
+                .filter(|edge| {
+                    edge.source == current_id
+                        && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                });
             let next = match directive {
                 NextDirective::Default => outgoing.into_iter().next(),
                 NextDirective::Branch(handle) => graph
                     .edges
                     .iter()
-                    .find(|edge| edge.source == current_id && edge.source_handle.as_deref() == Some(handle)),
+                    .find(|edge| {
+                        edge.source == current_id
+                            && edge.source_handle.as_deref() == Some(handle)
+                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                    }),
             };
 
             match next {
@@ -1189,6 +1205,16 @@ fn is_trigger(kind: &NodeKind) -> bool {
             | NodeKind::ManualTrigger
             | NodeKind::WindowTrigger
     )
+}
+
+fn is_param_handle(handle: Option<&str>) -> bool {
+    handle
+        .map(|value| value.starts_with("param:"))
+        .unwrap_or(false)
+}
+
+fn is_control_flow_edge(source_handle: Option<&str>, target_handle: Option<&str>) -> bool {
+    !is_param_handle(source_handle) && !is_param_handle(target_handle)
 }
 
 async fn run_python_code(

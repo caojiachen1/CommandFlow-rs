@@ -2,6 +2,6 @@ import type { NodeProps } from '@xyflow/react'
 import BaseNode from './BaseNode'
 import type { WorkflowNodeData } from '../types/workflow'
 
-export default function ImageMatchNode({ data, selected }: NodeProps) {
-  return <BaseNode data={data as WorkflowNodeData} tone="action" selected={selected} />
+export default function ImageMatchNode({ id, data, selected }: NodeProps) {
+  return <BaseNode id={id} data={data as WorkflowNodeData} tone="action" selected={selected} />
 }

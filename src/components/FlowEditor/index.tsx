@@ -17,7 +17,12 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { NodeKind } from '../../types/workflow'
 import { getNodeMeta } from '../../utils/nodeMeta'
-import { getNodePortSpec, normalizeSourceHandleId, normalizeTargetHandleId } from '../../utils/nodePorts'
+import {
+  getNodePortSpec,
+  isParamOutputHandleId,
+  normalizeSourceHandleId,
+  normalizeTargetHandleId,
+} from '../../utils/nodePorts'
 import ClickNode from '../../nodes/ClickNode'
 import ConditionNode from '../../nodes/ConditionNode'
 import ImageMatchNode from '../../nodes/ImageMatchNode'
@@ -158,7 +163,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   const quickInsertItems = useMemo(
     () =>
       allowedKinds
-        .filter((kind) => getNodePortSpec(kind).inputs.length > 0)
+        .filter((kind) => getNodePortSpec(kind).inputs.some((port) => port.id === 'in'))
         .map((kind) => {
           const meta = getNodeMeta(kind)
           return {
@@ -356,7 +361,9 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       const sourceHandle = sourceNode
         ? normalizeSourceHandleId(sourceNode.data.kind, quickInsert.sourceHandleId)
         : null
-      const targetHandle = normalizeTargetHandleId(kind, null)
+
+      // 控制流快速插入默认连到新节点的进入触点（in）
+      const targetHandle = normalizeTargetHandleId(kind, 'in')
 
       if (sourceNode && sourceHandle && targetHandle) {
         connectNodes({
@@ -377,6 +384,25 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       onReconnect(oldEdge, connection)
     },
     [onReconnect],
+  )
+
+  const isValidConnection = useCallback(
+    (connection: { source?: string | null; target?: string | null; sourceHandle?: string | null; targetHandle?: string | null }) => {
+      const { source, target, sourceHandle, targetHandle } = connection
+      if (!source || !target || !sourceHandle || !targetHandle) return false
+
+      const sourceIsParam = isParamOutputHandleId(sourceHandle)
+      if (sourceIsParam) return false
+
+      const sourceNode = nodes.find((node) => node.id === source)
+      const targetNode = nodes.find((node) => node.id === target)
+      if (!sourceNode || !targetNode) return false
+
+      const normalizedSource = normalizeSourceHandleId(sourceNode.data.kind, sourceHandle)
+      const normalizedTarget = normalizeTargetHandleId(targetNode.data.kind, targetHandle)
+      return Boolean(normalizedSource && normalizedTarget)
+    },
+    [nodes],
   )
 
   const renderedEdges = useMemo(
@@ -405,6 +431,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
+        isValidConnection={isValidConnection}
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onReconnect={onReconnectEdge}

@@ -13,6 +13,7 @@ interface PathPickerDropdownProps {
   onSelect: (value: string) => void
   buttonLabel?: string
   className?: string
+  buttonClassName?: string
   pickerMode?: PickerMode
   filters?: PickerFilter[]
 }
@@ -23,13 +24,14 @@ const MENU_OPTIONS = [
 ]
 
 const TRIGGER_BUTTON_CLASS =
-  'rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur transition-all hover:border-cyan-500 hover:text-cyan-600 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-300 dark:hover:text-cyan-400'
+  'whitespace-nowrap rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur transition-all hover:border-cyan-500 hover:text-cyan-600 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-300 dark:hover:text-cyan-400'
 
 export default function PathPickerDropdown({
   fieldLabel,
   onSelect,
   buttonLabel = '浏览',
   className,
+  buttonClassName,
   pickerMode = 'menu',
   filters,
 }: PathPickerDropdownProps) {
@@ -89,7 +91,7 @@ export default function PathPickerDropdown({
         type="button"
         aria-expanded={pickerMode === 'menu' ? isOpen : undefined}
         aria-haspopup={pickerMode === 'menu' ? 'menu' : undefined}
-        className={`${TRIGGER_BUTTON_CLASS} flex items-center justify-center gap-1`}
+        className={`${TRIGGER_BUTTON_CLASS} ${buttonClassName ?? ''} flex items-center justify-center gap-1`}
         onClick={handleTriggerClick}
       >
         {buttonLabel}
