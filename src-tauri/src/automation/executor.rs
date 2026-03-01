@@ -511,16 +511,21 @@ impl WorkflowExecutor {
                 Ok(NextDirective::Default)
             }
             NodeKind::Screenshot => {
-                let path = get_string(node, "path", "capture.png");
+                let output_path = resolve_screenshot_output_path(node)?;
                 let fullscreen = get_bool(node, "fullscreen", false);
-                if fullscreen {
-                    screenshot::capture_fullscreen(&path)?;
+                if let Some(path) = output_path {
+                    if fullscreen {
+                        screenshot::capture_fullscreen(&path)?;
+                    } else {
+                        let width = get_u32(node, "width", 320);
+                        let height = get_u32(node, "height", 240);
+                        screenshot::capture_region(&path, width.max(1), height.max(1))?;
+                    }
+                    set_node_output(ctx, node, "path", Value::String(path));
                 } else {
-                    let width = get_u32(node, "width", 320);
-                    let height = get_u32(node, "height", 240);
-                    screenshot::capture_region(&path, width.max(1), height.max(1))?;
+                    let _ = screenshot::capture_fullscreen_gray()?;
+                    set_node_output(ctx, node, "path", Value::String(String::new()));
                 }
-                set_node_output(ctx, node, "path", Value::String(path));
                 Ok(NextDirective::Default)
             }
             NodeKind::WindowActivate => {
@@ -1978,4 +1983,94 @@ fn prepare_image_match_debug_dir(node: &WorkflowNode) -> CommandResult<PathBuf> 
 fn path_to_string(path: &Path) -> CommandResult<&str> {
     path.to_str()
         .ok_or_else(|| CommandFlowError::Validation("invalid debug path".to_string()))
+}
+
+fn resolve_screenshot_output_path(node: &WorkflowNode) -> CommandResult<Option<String>> {
+    let should_save = get_bool(node, "shouldSave", true);
+    if !should_save {
+        return Ok(None);
+    }
+
+    let mut save_dir = get_string(node, "saveDir", "").trim().to_string();
+
+    if save_dir.is_empty() {
+        let legacy_path = get_string(node, "path", "");
+        let legacy_trimmed = legacy_path.trim();
+        if !legacy_trimmed.is_empty() {
+            let legacy = Path::new(legacy_trimmed);
+            if legacy.extension().is_some() {
+                if let Some(parent) = legacy.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        save_dir = parent.to_string_lossy().to_string();
+                    }
+                }
+            } else {
+                save_dir = legacy.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    let mut directory = if save_dir.is_empty() {
+        let mut fallback = std::env::temp_dir();
+        fallback.push("commandflow");
+        fallback.push("screenshots");
+        fallback
+    } else {
+        PathBuf::from(save_dir)
+    };
+
+    let file_name = build_screenshot_file_name(node);
+    directory.push(file_name);
+
+    let full_path = directory
+        .to_str()
+        .ok_or_else(|| CommandFlowError::Validation("invalid screenshot output path".to_string()))?
+        .to_string();
+
+    Ok(Some(full_path))
+}
+
+fn build_screenshot_file_name(node: &WorkflowNode) -> String {
+    let unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+
+    let safe_label = sanitize_file_segment(&node.label);
+    let safe_id = sanitize_file_segment(&node.id);
+
+    format!(
+        "commandflow_screenshot_{}_{}_{}.png",
+        safe_label,
+        safe_id,
+        unix_ms
+    )
+}
+
+fn sanitize_file_segment(value: &str) -> String {
+    let trimmed = value.trim();
+    let mut sanitized = String::with_capacity(trimmed.len());
+
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() {
+            sanitized.push(ch.to_ascii_lowercase());
+        } else if ch == '-' || ch == '_' {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+
+    let compact = sanitized
+        .trim_matches('_')
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+
+    if compact.is_empty() {
+        "node".to_string()
+    } else {
+        compact
+    }
 }

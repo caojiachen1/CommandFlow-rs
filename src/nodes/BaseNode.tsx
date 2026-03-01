@@ -40,7 +40,7 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if ((kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path') {
     return true
   }
-  if (kind === 'screenshot' && fieldKey === 'path') {
+  if (kind === 'screenshot' && fieldKey === 'saveDir') {
     return true
   }
   return kind === 'fileDelete' && fieldKey === 'path'
@@ -53,7 +53,7 @@ const isTextFilePathField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path'
 
 const isStrictFilePathField = (kind: NodeKind, fieldKey: string) =>
-  isImageMatchImageField(kind, fieldKey) || isTextFilePathField(kind, fieldKey) || (kind === 'screenshot' && fieldKey === 'path')
+  isImageMatchImageField(kind, fieldKey) || isTextFilePathField(kind, fieldKey)
 
 const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
@@ -495,6 +495,13 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const isJson = field.type === 'json'
     const canUseArrows = isNumber
     const isPathField = isFilePathField(data.kind, field.key)
+    const isScreenshotSizeFieldDisabled =
+      data.kind === 'screenshot' &&
+      (field.key === 'width' || field.key === 'height') &&
+      Boolean(params.fullscreen)
+    const isScreenshotSaveDirFieldDisabled =
+      data.kind === 'screenshot' && field.key === 'saveDir' && !Boolean(params.shouldSave ?? true)
+    const isInputDisabled = connectedToInput || isScreenshotSaveDirFieldDisabled || isScreenshotSizeFieldDisabled
     const selectOptions = field.options ?? []
     const selectedOption = selectOptions.find((option) => option.value === String(currentValue ?? ''))
 
@@ -508,9 +515,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         >
           <button
             type="button"
-            disabled={connectedToInput}
+            disabled={isInputDisabled}
             onClick={() => {
-              if (connectedToInput) return
+              if (isInputDisabled) return
               setOpenSuggestFieldKey(null)
               setOpenSelectFieldKey((prev) => (prev === field.key ? null : field.key))
             }}
@@ -530,7 +537,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             style={{ top: '50%', left: -6 }}
           />
 
-          {openSelectFieldKey === field.key && !connectedToInput ? (
+          {openSelectFieldKey === field.key && !isInputDisabled ? (
             <div
               className="absolute left-0 right-0 z-[260] mt-1 max-h-40 overflow-auto rounded-xl border border-white/20 bg-[#1f2127]/95 p-1 shadow-2xl backdrop-blur"
               onWheelCapture={(event) => event.stopPropagation()}
@@ -612,9 +619,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           {canUseArrows ? (
             <button
               type="button"
-              disabled={connectedToInput}
+              disabled={isInputDisabled}
               onClick={() => {
-                if (connectedToInput) return
+                if (isInputDisabled) return
                 if (isNumber) {
                   shiftNumberValue(field, -1)
                   return
@@ -624,7 +631,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }}
               className={`nodrag mr-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
-                connectedToInput
+                isInputDisabled
                   ? 'text-slate-500 cursor-not-allowed'
                   : 'text-slate-200 hover:bg-white/15'
               }`}
@@ -636,17 +643,17 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             type="text"
             value={displayValue}
             readOnly={connectedToInput || isPathField || usesFloatingTextEditor}
-            disabled={connectedToInput}
+            disabled={isInputDisabled}
             placeholder={usesFloatingTextEditor ? '点击打开编辑器' : (field.placeholder ?? '')}
             onMouseDown={(event) => {
-              if (!isPathField || connectedToInput) return
+              if (!isPathField || isInputDisabled) return
               event.preventDefault()
               openPathEditorFromInput(event.currentTarget, field.key, String(currentValue ?? ''))
 
               return
             }}
             onMouseDownCapture={(event) => {
-              if (!usesFloatingTextEditor || connectedToInput) return
+              if (!usesFloatingTextEditor || isInputDisabled) return
               event.preventDefault()
               openTextEditorFromInput(
                 event.currentTarget,
@@ -656,7 +663,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               )
             }}
             onClick={(event) => {
-              if (connectedToInput) return
+              if (isInputDisabled) return
               if (isPathField) {
                 event.preventDefault()
                 openPathEditorFromInput(event.currentTarget, field.key, String(currentValue ?? ''))
@@ -675,7 +682,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               }
             }}
             onChange={(event) => {
-              if (connectedToInput) return
+              if (isInputDisabled) return
               if (isPathField) {
                 return
               }
@@ -785,7 +792,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               }
             }}
             onBlur={() => {
-              if (connectedToInput) return
+              if (isInputDisabled) return
               if (isNumber) {
                 const currentDraft = drafts[field.key] ?? displayValue
                 if (!isCompleteNumber(currentDraft)) {
@@ -794,16 +801,16 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }
             }}
-            className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold ${connectedToInput ? 'text-slate-400' : 'text-slate-100'} outline-none ${
+            className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold ${isInputDisabled ? 'text-slate-400' : 'text-slate-100'} outline-none ${
               isPathField || usesFloatingTextEditor ? 'cursor-default select-none caret-transparent' : ''
             }`}
           />
           {canUseArrows ? (
             <button
               type="button"
-              disabled={connectedToInput}
+              disabled={isInputDisabled}
               onClick={() => {
-                if (connectedToInput) return
+                if (isInputDisabled) return
                 if (isNumber) {
                   shiftNumberValue(field, 1)
                   return
@@ -813,7 +820,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }}
               className={`nodrag ml-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
-                connectedToInput
+                isInputDisabled
                   ? 'text-slate-500 cursor-not-allowed'
                   : 'text-slate-200 hover:bg-white/15'
               }`}
@@ -903,7 +910,11 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   buttonLabel="浏览"
                   className="shrink-0"
                   buttonClassName="h-8 w-[76px] px-1.5 text-[11px]"
-                  pickerMode={isStrictFilePathField(data.kind, field.key) ? 'file' : 'menu'}
+                  pickerMode={
+                    data.kind === 'screenshot' && field.key === 'saveDir'
+                      ? 'directory'
+                      : (isStrictFilePathField(data.kind, field.key) ? 'file' : 'menu')
+                  }
                   filters={isImageMatchImageField(data.kind, field.key) ? IMAGE_FILE_FILTERS : undefined}
                   onSelect={(value) => {
                     setPathEditor((prev) => (prev ? { ...prev, value } : prev))
@@ -1038,6 +1049,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
   const flowInput = portSpec.inputs.find((port) => port.id === 'in')
   const flowOutputs = portSpec.outputs.filter((port) => !port.id.startsWith('param:'))
+  const controlHandleClassName = 'proximity-handle control-flow-handle'
 
   return (
     <div
@@ -1063,7 +1075,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 id="in"
                 type="target"
                 position={Position.Left}
-                className="proximity-handle"
+                className={flowInput.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
                 style={{ top: '52%', left: -1 }}
               />
             ) : null}
@@ -1076,7 +1088,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   id={output.id}
                   type="source"
                   position={Position.Right}
-                  className="proximity-handle"
+                  className={output.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
                   style={{ top: '55%', right: -6 }}
                 />
               </div>

@@ -160,3 +160,7 @@ body {
   width: 12px !important;
   height: 12px !important;
 }
+
+.proximity-handle.control-flow-handle.react-flow__handle {
+  background-color: #9ca3af !important;
+}

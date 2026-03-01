@@ -94,7 +94,7 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if ((kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path') {
     return true
   }
-  if (kind === 'screenshot' && fieldKey === 'path') {
+  if (kind === 'screenshot' && fieldKey === 'saveDir') {
     return true
   }
   return kind === 'fileDelete' && fieldKey === 'path'
@@ -386,6 +386,10 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       selectedNode.data.kind === 'screenshot' &&
       (field.key === 'width' || field.key === 'height') &&
       Boolean(selectedNode.data.params.fullscreen)
+    const isScreenshotSaveDirFieldDisabled =
+      selectedNode.data.kind === 'screenshot' &&
+      field.key === 'saveDir' &&
+      !Boolean(selectedNode.data.params.shouldSave ?? selectedMeta?.defaultParams.shouldSave ?? true)
 
     if (field.type === 'boolean') {
       return (
@@ -476,17 +480,22 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 type="text"
                 value={String(currentValue ?? '')}
                 placeholder={field.placeholder}
+                disabled={isScreenshotSaveDirFieldDisabled}
                 onChange={(event) => updateParam(field.key, event.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
               />
-              <div className="flex shrink-0 items-center">
+              <div className={`flex shrink-0 items-center ${isScreenshotSaveDirFieldDisabled ? 'pointer-events-none opacity-60' : ''}`}>
                 <PathPickerDropdown
                   fieldLabel={field.label ?? field.key}
                   onSelect={(value) => updateParam(field.key, value)}
                   pickerMode={
+                    selectedNode.data.kind === 'screenshot' && field.key === 'saveDir'
+                      ? 'directory'
+                      : (
                     isImageMatchImageField(selectedNode.data.kind, field.key) || isTextFilePathField(selectedNode.data.kind, field.key)
                       ? 'file'
                       : 'menu'
+                      )
                   }
                   filters={isImageMatchImageField(selectedNode.data.kind, field.key) ? IMAGE_FILE_FILTERS : undefined}
                 />

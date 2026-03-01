@@ -181,10 +181,11 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   screenshot: {
     label: '屏幕截图',
-    description: '保存截图到指定地址',
-    defaultParams: { path: 'capture.png', fullscreen: false, width: 320, height: 240 },
+    description: '执行屏幕截图，可选择是否保存到本地文件夹。',
+    defaultParams: { shouldSave: true, saveDir: '', fullscreen: false, width: 320, height: 240 },
     fields: [
-      { key: 'path', label: '保存地址', type: 'string', placeholder: 'capture.png' },
+      { key: 'shouldSave', label: '是否保存', type: 'boolean' },
+      { key: 'saveDir', label: '保存文件夹', type: 'string', placeholder: 'D:\\captures' },
       { key: 'fullscreen', label: '是否全屏', type: 'boolean' },
       { key: 'width', label: '宽度', type: 'number', min: 1, step: 1 },
       { key: 'height', label: '高度', type: 'number', min: 1, step: 1 },
