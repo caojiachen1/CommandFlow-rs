@@ -2022,7 +2022,7 @@ async fn execute_gui_agent_action(
 
     let base_url = get_string(node, "baseUrl", "https://api.openai.com");
     let api_key = get_string(node, "apiKey", "");
-    let model = get_string(node, "model", "gpt-4.1-mini");
+    let model = get_string(node, "model", "gpt-5");
     let instruction = get_string(node, "instruction", "");
     let image_input = get_string(node, "imageInput", "");
     let image_format = get_string(node, "imageFormat", "png").to_lowercase();

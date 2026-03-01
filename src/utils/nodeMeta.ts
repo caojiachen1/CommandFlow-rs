@@ -198,7 +198,7 @@ const metas: Record<NodeKind, NodeMeta> = {
       imageInput: '',
       baseUrl: 'https://api.openai.com',
       apiKey: '',
-      model: 'gpt-4.1-mini',
+      model: 'gpt-5',
       stripThink: true,
       instruction: '请根据截图执行下一步操作。',
       systemPrompt: `You are a GUI agent. You are given a task and your action history, with screenshots. You need to perform the next action to complete the task.
@@ -240,7 +240,7 @@ finished(content='xxx') # Use escape characters \\', \\" and \\n in content part
         key: 'model',
         label: '模型名称',
         type: 'string',
-        placeholder: 'gpt-4.1-mini',
+        placeholder: 'gpt-5',
       },
       {
         key: 'stripThink',
