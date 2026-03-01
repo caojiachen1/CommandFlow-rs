@@ -526,7 +526,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             id={createParamInputHandleId(field.key)}
             type="target"
             position={Position.Left}
-            className="!h-2.5 !w-2.5"
+            className="proximity-handle"
             style={{ top: '50%', left: -6 }}
           />
 
@@ -826,7 +826,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           id={createParamInputHandleId(field.key)}
           type="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5"
+          className="proximity-handle"
           style={{ top: '50%', left: -6 }}
         />
         {errors[field.key] ? (
@@ -1063,7 +1063,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 id="in"
                 type="target"
                 position={Position.Left}
-                className="!h-2.5 !w-2.5"
+                className="proximity-handle"
                 style={{ top: '52%', left: -1 }}
               />
             ) : null}
@@ -1076,7 +1076,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   id={output.id}
                   type="source"
                   position={Position.Right}
-                  className="!h-2.5 !w-2.5"
+                  className="proximity-handle"
                   style={{ top: '55%', right: -6 }}
                 />
               </div>

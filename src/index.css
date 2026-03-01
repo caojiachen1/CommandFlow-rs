@@ -123,3 +123,40 @@ body {
   transform-origin: top left;
   animation: menuDropdownIn 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* ── Proximity Handle ────────────────────────────────────────────────
+   Default size is half the original (5 px).
+   A transparent ::before pseudo-element (24 px) acts as a proximity
+   detection zone. Hovering anywhere inside that zone enlarges the
+   handle to 12 px so connections can be started easily.
+   Because React Flow applies translate(-50%,-50%) / translate(50%,-50%),
+   the centre point stays fixed regardless of the size change.
+   ─────────────────────────────────────────────────────────────────── */
+.proximity-handle.react-flow__handle {
+  width: 7px !important;
+  height: 7px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  background-color: #94d82d !important;
+  border: none !important;
+  border-radius: 50% !important;
+  transition: width 0.15s ease, height 0.15s ease, background-color 0.15s ease !important;
+}
+
+/* invisible proximity zone centred on the handle */
+.proximity-handle.react-flow__handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+/* enlarge on proximity hover */
+.proximity-handle.react-flow__handle:hover {
+  width: 12px !important;
+  height: 12px !important;
+}
