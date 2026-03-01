@@ -17,6 +17,8 @@ use tokio::time::{sleep, Duration};
 
 const DEFAULT_POST_DELAY_MS: u64 = 50;
 const IMAGE_MATCH_DEBUG_SAVE_EVERY: u64 = 15;
+const PARAM_INPUT_PREFIX: &str = "param:";
+const PARAM_INPUT_SUFFIX: &str = ":in";
 
 #[derive(Debug, Default)]
 pub struct WorkflowExecutor;
@@ -26,6 +28,7 @@ struct ExecutionContext {
     variables: HashMap<String, Value>,
     loop_remaining: HashMap<String, u64>,
     while_iterations: HashMap<String, u64>,
+    node_outputs: HashMap<String, HashMap<String, Value>>,
 }
 
 enum NextDirective {
@@ -164,10 +167,11 @@ impl WorkflowExecutor {
             let node = node_map.get(current_id.as_str()).ok_or_else(|| {
                 CommandFlowError::Validation(format!("node '{}' not found", current_id))
             })?;
+            let effective_node = resolve_node_with_data_inputs(node, graph, ctx);
 
-            on_node_start(node);
+            on_node_start(&effective_node);
 
-            if matches!(node.kind, NodeKind::Loop | NodeKind::WhileLoop) {
+            if matches!(effective_node.kind, NodeKind::Loop | NodeKind::WhileLoop) {
                 let outgoing: Vec<_> = graph
                     .edges
                     .iter()
@@ -196,20 +200,23 @@ impl WorkflowExecutor {
 
                 on_variables_update(&ctx.variables);
 
-                match node.kind {
+                match effective_node.kind {
                     NodeKind::Loop => {
-                        let times = get_u64(node, "times", 1);
-                        let remaining = ctx.loop_remaining.entry(node.id.clone()).or_insert(times);
+                        let times = get_u64(&effective_node, "times", 1);
+                        let remaining = ctx
+                            .loop_remaining
+                            .entry(effective_node.id.clone())
+                            .or_insert(times);
 
                         if *remaining > 0 {
                             if let Some(edge) = loop_edge {
                                 *remaining -= 1;
 
-                                if loop_stack.last().map(String::as_str) != Some(node.id.as_str()) {
-                                    loop_stack.push(node.id.clone());
+                                if loop_stack.last().map(String::as_str) != Some(effective_node.id.as_str()) {
+                                    loop_stack.push(effective_node.id.clone());
                                 }
 
-                                sleep_after_node(node, should_cancel).await?;
+                                sleep_after_node(&effective_node, should_cancel).await?;
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -217,40 +224,43 @@ impl WorkflowExecutor {
                             *remaining = 0;
                         }
 
-                        ctx.loop_remaining.remove(&node.id);
-                        if loop_stack.last().map(String::as_str) == Some(node.id.as_str()) {
+                        ctx.loop_remaining.remove(&effective_node.id);
+                        if loop_stack.last().map(String::as_str) == Some(effective_node.id.as_str()) {
                             loop_stack.pop();
                         }
 
                         if let Some(edge) = done_edge {
-                            sleep_after_node(node, should_cancel).await?;
+                            sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
-                            sleep_after_node(node, should_cancel).await?;
+                            sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
 
-                        sleep_after_node(node, should_cancel).await?;
+                        sleep_after_node(&effective_node, should_cancel).await?;
                         return Ok(());
                     }
                     NodeKind::WhileLoop => {
-                        let max_iterations = get_u64(node, "maxIterations", 1000).max(1);
-                        let condition_true = evaluate_condition(node, &ctx.variables);
-                        let iterations = ctx.while_iterations.entry(node.id.clone()).or_insert(0);
+                        let max_iterations = get_u64(&effective_node, "maxIterations", 1000).max(1);
+                        let condition_true = evaluate_condition(&effective_node, &ctx.variables);
+                        let iterations = ctx
+                            .while_iterations
+                            .entry(effective_node.id.clone())
+                            .or_insert(0);
 
                         if condition_true && *iterations < max_iterations {
                             if let Some(edge) = loop_edge {
                                 *iterations += 1;
 
-                                if loop_stack.last().map(String::as_str) != Some(node.id.as_str()) {
-                                    loop_stack.push(node.id.clone());
+                                if loop_stack.last().map(String::as_str) != Some(effective_node.id.as_str()) {
+                                    loop_stack.push(effective_node.id.clone());
                                 }
 
-                                sleep_after_node(node, should_cancel).await?;
+                                sleep_after_node(&effective_node, should_cancel).await?;
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -259,29 +269,29 @@ impl WorkflowExecutor {
                                 "warn",
                                 format!(
                                     "while 节点 '{}' 达到最大循环次数 {}，已自动切换 done 分支。",
-                                    node.label, max_iterations
+                                    effective_node.label, max_iterations
                                 ),
                             );
                         }
 
-                        ctx.while_iterations.remove(&node.id);
-                        if loop_stack.last().map(String::as_str) == Some(node.id.as_str()) {
+                        ctx.while_iterations.remove(&effective_node.id);
+                        if loop_stack.last().map(String::as_str) == Some(effective_node.id.as_str()) {
                             loop_stack.pop();
                         }
 
                         if let Some(edge) = done_edge {
-                            sleep_after_node(node, should_cancel).await?;
+                            sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
-                            sleep_after_node(node, should_cancel).await?;
+                            sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
 
-                        sleep_after_node(node, should_cancel).await?;
+                        sleep_after_node(&effective_node, should_cancel).await?;
                         return Ok(());
                     }
                     _ => {}
@@ -289,9 +299,9 @@ impl WorkflowExecutor {
             }
 
             let directive = self
-                .execute_single_node(node, ctx, on_log, should_cancel)
+                .execute_single_node(&effective_node, ctx, on_log, should_cancel)
                 .await?;
-            sleep_after_node(node, should_cancel).await?;
+            sleep_after_node(&effective_node, should_cancel).await?;
             on_variables_update(&ctx.variables);
 
             let outgoing = graph
@@ -338,6 +348,9 @@ impl WorkflowExecutor {
         on_log: &mut impl FnMut(&str, String),
         should_cancel: &impl Fn() -> bool,
     ) -> CommandResult<NextDirective> {
+        ctx.node_outputs
+            .insert(node.id.clone(), HashMap::<String, Value>::new());
+
         match node.kind {
             NodeKind::HotkeyTrigger => {
                 let hotkey = get_string(node, "hotkey", "Ctrl+Shift+R");
@@ -388,6 +401,8 @@ impl WorkflowExecutor {
                     interruptible_sleep(poll_interval, should_cancel).await?;
                 }
 
+                set_node_output(ctx, node, "title", Value::String(title));
+
                 Ok(NextDirective::Default)
             }
             NodeKind::MouseClick => {
@@ -395,12 +410,16 @@ impl WorkflowExecutor {
                 let y = get_i32(node, "y", 0);
                 let times = get_u64(node, "times", 1) as usize;
                 mouse::click(x, y, times.max(1))?;
+                set_node_output(ctx, node, "x", value_from_i32(x));
+                set_node_output(ctx, node, "y", value_from_i32(y));
                 Ok(NextDirective::Default)
             }
             NodeKind::MouseMove => {
                 let x = get_i32(node, "x", 0);
                 let y = get_i32(node, "y", 0);
                 mouse::move_to(x, y)?;
+                set_node_output(ctx, node, "x", value_from_i32(x));
+                set_node_output(ctx, node, "y", value_from_i32(y));
                 Ok(NextDirective::Default)
             }
             NodeKind::MouseDrag => {
@@ -409,11 +428,14 @@ impl WorkflowExecutor {
                 let to_x = get_i32(node, "toX", 0);
                 let to_y = get_i32(node, "toY", 0);
                 mouse::drag(from_x, from_y, to_x, to_y)?;
+                set_node_output(ctx, node, "toX", value_from_i32(to_x));
+                set_node_output(ctx, node, "toY", value_from_i32(to_y));
                 Ok(NextDirective::Default)
             }
             NodeKind::MouseWheel => {
                 let vertical = get_i32(node, "vertical", -1);
                 mouse::wheel(vertical)?;
+                set_node_output(ctx, node, "vertical", value_from_i32(vertical));
                 Ok(NextDirective::Default)
             }
             NodeKind::MouseDown => {
@@ -421,6 +443,9 @@ impl WorkflowExecutor {
                 let y = get_i32(node, "y", 0);
                 let button = get_string(node, "button", "left");
                 mouse::button_down(x, y, &button)?;
+                set_node_output(ctx, node, "x", value_from_i32(x));
+                set_node_output(ctx, node, "y", value_from_i32(y));
+                set_node_output(ctx, node, "button", Value::String(button));
                 Ok(NextDirective::Default)
             }
             NodeKind::MouseUp => {
@@ -428,16 +453,21 @@ impl WorkflowExecutor {
                 let y = get_i32(node, "y", 0);
                 let button = get_string(node, "button", "left");
                 mouse::button_up(x, y, &button)?;
+                set_node_output(ctx, node, "x", value_from_i32(x));
+                set_node_output(ctx, node, "y", value_from_i32(y));
+                set_node_output(ctx, node, "button", Value::String(button));
                 Ok(NextDirective::Default)
             }
             NodeKind::KeyboardKey => {
                 let key = get_string(node, "key", "Enter");
                 keyboard::key_tap_by_name(&key)?;
+                set_node_output(ctx, node, "key", Value::String(key));
                 Ok(NextDirective::Default)
             }
             NodeKind::KeyboardInput => {
                 let text = get_string(node, "text", "");
                 keyboard::text_input(&text)?;
+                set_node_output(ctx, node, "text", Value::String(text));
                 Ok(NextDirective::Default)
             }
             NodeKind::KeyboardDown => {
@@ -463,17 +493,21 @@ impl WorkflowExecutor {
                     keyboard::key_down_by_name(&key)?;
                 }
 
+                set_node_output(ctx, node, "key", Value::String(key));
+
                 Ok(NextDirective::Default)
             }
             NodeKind::KeyboardUp => {
                 let key = get_string(node, "key", "Shift");
                 keyboard::key_up_by_name(&key)?;
+                set_node_output(ctx, node, "key", Value::String(key));
                 Ok(NextDirective::Default)
             }
             NodeKind::Shortcut => {
                 let key = get_string(node, "key", "S");
                 let modifiers = get_string_array(node, "modifiers", vec!["Ctrl".to_string()]);
                 keyboard::shortcut(&modifiers, &key)?;
+                set_node_output(ctx, node, "key", Value::String(key));
                 Ok(NextDirective::Default)
             }
             NodeKind::Screenshot => {
@@ -486,6 +520,7 @@ impl WorkflowExecutor {
                     let height = get_u32(node, "height", 240);
                     screenshot::capture_region(&path, width.max(1), height.max(1))?;
                 }
+                set_node_output(ctx, node, "path", Value::String(path));
                 Ok(NextDirective::Default)
             }
             NodeKind::WindowActivate => {
@@ -505,9 +540,11 @@ impl WorkflowExecutor {
                                 .await?;
                         }
                     }
+                    set_node_output(ctx, node, "title", Value::String(shortcut));
                 } else {
                     let title = get_string(node, "title", "");
                     window::activate_window(&title)?;
+                    set_node_output(ctx, node, "title", Value::String(title));
                 }
                 Ok(NextDirective::Default)
             }
@@ -525,6 +562,7 @@ impl WorkflowExecutor {
                 }
 
                 file_ops::copy_path(&source_path, &target_path, overwrite, recursive)?;
+                set_node_output(ctx, node, "targetPath", Value::String(target_path));
                 Ok(NextDirective::Default)
             }
             NodeKind::FileMove => {
@@ -540,6 +578,7 @@ impl WorkflowExecutor {
                 }
 
                 file_ops::move_path(&source_path, &target_path, overwrite)?;
+                set_node_output(ctx, node, "targetPath", Value::String(target_path));
                 Ok(NextDirective::Default)
             }
             NodeKind::FileDelete => {
@@ -554,6 +593,7 @@ impl WorkflowExecutor {
                 }
 
                 file_ops::delete_path(&path, recursive)?;
+                set_node_output(ctx, node, "path", Value::String(path));
                 Ok(NextDirective::Default)
             }
             NodeKind::RunCommand => {
@@ -566,6 +606,7 @@ impl WorkflowExecutor {
                 }
                 let use_shell = get_bool(node, "shell", true);
                 run_system_command(&command, use_shell).await?;
+                set_node_output(ctx, node, "command", Value::String(command));
                 Ok(NextDirective::Default)
             }
             NodeKind::PythonCode => {
@@ -578,6 +619,7 @@ impl WorkflowExecutor {
                 let text = clipboard
                     .get_text()
                     .map_err(|error| CommandFlowError::Automation(format!("读取系统剪贴板失败：{}", error)))?;
+                set_node_output(ctx, node, "text", Value::String(text.clone()));
 
                 let output_var = get_string(node, "outputVar", "clipboardText").trim().to_string();
                 if !output_var.is_empty() {
@@ -633,6 +675,7 @@ impl WorkflowExecutor {
 
                 let content = fs::read_to_string(&path)
                     .map_err(|error| CommandFlowError::Io(format!("读取文本文件失败 '{}': {}", path, error)))?;
+                set_node_output(ctx, node, "text", Value::String(content.clone()));
                 let output_var = get_string(node, "outputVar", "fileText").trim().to_string();
 
                 if !output_var.is_empty() {
@@ -673,6 +716,7 @@ impl WorkflowExecutor {
                 let append = get_bool(node, "append", false);
                 let create_parent_dir = get_bool(node, "createParentDir", true);
                 write_text_file(&path, &text, append, create_parent_dir)?;
+                set_node_output(ctx, node, "path", Value::String(path.clone()));
 
                 on_log(
                     "info",
@@ -691,6 +735,7 @@ impl WorkflowExecutor {
                 let title = resolve_text_template(&title_raw, &ctx.variables);
                 let message = resolve_text_input(node, &ctx.variables);
                 let level = get_string(node, "level", "info");
+                set_node_output(ctx, node, "message", Value::String(message.clone()));
 
                 show_message_dialog(&title, &message, &level)?;
                 on_log(
@@ -707,6 +752,7 @@ impl WorkflowExecutor {
             NodeKind::Delay => {
                 let duration = get_u64(node, "ms", 100);
                 interruptible_sleep(Duration::from_millis(duration), should_cancel).await?;
+                set_node_output(ctx, node, "ms", value_from_u64(duration));
                 Ok(NextDirective::Default)
             }
             NodeKind::Condition => {
@@ -788,6 +834,12 @@ impl WorkflowExecutor {
                         .to_luma8();
                     let evaluation = matcher.evaluate(&source);
                     best_similarity_seen = best_similarity_seen.max(evaluation.best_similarity);
+                    set_node_output(
+                        ctx,
+                        node,
+                        "similarity",
+                        value_from_f64(evaluation.best_similarity as f64),
+                    );
                     on_log(
                         "info",
                         format!(
@@ -797,6 +849,8 @@ impl WorkflowExecutor {
                     );
 
                     if let Some((x, y)) = evaluation.matched_point {
+                        set_node_output(ctx, node, "matchX", value_from_i32(x));
+                        set_node_output(ctx, node, "matchY", value_from_i32(y));
                         on_log(
                             "info",
                             format!(
@@ -965,10 +1019,19 @@ impl WorkflowExecutor {
                         matched_streak = 0;
                     }
 
+                    set_node_output(
+                        ctx,
+                        node,
+                        "similarity",
+                        value_from_f64(evaluation.best_similarity as f64),
+                    );
+
                     if matched_streak >= confirm_frames {
                         let (x, y) = evaluation
                             .matched_point
                             .ok_or_else(|| CommandFlowError::Automation("matched point missing".to_string()))?;
+                        set_node_output(ctx, node, "matchX", value_from_i32(x));
+                        set_node_output(ctx, node, "matchY", value_from_i32(y));
                         let _ = screenshot::stop_primary_frame_stream();
                         on_log(
                             "info",
@@ -1020,6 +1083,7 @@ impl WorkflowExecutor {
                 let name = get_string(node, "name", "");
                 if !name.trim().is_empty() {
                     let value = resolve_typed_param_value(node, "value");
+                    set_node_output(ctx, node, "value", value.clone());
                     ctx.variables.entry(name).or_insert(value);
                 }
                 Ok(NextDirective::Default)
@@ -1028,6 +1092,7 @@ impl WorkflowExecutor {
                 let name = get_string(node, "name", "");
                 if !name.trim().is_empty() {
                     let value = resolve_typed_param_value(node, "value");
+                    set_node_output(ctx, node, "value", value.clone());
                     ctx.variables.insert(name, value);
                 }
                 Ok(NextDirective::Default)
@@ -1172,6 +1237,7 @@ impl WorkflowExecutor {
                 if assign_to_variable {
                     ctx.variables.insert(name.clone(), Value::Number(result_value));
                 }
+                set_node_output(ctx, node, "result", result_json.clone());
 
                 on_log(
                     "info",
@@ -1200,6 +1266,7 @@ impl WorkflowExecutor {
                 } else {
                     ctx.variables.get(&name).cloned().unwrap_or(Value::Null)
                 };
+                set_node_output(ctx, node, "value", value.clone());
 
                 on_log(
                     "info",
@@ -1214,7 +1281,8 @@ impl WorkflowExecutor {
                 Ok(NextDirective::Default)
             }
             NodeKind::ConstValue => {
-                let value = node.params.get("value").cloned().unwrap_or(Value::Null);
+                let value = resolve_typed_param_value(node, "value");
+                set_node_output(ctx, node, "value", value.clone());
                 on_log(
                     "info",
                     format!(
@@ -1239,6 +1307,22 @@ fn is_trigger(kind: &NodeKind) -> bool {
     )
 }
 
+fn is_control_source_handle(handle: Option<&str>) -> bool {
+    match handle {
+        None => true,
+        Some("next") | Some("true") | Some("false") | Some("loop") | Some("done") => true,
+        _ => false,
+    }
+}
+
+fn is_control_target_handle(handle: Option<&str>) -> bool {
+    match handle {
+        None => true,
+        Some("in") => true,
+        _ => false,
+    }
+}
+
 fn is_param_handle(handle: Option<&str>) -> bool {
     handle
         .map(|value| value.starts_with("param:"))
@@ -1246,7 +1330,127 @@ fn is_param_handle(handle: Option<&str>) -> bool {
 }
 
 fn is_control_flow_edge(source_handle: Option<&str>, target_handle: Option<&str>) -> bool {
-    !is_param_handle(source_handle) && !is_param_handle(target_handle)
+    !is_param_handle(source_handle)
+        && !is_param_handle(target_handle)
+        && is_control_source_handle(source_handle)
+        && is_control_target_handle(target_handle)
+}
+
+fn is_param_input_handle(handle: Option<&str>) -> bool {
+    handle
+        .map(|value| value.starts_with(PARAM_INPUT_PREFIX) && value.ends_with(PARAM_INPUT_SUFFIX))
+        .unwrap_or(false)
+}
+
+fn extract_param_key_from_input_handle(handle: &str) -> Option<String> {
+    if !handle.starts_with(PARAM_INPUT_PREFIX) || !handle.ends_with(PARAM_INPUT_SUFFIX) {
+        return None;
+    }
+
+    let key_start = PARAM_INPUT_PREFIX.len();
+    let key_end = handle.len().saturating_sub(PARAM_INPUT_SUFFIX.len());
+    if key_end <= key_start {
+        return None;
+    }
+
+    Some(handle[key_start..key_end].to_string())
+}
+
+fn resolve_edge_source_value(
+    edge_source: &str,
+    source_handle: Option<&str>,
+    graph: &WorkflowGraph,
+    ctx: &ExecutionContext,
+) -> Option<Value> {
+    let handle = source_handle?;
+
+    if let Some(node_outputs) = ctx.node_outputs.get(edge_source) {
+        if let Some(value) = node_outputs.get(handle) {
+            return Some(value.clone());
+        }
+    }
+
+    let source_node = graph.nodes.iter().find(|node| node.id == edge_source)?;
+    resolve_source_fallback_value(source_node, handle, ctx)
+}
+
+fn resolve_node_with_data_inputs(
+    node: &WorkflowNode,
+    graph: &WorkflowGraph,
+    ctx: &ExecutionContext,
+) -> WorkflowNode {
+    let mut resolved = node.clone();
+
+    for edge in graph.edges.iter().filter(|edge| edge.target == node.id) {
+        if !is_param_input_handle(edge.target_handle.as_deref()) {
+            continue;
+        }
+
+        let Some(target_handle) = edge.target_handle.as_deref() else {
+            continue;
+        };
+        let Some(field_key) = extract_param_key_from_input_handle(target_handle) else {
+            continue;
+        };
+
+        let source_value = resolve_edge_source_value(
+            &edge.source,
+            edge.source_handle.as_deref(),
+            graph,
+            ctx,
+        );
+        if let Some(value) = source_value {
+            resolved.params.insert(field_key, value);
+        }
+    }
+
+    resolved
+}
+
+fn resolve_source_fallback_value(
+    source_node: &WorkflowNode,
+    source_handle: &str,
+    ctx: &ExecutionContext,
+) -> Option<Value> {
+    if source_handle == "value" {
+        match source_node.kind {
+            NodeKind::ConstValue | NodeKind::VarDefine | NodeKind::VarSet => {
+                return Some(resolve_typed_param_value(source_node, "value"));
+            }
+            NodeKind::VarGet => {
+                let name = get_string(source_node, "name", "");
+                if name.trim().is_empty() {
+                    return Some(Value::Null);
+                }
+                return Some(ctx.variables.get(&name).cloned().unwrap_or(Value::Null));
+            }
+            _ => {}
+        }
+    }
+
+    source_node.params.get(source_handle).cloned()
+}
+
+fn set_node_output(ctx: &mut ExecutionContext, node: &WorkflowNode, handle: &str, value: Value) {
+    let outputs = ctx
+        .node_outputs
+        .entry(node.id.clone())
+        .or_insert_with(HashMap::new);
+    outputs.insert(handle.to_string(), value);
+}
+
+fn value_from_i32(value: i32) -> Value {
+    Value::Number(Number::from(value as i64))
+}
+
+fn value_from_u64(value: u64) -> Value {
+    Value::Number(Number::from(value))
+}
+
+fn value_from_f64(value: f64) -> Value {
+    Number::from_f64(value)
+        .map(Value::Number)
+        .unwrap_or(Value::Null)
 }
 
 async fn run_python_code(

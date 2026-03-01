@@ -18,9 +18,10 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import type { NodeKind } from '../../types/workflow'
 import { getNodeMeta } from '../../utils/nodeMeta'
 import {
-  createParamInputHandleId,
-  getParamFieldKeyFromHandleId,
+  getInputHandleValueType,
   getNodePortSpec,
+  getOutputHandleValueType,
+  isHandleValueTypeCompatible,
   isParamInputHandleId,
   isParamOutputHandleId,
   normalizeSourceHandleId,
@@ -93,116 +94,76 @@ interface NodeQuickInsertState {
   panelY: number
 }
 
-type HandleValueType = 'control' | 'string' | 'number' | 'json' | 'any'
-
-const CONTROL_FLOW_SOURCE_HANDLES = new Set(['next', 'true', 'false', 'loop', 'done'])
-
-const toValueTypeFromFieldType = (fieldType: string): HandleValueType => {
-  if (fieldType === 'number') return 'number'
-  if (fieldType === 'json') return 'json'
-  return 'string'
-}
-
-const isTypeCompatible = (sourceType: HandleValueType, targetType: HandleValueType): boolean => {
-  if (sourceType === 'control' || targetType === 'control') {
-    return sourceType === targetType
-  }
-  if (sourceType === 'any' || targetType === 'any') {
-    return true
-  }
-  return sourceType === targetType
-}
-
 const resolveSourceHandleValueType = (
   kind: NodeKind,
   params: Record<string, unknown>,
   sourceHandleId: string | null,
-): HandleValueType | null => {
+): ReturnType<typeof getOutputHandleValueType> => {
   const normalizedSource = normalizeSourceHandleId(kind, sourceHandleId)
   if (!normalizedSource) return null
-
-  if (CONTROL_FLOW_SOURCE_HANDLES.has(normalizedSource)) {
-    return 'control'
-  }
-
-  if (kind === 'varGet' && normalizedSource === 'value') {
-    return 'any'
-  }
-
-  if (kind === 'constValue' && normalizedSource === 'value') {
-    const valueType = String(params.valueType ?? 'number')
-    if (valueType === 'number') return 'number'
-    if (valueType === 'json') return 'json'
-    if (valueType === 'boolean') return 'any'
-    return 'string'
-  }
-
-  return 'any'
+  return getOutputHandleValueType(kind, normalizedSource, params)
 }
 
-const resolveTargetHandleValueType = (kind: NodeKind, targetHandleId: string | null): HandleValueType | null => {
+const resolveTargetHandleValueType = (kind: NodeKind, targetHandleId: string | null) => {
   const normalizedTarget = normalizeTargetHandleId(kind, targetHandleId)
   if (!normalizedTarget) return null
-
-  if (normalizedTarget === 'in') {
-    return 'control'
-  }
-
-  if (!isParamInputHandleId(normalizedTarget)) {
-    return null
-  }
-
-  const fieldKey = getParamFieldKeyFromHandleId(normalizedTarget)
-  if (!fieldKey) return null
-  const field = getNodeMeta(kind).fields.find((item) => item.key === fieldKey)
-  if (!field) return null
-  return toValueTypeFromFieldType(field.type)
+  return getInputHandleValueType(kind, normalizedTarget)
 }
 
-const resolveQuickInsertTargetHandle = (kind: NodeKind, sourceValueType: HandleValueType): string | null => {
+const resolveQuickInsertTargetHandle = (
+  kind: NodeKind,
+  sourceValueType: NonNullable<ReturnType<typeof getOutputHandleValueType>>,
+): string | null => {
   const spec = getNodePortSpec(kind)
 
   if (sourceValueType === 'control') {
     return spec.inputs.some((input) => input.id === 'in') ? 'in' : null
   }
 
-  const meta = getNodeMeta(kind)
-  for (const field of meta.fields) {
-    const handleId = createParamInputHandleId(field.key)
-    if (!spec.inputs.some((input) => input.id === handleId)) {
+  for (const input of spec.inputs) {
+    if (!isParamInputHandleId(input.id)) {
       continue
     }
-    const targetType = toValueTypeFromFieldType(field.type)
-    if (isTypeCompatible(sourceValueType, targetType)) {
-      return handleId
+    const targetType = getInputHandleValueType(kind, input.id)
+    if (targetType && isHandleValueTypeCompatible(sourceValueType, targetType)) {
+      return input.id
     }
   }
 
   return null
 }
 
-const resolveQuickInsertSourceHandle = (kind: NodeKind, targetValueType: HandleValueType): string | null => {
+const resolveQuickInsertSourceHandle = (
+  kind: NodeKind,
+  targetValueType: NonNullable<ReturnType<typeof getInputHandleValueType>>,
+): string | null => {
   const spec = getNodePortSpec(kind)
 
   if (targetValueType === 'control') {
-    const controlOutput = spec.outputs.find((output) => CONTROL_FLOW_SOURCE_HANDLES.has(output.id))
+    const controlOutput = spec.outputs.find(
+      (output) => getOutputHandleValueType(kind, output.id, getNodeMeta(kind).defaultParams) === 'control',
+    )
     return controlOutput?.id ?? null
   }
 
-  const dataOutputs = spec.outputs.filter((output) => !CONTROL_FLOW_SOURCE_HANDLES.has(output.id))
+  const meta = getNodeMeta(kind)
+  const dataOutputs = spec.outputs.filter(
+    (output) => getOutputHandleValueType(kind, output.id, meta.defaultParams) !== 'control',
+  )
   if (dataOutputs.length === 0) {
     return null
   }
 
-  if (kind === 'varGet') {
-    return dataOutputs.some((output) => output.id === 'value') ? 'value' : dataOutputs[0].id
+  const firstTypedMatch = dataOutputs.find((output) => {
+    const sourceType = getOutputHandleValueType(kind, output.id, meta.defaultParams)
+    return Boolean(sourceType && isHandleValueTypeCompatible(sourceType, targetValueType))
+  })
+
+  if (firstTypedMatch) {
+    return firstTypedMatch.id
   }
 
-  if (kind === 'constValue') {
-    return dataOutputs.some((output) => output.id === 'value') ? 'value' : dataOutputs[0].id
-  }
-
-  return dataOutputs[0].id
+  return null
 }
 
 const getClientPoint = (event: MouseEvent | TouchEvent) => {
@@ -323,7 +284,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
 
       const meta = getNodeMeta(item.kind)
       const sourceType = resolveSourceHandleValueType(item.kind, meta.defaultParams, sourceHandle)
-      return Boolean(sourceType && isTypeCompatible(sourceType, targetValueType))
+      return Boolean(sourceType && isHandleValueTypeCompatible(sourceType, targetValueType))
     })
 
     if (!keyword) return typeMatchedItems
@@ -543,7 +504,13 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
           : null
         const sourceHandle = normalizeSourceHandleId(kind, quickSourceHandle)
 
-        if (sourceHandle && targetHandle && sourceType && targetValueType && isTypeCompatible(sourceType, targetValueType)) {
+        if (
+          sourceHandle &&
+          targetHandle &&
+          sourceType &&
+          targetValueType &&
+          isHandleValueTypeCompatible(sourceType, targetValueType)
+        ) {
           connectNodes({
             source: createdNodeId,
             sourceHandle,
@@ -585,7 +552,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       const targetType = resolveTargetHandleValueType(targetNode.data.kind, normalizedTarget)
       if (!sourceType || !targetType) return false
 
-      return isTypeCompatible(sourceType, targetType)
+      return isHandleValueTypeCompatible(sourceType, targetType)
     },
     [nodes],
   )

@@ -499,6 +499,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const selectedOption = selectOptions.find((option) => option.value === String(currentValue ?? ''))
 
     if (isSelect) {
+      const connectedLabel = connectedToInput ? '来自上游' : null
       return (
         <div
           className="relative"
@@ -516,7 +517,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             }}
             className="nodrag flex w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
           >
-            <span className="truncate text-slate-100">{selectedOption?.label ?? '请选择'}</span>
+            <span className="truncate text-slate-100">{connectedLabel ?? selectedOption?.label ?? '请选择'}</span>
             <span className="ml-auto text-slate-300">▾</span>
           </button>
 
@@ -563,6 +564,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     }
 
     const displayValue = (() => {
+      if (connectedToInput) {
+        return ''
+      }
       if (drafts[field.key] !== undefined) {
         return drafts[field.key]
       }

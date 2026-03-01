@@ -10,8 +10,11 @@ import { create } from 'zustand'
 import type { CoordinatePoint, NodeKind, WorkflowEdge, WorkflowFile, WorkflowNode } from '../types/workflow'
 import { getNodeMeta } from '../utils/nodeMeta'
 import {
+  getInputHandleValueType,
   getInputHandleMaxConnections,
+  getOutputHandleValueType,
   getOutputHandleMaxConnections,
+  isHandleValueTypeCompatible,
   isParamInputHandleId,
   isParamOutputHandleId,
   normalizeSourceHandleId,
@@ -162,6 +165,12 @@ const applyConnectionWithReplacement = (
   } else if (!sourceIsParam && targetIsParam) {
     // 允许流程输出口连接到参数输入口
   } else {
+    return null
+  }
+
+  const sourceType = getOutputHandleValueType(sourceNode.data.kind, sourceHandle, sourceNode.data.params)
+  const targetType = getInputHandleValueType(targetNode.data.kind, targetHandle)
+  if (!sourceType || !targetType || !isHandleValueTypeCompatible(sourceType, targetType)) {
     return null
   }
 
