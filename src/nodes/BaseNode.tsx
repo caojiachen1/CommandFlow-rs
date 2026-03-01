@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeMeta, type ParamField } from '../utils/nodeMeta'
+import { listOpenWindows } from '../utils/execution'
 import {
   createParamInputHandleId,
   getNodePortSpec,
@@ -71,6 +72,9 @@ const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
 
 const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'clipboardRead' || kind === 'fileReadText') && fieldKey === 'outputVar'
+
+const isWindowTitleField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'title'
 
 const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, params: Record<string, unknown>) => {
   if (kind === 'windowActivate') {
@@ -196,6 +200,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [openSelectFieldKey, setOpenSelectFieldKey] = useState<string | null>(null)
   const [openSuggestFieldKey, setOpenSuggestFieldKey] = useState<string | null>(null)
   const [activeSuggestIndex, setActiveSuggestIndex] = useState(0)
+  const [windowTitles, setWindowTitles] = useState<string[]>([])
   const [pathEditor, setPathEditor] = useState<{
     fieldKey: string
     value: string
@@ -203,7 +208,17 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     anchorTop: number
     anchorWidth: number
   } | null>(null)
+  const [textEditor, setTextEditor] = useState<{
+    fieldKey: string
+    value: string
+    anchorLeft: number
+    anchorTop: number
+    anchorWidth: number
+    isJson: boolean
+  } | null>(null)
+  const [textEditorError, setTextEditorError] = useState<string | null>(null)
   const pathEditorPanelRef = useRef<HTMLDivElement | null>(null)
+  const textEditorPanelRef = useRef<HTMLDivElement | null>(null)
 
   const variableNames = useMemo(
     () =>
@@ -215,8 +230,47 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     [nodes],
   )
 
+  const refreshWindowTitles = () => {
+    if (data.kind !== 'windowTrigger' && data.kind !== 'windowActivate') return
+
+    void listOpenWindows()
+      .then((titles) => {
+        setWindowTitles(dedupe(titles))
+      })
+      .catch(() => {
+        setWindowTitles([])
+      })
+  }
+
+  useEffect(() => {
+    if (data.kind !== 'windowTrigger' && data.kind !== 'windowActivate') {
+      setWindowTitles([])
+      return
+    }
+
+    let cancelled = false
+    void listOpenWindows()
+      .then((titles) => {
+        if (cancelled) return
+        setWindowTitles(dedupe(titles))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setWindowTitles([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [data.kind])
+
   const getStringSuggestions = (field: ParamField): string[] => {
     const kind = data.kind
+
+    if (isWindowTitleField(kind, field.key)) {
+      return windowTitles
+    }
+
     const variableReferenceField =
       isVariableOperandField(kind, field.key) &&
       (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var')
@@ -335,8 +389,38 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     })
   }
 
+  const openTextEditorFromInput = (
+    element: HTMLInputElement,
+    field: ParamField,
+    value: string,
+    isJsonEditor: boolean,
+  ) => {
+    const rect = element.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const popupWidth = Math.min(480, Math.max(320, viewportWidth * 0.88))
+
+    const centerX = rect.left + rect.width / 2
+    const clampedCenterX = Math.max(popupWidth / 2 + 8, Math.min(viewportWidth - popupWidth / 2 - 8, centerX))
+
+    const desiredTop = rect.top - 8
+    const minTop = 72
+    const maxTop = viewportHeight - 72
+    const clampedTop = Math.max(minTop, Math.min(maxTop, desiredTop))
+
+    setTextEditor({
+      fieldKey: field.key,
+      value,
+      anchorLeft: clampedCenterX - rect.width / 2,
+      anchorTop: clampedTop,
+      anchorWidth: rect.width,
+      isJson: isJsonEditor,
+    })
+    setTextEditorError(null)
+  }
+
   useEffect(() => {
-    if (!pathEditor && !openSelectFieldKey && !openSuggestFieldKey) return
+    if (!pathEditor && !textEditor && !openSelectFieldKey && !openSuggestFieldKey) return
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement
@@ -345,16 +429,25 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         setPathEditor(null)
       }
 
+      if (textEditor && textEditorPanelRef.current && !textEditorPanelRef.current.contains(target)) {
+        setTextEditor(null)
+        setTextEditorError(null)
+      }
+
       if (openSelectFieldKey) {
-        const inSelectRoot = target.closest('[data-node-select-root="true"]')
-        if (!inSelectRoot) {
+        const inSelectRoot = target.closest<HTMLElement>('[data-node-select-root="true"]')
+        const selectFieldKey = inSelectRoot?.dataset.nodeSelectFieldKey ?? null
+        const selectNodeId = inSelectRoot?.dataset.nodeSelectNodeId ?? null
+        if (!inSelectRoot || selectFieldKey !== openSelectFieldKey || selectNodeId !== id) {
           setOpenSelectFieldKey(null)
         }
       }
 
       if (openSuggestFieldKey) {
-        const inSuggestRoot = target.closest('[data-node-suggest-root="true"]')
-        if (!inSuggestRoot) {
+        const inSuggestRoot = target.closest<HTMLElement>('[data-node-suggest-root="true"]')
+        const suggestFieldKey = inSuggestRoot?.dataset.nodeSuggestFieldKey ?? null
+        const suggestNodeId = inSuggestRoot?.dataset.nodeSuggestNodeId ?? null
+        if (!inSuggestRoot || suggestFieldKey !== openSuggestFieldKey || suggestNodeId !== id) {
           setOpenSuggestFieldKey(null)
         }
       }
@@ -363,6 +456,8 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setPathEditor(null)
+        setTextEditor(null)
+        setTextEditorError(null)
       }
     }
 
@@ -373,10 +468,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       document.removeEventListener('pointerdown', handlePointerDown, true)
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [pathEditor, openSelectFieldKey, openSuggestFieldKey])
+  }, [pathEditor, textEditor, openSelectFieldKey, openSuggestFieldKey])
 
   useEffect(() => {
     setPathEditor(null)
+    setTextEditor(null)
+    setTextEditorError(null)
     setOpenSelectFieldKey(null)
     setOpenSuggestFieldKey(null)
   }, [nodePosition?.x, nodePosition?.y])
@@ -403,12 +500,18 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
     if (isSelect) {
       return (
-        <div className="relative" data-node-select-root="true">
+        <div
+          className="relative"
+          data-node-select-root="true"
+          data-node-select-node-id={id}
+          data-node-select-field-key={field.key}
+        >
           <button
             type="button"
             disabled={connectedToInput}
             onClick={() => {
               if (connectedToInput) return
+              setOpenSuggestFieldKey(null)
               setOpenSelectFieldKey((prev) => (prev === field.key ? null : field.key))
             }}
             className="nodrag flex w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
@@ -426,7 +529,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           />
 
           {openSelectFieldKey === field.key && !connectedToInput ? (
-            <div className="absolute left-0 right-0 z-[260] mt-1 max-h-40 overflow-auto rounded-xl border border-white/20 bg-[#1f2127]/95 p-1 shadow-2xl backdrop-blur">
+            <div
+              className="absolute left-0 right-0 z-[260] mt-1 max-h-40 overflow-auto rounded-xl border border-white/20 bg-[#1f2127]/95 p-1 shadow-2xl backdrop-blur"
+              onWheelCapture={(event) => event.stopPropagation()}
+            >
               {selectOptions.map((option) => (
                 <button
                   key={option.value}
@@ -482,13 +588,24 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       (isVariableOperandField(data.kind, field.key) &&
         (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var'))
 
-    const canShowSuggestions = !connectedToInput && !isNumber && !isSelect && !isJson && !isPathField && supportsVariableSuggestions
+    const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, field.key)
+    const supportsInlineSuggestions = supportsVariableSuggestions || supportsWindowTitleSuggestions
+
+    const canShowSuggestions = !connectedToInput && !isNumber && !isSelect && !isJson && !isPathField && supportsInlineSuggestions
+    const usesFloatingTextEditor = !connectedToInput && !isNumber && !isSelect && !isPathField && !supportsInlineSuggestions
     const filteredSuggestions = canShowSuggestions
-      ? suggestions.filter((option) => option.toLowerCase().includes(displayValue.trim().toLowerCase()))
+      ? (supportsWindowTitleSuggestions
+        ? suggestions
+        : suggestions.filter((option) => option.toLowerCase().includes(displayValue.trim().toLowerCase())))
       : []
 
     return (
-      <div className="relative" data-node-suggest-root="true">
+      <div
+        className="relative"
+        data-node-suggest-root="true"
+        data-node-suggest-node-id={id}
+        data-node-suggest-field-key={field.key}
+      >
         <div className={`flex items-center rounded-full border bg-black/20 px-2 py-1 text-[11px] shadow-inner dark:bg-black/35 ${errors[field.key] ? 'border-rose-400/80' : 'border-white/25 dark:border-white/20'}`}>
           {canUseArrows ? (
             <button
@@ -510,13 +627,25 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           <input
             type="text"
             value={displayValue}
-            readOnly={connectedToInput || isPathField}
+            readOnly={connectedToInput || isPathField || usesFloatingTextEditor}
             disabled={connectedToInput}
-            placeholder={connectedToInput ? '已连接上游' : (field.placeholder ?? '')}
+            placeholder={connectedToInput ? '已连接上游' : (usesFloatingTextEditor ? '点击打开编辑器' : (field.placeholder ?? ''))}
             onMouseDown={(event) => {
               if (!isPathField || connectedToInput) return
               event.preventDefault()
               openPathEditorFromInput(event.currentTarget, field.key, String(currentValue ?? ''))
+
+              return
+            }}
+            onMouseDownCapture={(event) => {
+              if (!usesFloatingTextEditor || connectedToInput) return
+              event.preventDefault()
+              openTextEditorFromInput(
+                event.currentTarget,
+                field,
+                drafts[field.key] ?? displayValue,
+                isJson,
+              )
             }}
             onClick={(event) => {
               if (connectedToInput) return
@@ -525,10 +654,24 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 openPathEditorFromInput(event.currentTarget, field.key, String(currentValue ?? ''))
                 return
               }
+
+              if (usesFloatingTextEditor) {
+                event.preventDefault()
+                openTextEditorFromInput(
+                  event.currentTarget,
+                  field,
+                  drafts[field.key] ?? displayValue,
+                  isJson,
+                )
+                return
+              }
             }}
             onChange={(event) => {
               if (connectedToInput) return
               if (isPathField) {
+                return
+              }
+              if (usesFloatingTextEditor) {
                 return
               }
               const nextRaw = event.target.value
@@ -582,12 +725,17 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               setDrafts((state) => ({ ...state, [field.key]: nextRaw }))
               commitStringValue(field, nextRaw)
               if (canShowSuggestions) {
+                setOpenSelectFieldKey(null)
                 setOpenSuggestFieldKey(field.key)
                 setActiveSuggestIndex(0)
               }
             }}
             onFocus={() => {
+              if (supportsWindowTitleSuggestions) {
+                refreshWindowTitles()
+              }
               if (canShowSuggestions) {
+                setOpenSelectFieldKey(null)
                 setOpenSuggestFieldKey(field.key)
                 setActiveSuggestIndex(0)
               }
@@ -638,7 +786,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }
             }}
-            className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold text-slate-100 outline-none ${isPathField ? 'cursor-default select-none caret-transparent' : ''}`}
+            className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold text-slate-100 outline-none ${
+              isPathField || usesFloatingTextEditor ? 'cursor-default select-none caret-transparent' : ''
+            }`}
           />
           {canUseArrows ? (
             <button
@@ -670,7 +820,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         ) : null}
 
         {canShowSuggestions && openSuggestFieldKey === field.key ? (
-          <div className="absolute left-0 right-0 z-[270] mt-1 max-h-36 overflow-auto rounded-xl border border-white/20 bg-[#1f2127]/95 p-1 shadow-2xl backdrop-blur">
+          <div
+            className="absolute left-0 right-0 z-[270] mt-1 max-h-36 overflow-auto rounded-xl border border-white/20 bg-[#1f2127]/95 p-1 shadow-2xl backdrop-blur"
+            onWheelCapture={(event) => event.stopPropagation()}
+          >
             {filteredSuggestions.length > 0 ? (
               filteredSuggestions.map((option, index) => (
                 <button
@@ -755,6 +908,113 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               </div>
             </div>
             </>,
+            document.body,
+          )
+        ) : null}
+
+        {textEditor?.fieldKey === field.key ? (
+          createPortal(
+            <div
+              ref={textEditorPanelRef}
+              className="fixed z-[305] w-[480px] max-w-[88vw] rounded-xl border border-white/20 bg-[#1f2127] p-2 shadow-2xl"
+              style={{
+                left: textEditor.anchorLeft + textEditor.anchorWidth / 2,
+                top: textEditor.anchorTop - 8,
+                transform: 'translate(-50%, -100%)',
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-1 px-1 text-[11px] font-semibold text-slate-200">{field.label}</div>
+              <textarea
+                autoFocus
+                value={textEditor.value}
+                onChange={(event) => {
+                  setTextEditor((prev) => (prev ? { ...prev, value: event.target.value } : prev))
+                  if (textEditorError) setTextEditorError(null)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setTextEditor(null)
+                    setTextEditorError(null)
+                    return
+                  }
+
+                  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                    event.preventDefault()
+                    if (!textEditor) return
+
+                    if (textEditor.isJson) {
+                      try {
+                        const parsed = JSON.parse(textEditor.value)
+                        setDrafts((state) => ({ ...state, [field.key]: textEditor.value }))
+                        updateParam(field.key, parsed)
+                        setErrors((state) => {
+                          const nextState = { ...state }
+                          delete nextState[field.key]
+                          return nextState
+                        })
+                        setTextEditor(null)
+                        setTextEditorError(null)
+                      } catch {
+                        setTextEditorError('JSON 格式不正确')
+                      }
+                      return
+                    }
+
+                    commitStringValue(field, textEditor.value)
+                    setTextEditor(null)
+                    setTextEditorError(null)
+                  }
+                }}
+                className="nodrag h-32 w-full resize-y rounded-lg border border-white/20 bg-[#23262d] px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
+              />
+              {textEditorError ? <div className="mt-1 px-1 text-[10px] text-rose-300">{textEditorError}</div> : null}
+              <div className="mt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTextEditor(null)
+                    setTextEditorError(null)
+                  }}
+                  className="nodrag h-8 min-w-[66px] rounded-full border border-white/20 px-3 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!textEditor) return
+
+                    if (textEditor.isJson) {
+                      try {
+                        const parsed = JSON.parse(textEditor.value)
+                        setDrafts((state) => ({ ...state, [field.key]: textEditor.value }))
+                        updateParam(field.key, parsed)
+                        setErrors((state) => {
+                          const nextState = { ...state }
+                          delete nextState[field.key]
+                          return nextState
+                        })
+                        setTextEditor(null)
+                        setTextEditorError(null)
+                      } catch {
+                        setTextEditorError('JSON 格式不正确')
+                      }
+                      return
+                    }
+
+                    commitStringValue(field, textEditor.value)
+                    setTextEditor(null)
+                    setTextEditorError(null)
+                  }}
+                  className="nodrag h-8 min-w-[66px] rounded-full bg-white/70 px-3 text-xs font-bold text-slate-800 transition-colors hover:bg-white"
+                >
+                  确定
+                </button>
+              </div>
+              <div className="mt-1 px-1 text-[10px] text-slate-400">提示：按 Ctrl+Enter 可快速确认</div>
+            </div>,
             document.body,
           )
         ) : null}

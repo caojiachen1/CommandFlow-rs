@@ -30,13 +30,13 @@ export default function StyledSelect({ value, options, onChange, placeholder, on
 
   useEffect(() => {
     if (!open) return
-    const onDocumentClick = (event: MouseEvent) => {
+    const onDocumentPointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
         setOpen(false)
       }
     }
-    document.addEventListener('mousedown', onDocumentClick)
-    return () => document.removeEventListener('mousedown', onDocumentClick)
+    document.addEventListener('pointerdown', onDocumentPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onDocumentPointerDown, true)
   }, [open])
 
   return (
