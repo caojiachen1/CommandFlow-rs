@@ -251,7 +251,7 @@ finished(content='xxx') # Use escape characters \\', \\" and \\n in content part
         key: 'imageInput',
         label: '输入图片(base64)',
         type: 'string',
-        placeholder: '可连接“屏幕截图.截图”输出，或粘贴 base64',
+        placeholder: '连接图像，或输入base64',
       },
       {
         key: 'instruction',
