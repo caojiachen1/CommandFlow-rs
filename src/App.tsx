@@ -31,6 +31,18 @@ interface StepRuntimeContext {
   startQueue: string[]
 }
 
+function truncateParams(params: Record<string, unknown>, maxLen = 80): string {
+  const truncated = Object.fromEntries(
+    Object.entries(params).map(([k, v]) => {
+      if (typeof v === 'string' && v.length > maxLen) {
+        return [k, `${v.slice(0, maxLen)}...`]
+      }
+      return [k, v]
+    }),
+  )
+  return JSON.stringify(truncated)
+}
+
 const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
   kind === 'hotkeyTrigger' || kind === 'timerTrigger' || kind === 'manualTrigger' || kind === 'windowTrigger'
 const isManualTriggerKind = (kind: WorkflowNode['data']['kind']) => kind === 'manualTrigger'
@@ -132,19 +144,19 @@ function App() {
         if (currentRound <= totalRounds) {
           addLog(
             'info',
-            `执行节点：${nodeLabel} [for 循环]（第 ${currentRound}/${totalRounds} 轮） id=${nodeId} 参数=${JSON.stringify(params)}`,
+            `执行节点：${nodeLabel} [for 循环]（第 ${currentRound}/${totalRounds} 轮） id=${nodeId} 参数=${truncateParams(params)}`,
           )
         } else {
           addLog(
             'info',
-            `执行节点：${nodeLabel} [for 循环]（循环完成，进入 done 分支） id=${nodeId} 参数=${JSON.stringify(params)}`,
+            `执行节点：${nodeLabel} [for 循环]（循环完成，进入 done 分支） id=${nodeId} 参数=${truncateParams(params)}`,
           )
           loopRoundRef.current.delete(nodeId)
         }
       } else {
         addLog(
           'info',
-          `执行节点：${nodeLabel} [${nodeKind}] id=${nodeId} 参数=${JSON.stringify(params)}`,
+          `执行节点：${nodeLabel} [${nodeKind}] id=${nodeId} 参数=${truncateParams(params)}`,
         )
       }
 
