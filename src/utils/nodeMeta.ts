@@ -196,7 +196,7 @@ const metas: Record<NodeKind, NodeMeta> = {
     description: '使用多模态 LLM 解析截图并自动执行 GUI 指令。',
     defaultParams: {
       imageInput: '',
-      baseUrl: 'https://api.openai.com/v1/chat/completions',
+      baseUrl: 'https://api.openai.com',
       apiKey: '',
       model: 'gpt-4.1-mini',
       stripThink: true,
@@ -228,7 +228,7 @@ finished(content='xxx') # Use escape characters \\', \\" and \\n in content part
         key: 'baseUrl',
         label: 'Base URL',
         type: 'string',
-        placeholder: 'https://api.openai.com/v1/chat/completions',
+        placeholder: 'https://api.openai.com',
       },
       {
         key: 'apiKey',

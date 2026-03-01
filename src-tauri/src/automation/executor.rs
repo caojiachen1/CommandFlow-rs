@@ -2020,7 +2020,7 @@ async fn execute_gui_agent_action(
         return Err(CommandFlowError::Canceled);
     }
 
-    let base_url = get_string(node, "baseUrl", "https://api.openai.com/v1/chat/completions");
+    let base_url = get_string(node, "baseUrl", "https://api.openai.com");
     let api_key = get_string(node, "apiKey", "");
     let model = get_string(node, "model", "gpt-4.1-mini");
     let instruction = get_string(node, "instruction", "");
