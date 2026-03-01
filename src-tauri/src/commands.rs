@@ -2,6 +2,7 @@ use crate::automation::executor::WorkflowExecutor;
 use crate::automation::screenshot;
 use crate::automation::window;
 use crate::workflow::graph::WorkflowGraph;
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -80,6 +81,17 @@ pub struct VariablesUpdatedPayload {
 pub struct ExecutionLogPayload {
     pub level: String,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelListResponse {
+    #[serde(default)]
+    data: Vec<ModelInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelInfo {
+    id: String,
 }
 
 #[tauri::command]
@@ -204,6 +216,81 @@ pub async fn pick_coordinate(mode: Option<String>) -> Result<CoordinateInfo, Str
 #[tauri::command]
 pub async fn list_open_windows() -> Result<Vec<String>, String> {
     window::list_open_window_titles().map_err(|error| error.to_string())
+}
+
+fn ends_with_version_segment(url: &str) -> bool {
+    let Some(segment) = url.rsplit('/').next() else {
+        return false;
+    };
+
+    if !segment.starts_with('v') || segment.len() < 2 {
+        return false;
+    }
+
+    segment[1..].chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn resolve_models_endpoint(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+
+    if trimmed.ends_with("/models") {
+        return trimmed.to_string();
+    }
+
+    if trimmed.ends_with("/chat/completions") {
+        let root = trimmed.trim_end_matches("/chat/completions");
+        if ends_with_version_segment(root) {
+            return format!("{}/models", root);
+        }
+        return format!("{}/v1/models", root);
+    }
+
+    if ends_with_version_segment(trimmed) {
+        format!("{}/models", trimmed)
+    } else {
+        format!("{}/v1/models", trimmed)
+    }
+}
+
+#[tauri::command]
+pub async fn fetch_llm_models(base_url: String, api_key: String) -> Result<Vec<String>, String> {
+    let normalized = base_url.trim();
+    if normalized.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let endpoint = resolve_models_endpoint(normalized);
+    let client = reqwest::Client::new();
+    let mut request = client
+        .get(endpoint)
+        .header(CONTENT_TYPE, "application/json");
+
+    if !api_key.trim().is_empty() {
+        request = request.header(AUTHORIZATION, format!("Bearer {}", api_key.trim()));
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("获取模型列表请求失败: {}", error))?
+        .error_for_status()
+        .map_err(|error| format!("获取模型列表失败: {}", error))?;
+
+    let payload = response
+        .json::<ModelListResponse>()
+        .await
+        .map_err(|error| format!("解析模型列表失败: {}", error))?;
+
+    let mut model_ids = payload
+        .data
+        .into_iter()
+        .map(|item| item.id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+
+    model_ids.sort();
+    model_ids.dedup();
+    Ok(model_ids)
 }
 
 #[tauri::command]

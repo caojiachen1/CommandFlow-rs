@@ -65,6 +65,7 @@ const allowedKinds: NodeKind[] = [
   'fileWriteText',
   'showMessage',
   'delay',
+  'guiAgent',
   'condition',
   'loop',
   'whileLoop',
@@ -233,6 +234,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       fileWriteText: ClickNode,
       showMessage: ClickNode,
       delay: ClickNode,
+      guiAgent: ClickNode,
     }),
     [],
   )

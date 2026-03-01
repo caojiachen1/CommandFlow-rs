@@ -1,6 +1,8 @@
 use crate::error::{CommandFlowError, CommandResult};
+use base64::{engine::general_purpose, Engine as _};
 use image::{GrayImage, ImageBuffer, Luma, Rgba};
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Mutex, OnceLock};
@@ -62,6 +64,36 @@ fn capture_primary_rgba() -> CommandResult<(Vec<u8>, u32, u32)> {
     let height = image.height();
     let rgba = image.into_raw();
     Ok((rgba, width, height))
+}
+
+pub fn capture_fullscreen_rgba() -> CommandResult<(Vec<u8>, u32, u32)> {
+    capture_primary_rgba()
+}
+
+pub fn capture_region_rgba(width: u32, height: u32) -> CommandResult<(Vec<u8>, u32, u32)> {
+    let monitor = primary_monitor()?;
+    let monitor_width = monitor
+        .width()
+        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+    let monitor_height = monitor
+        .height()
+        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+
+    let target_width = width.min(monitor_width);
+    let target_height = height.min(monitor_height);
+
+    if target_width == 0 || target_height == 0 {
+        return Err(CommandFlowError::Automation(
+            "invalid capture size for region screenshot".to_string(),
+        ));
+    }
+
+    let region_image = monitor
+        .capture_region(0, 0, target_width, target_height)
+        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+    let region_rgba = region_image.into_raw();
+
+    Ok((region_rgba, target_width, target_height))
 }
 
 pub fn capture_fullscreen_gray() -> CommandResult<GrayImage> {
@@ -347,33 +379,30 @@ fn save_rgba(path: &str, rgba: Vec<u8>, width: u32, height: u32) -> CommandResul
     Ok(path.to_string())
 }
 
+pub fn save_rgba_image(path: &str, rgba: Vec<u8>, width: u32, height: u32) -> CommandResult<String> {
+    save_rgba(path, rgba, width, height)
+}
+
+pub fn encode_rgba_to_png_base64(rgba: &[u8], width: u32, height: u32) -> CommandResult<String> {
+    let img =
+        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba.to_vec()).ok_or_else(|| {
+            CommandFlowError::Automation("failed to build image from captured frame".to_string())
+        })?;
+
+    let mut encoded = Vec::<u8>::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut Cursor::new(&mut encoded), image::ImageFormat::Png)
+        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+
+    Ok(general_purpose::STANDARD.encode(encoded))
+}
+
 pub fn capture_region(path: &str, width: u32, height: u32) -> CommandResult<String> {
-    let monitor = primary_monitor()?;
-    let monitor_width = monitor
-        .width()
-        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
-    let monitor_height = monitor
-        .height()
-        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
-
-    let target_width = width.min(monitor_width);
-    let target_height = height.min(monitor_height);
-
-    if target_width == 0 || target_height == 0 {
-        return Err(CommandFlowError::Automation(
-            "invalid capture size for region screenshot".to_string(),
-        ));
-    }
-
-    let region_image = monitor
-        .capture_region(0, 0, target_width, target_height)
-        .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
-    let region_rgba = region_image.into_raw();
-
-    save_rgba(path, region_rgba, target_width, target_height)
+    let (rgba, target_width, target_height) = capture_region_rgba(width, height)?;
+    save_rgba(path, rgba, target_width, target_height)
 }
 
 pub fn capture_fullscreen(path: &str) -> CommandResult<String> {
-    let (rgba, width, height) = capture_primary_rgba()?;
+    let (rgba, width, height) = capture_fullscreen_rgba()?;
     save_rgba(path, rgba, width, height)
 }

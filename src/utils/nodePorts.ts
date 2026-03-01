@@ -164,7 +164,15 @@ const specs: Record<NodeKind, NodePortSpec> = {
   },
   screenshot: {
     inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'path', label: 'path', maxConnections: MANY, valueType: 'string' }],
+    outputs: [
+      ...singleOut(),
+      { id: 'path', label: 'path', maxConnections: MANY, valueType: 'string' },
+      { id: 'screenshot', label: '截图', maxConnections: MANY, valueType: 'string' },
+    ],
+  },
+  guiAgent: {
+    inputs: singleIn(),
+    outputs: singleOut(),
   },
   windowActivate: {
     inputs: singleIn(),

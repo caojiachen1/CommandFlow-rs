@@ -47,6 +47,7 @@ pub fn run() {
             commands::load_workflow,
             commands::pick_coordinate,
             commands::list_open_windows,
+            commands::fetch_llm_models,
             commands::health_check,
             commands::set_background_mode,
         ])

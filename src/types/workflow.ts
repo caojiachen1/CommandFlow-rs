@@ -26,6 +26,7 @@ export type ActionNodeKind =
   | 'fileWriteText'
   | 'showMessage'
   | 'delay'
+  | 'guiAgent'
 export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch'
 export type DataNodeKind = 'varDefine' | 'varSet' | 'varMath' | 'varGet' | 'constValue'
 

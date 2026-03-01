@@ -1,5 +1,8 @@
 use crate::automation::{file_ops, image_match, keyboard, mouse, screenshot, window};
 use arboard::Clipboard;
+use base64::Engine as _;
+use regex::Regex;
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use crate::error::{CommandFlowError, CommandResult};
 use crate::workflow::graph::WorkflowGraph;
@@ -11,6 +14,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
@@ -513,19 +517,28 @@ impl WorkflowExecutor {
             NodeKind::Screenshot => {
                 let output_path = resolve_screenshot_output_path(node)?;
                 let fullscreen = get_bool(node, "fullscreen", false);
+
+                let (rgba, width, height) = if fullscreen {
+                    screenshot::capture_fullscreen_rgba()?
+                } else {
+                    let width = get_u32(node, "width", 320);
+                    let height = get_u32(node, "height", 240);
+                    screenshot::capture_region_rgba(width.max(1), height.max(1))?
+                };
+
+                let screenshot_base64 = screenshot::encode_rgba_to_png_base64(&rgba, width, height)?;
+                set_node_output(ctx, node, "screenshot", Value::String(screenshot_base64));
+
                 if let Some(path) = output_path {
-                    if fullscreen {
-                        screenshot::capture_fullscreen(&path)?;
-                    } else {
-                        let width = get_u32(node, "width", 320);
-                        let height = get_u32(node, "height", 240);
-                        screenshot::capture_region(&path, width.max(1), height.max(1))?;
-                    }
+                    screenshot::save_rgba_image(&path, rgba, width, height)?;
                     set_node_output(ctx, node, "path", Value::String(path));
                 } else {
-                    let _ = screenshot::capture_fullscreen_gray()?;
                     set_node_output(ctx, node, "path", Value::String(String::new()));
                 }
+                Ok(NextDirective::Default)
+            }
+            NodeKind::GuiAgent => {
+                execute_gui_agent_action(node, should_cancel, on_log).await?;
                 Ok(NextDirective::Default)
             }
             NodeKind::WindowActivate => {
@@ -1983,6 +1996,608 @@ fn prepare_image_match_debug_dir(node: &WorkflowNode) -> CommandResult<PathBuf> 
 fn path_to_string(path: &Path) -> CommandResult<&str> {
     path.to_str()
         .ok_or_else(|| CommandFlowError::Validation("invalid debug path".to_string()))
+}
+
+#[derive(Debug, Clone)]
+enum GuiAgentAction {
+    Click { point: (f64, f64) },
+    LeftDouble { point: (f64, f64) },
+    RightSingle { point: (f64, f64) },
+    Drag { start: (f64, f64), end: (f64, f64) },
+    Hotkey { key: String },
+    Type { content: String },
+    Scroll { point: (f64, f64), direction: String },
+    Wait,
+    Finished { content: String },
+}
+
+async fn execute_gui_agent_action(
+    node: &WorkflowNode,
+    should_cancel: &impl Fn() -> bool,
+    on_log: &mut impl FnMut(&str, String),
+) -> CommandResult<()> {
+    if should_cancel() {
+        return Err(CommandFlowError::Canceled);
+    }
+
+    let base_url = get_string(node, "baseUrl", "https://api.openai.com/v1/chat/completions");
+    let api_key = get_string(node, "apiKey", "");
+    let model = get_string(node, "model", "gpt-4.1-mini");
+    let instruction = get_string(node, "instruction", "");
+    let image_input = get_string(node, "imageInput", "");
+    let image_format = get_string(node, "imageFormat", "png").to_lowercase();
+    let max_tokens = get_u64(node, "maxTokens", 512);
+    let strip_think = get_bool(node, "stripThink", true);
+    let system_prompt_template = get_string(node, "systemPrompt", "{instruction}");
+
+    if base_url.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' GUI Agent baseUrl cannot be empty",
+            node.id
+        )));
+    }
+
+    if api_key.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' GUI Agent apiKey cannot be empty",
+            node.id
+        )));
+    }
+
+    if model.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' GUI Agent model cannot be empty",
+            node.id
+        )));
+    }
+
+    if image_input.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' GUI Agent imageInput cannot be empty",
+            node.id
+        )));
+    }
+
+    let cleaned_base64 = normalize_base64_input(&image_input);
+    let (image_width, image_height) = decode_base64_image_dimensions(&cleaned_base64, &image_format)?;
+    let system_prompt = system_prompt_template.replace("{instruction}", &instruction);
+    let endpoint = resolve_chat_endpoint(&base_url);
+
+    let messages = serde_json::json!([
+        {
+            "role": "user",
+            "content": system_prompt
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": format!("data:image/{};base64,{}", image_format, cleaned_base64)
+                    }
+                }
+            ]
+        }
+    ]);
+
+    let payload = serde_json::json!({
+        "model": model,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "messages": messages,
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(endpoint)
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, format!("Bearer {}", api_key))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 请求失败: {}", error)))?;
+
+    let status = response.status();
+    let raw_response = response
+        .text()
+        .await
+        .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应读取失败: {}", error)))?;
+
+    if !status.is_success() {
+        return Err(CommandFlowError::Automation(format!(
+            "GUI Agent 请求返回非 2xx（{}）：{}",
+            status, raw_response
+        )));
+    }
+
+    let response_json: Value = serde_json::from_str(&raw_response)
+        .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应 JSON 解析失败: {}", error)))?;
+
+    let content = extract_llm_message_content(&response_json)?;
+    let normalized_content = if strip_think {
+        strip_think_sections(&content)
+    } else {
+        content
+    };
+
+    let action_expr = extract_action_expression(&normalized_content)?;
+    let action = parse_gui_agent_action(&action_expr)?;
+
+    on_log(
+        "info",
+        format!(
+            "GUI Agent 节点 '{}' 模型输出动作：{}（图像尺寸={}x{}）",
+            node.label, action_expr, image_width, image_height
+        ),
+    );
+
+    apply_gui_agent_action(action, image_width, image_height, should_cancel, on_log).await
+}
+
+fn normalize_base64_input(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Some(index) = trimmed.find(",") {
+        let prefix = &trimmed[..index];
+        if prefix.contains("base64") {
+            return trimmed[index + 1..].trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn decode_base64_image_dimensions(base64_image: &str, image_format: &str) -> CommandResult<(u32, u32)> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_image)
+        .map_err(|error| CommandFlowError::Validation(format!("GUI Agent 图片 base64 解码失败: {}", error)))?;
+
+    let format = match image_format.to_lowercase().as_str() {
+        "png" => image::ImageFormat::Png,
+        "jpg" | "jpeg" => image::ImageFormat::Jpeg,
+        "webp" => image::ImageFormat::WebP,
+        "bmp" => image::ImageFormat::Bmp,
+        other => {
+            return Err(CommandFlowError::Validation(format!(
+                "GUI Agent 不支持的 imageFormat: {}",
+                other
+            )))
+        }
+    };
+
+    let image = image::load_from_memory_with_format(&bytes, format)
+        .map_err(|error| CommandFlowError::Validation(format!("GUI Agent 图片解析失败: {}", error)))?;
+
+    Ok((image.width(), image.height()))
+}
+
+fn ends_with_version_segment(url: &str) -> bool {
+    let Some(segment) = url.rsplit('/').next() else {
+        return false;
+    };
+
+    if !segment.starts_with('v') || segment.len() < 2 {
+        return false;
+    }
+
+    segment[1..].chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn resolve_chat_endpoint(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+
+    if trimmed.ends_with("/chat/completions") {
+        return trimmed.to_string();
+    }
+
+    if trimmed.ends_with("/models") {
+        let root = trimmed.trim_end_matches("/models");
+        if ends_with_version_segment(root) {
+            return format!("{}/chat/completions", root);
+        }
+        return format!("{}/v1/chat/completions", root);
+    }
+
+    if ends_with_version_segment(trimmed) {
+        format!("{}/chat/completions", trimmed)
+    } else {
+        format!("{}/v1/chat/completions", trimmed)
+    }
+}
+
+fn extract_llm_message_content(response_json: &Value) -> CommandResult<String> {
+    let message_content = response_json
+        .get("choices")
+        .and_then(|choices| choices.as_array())
+        .and_then(|choices| choices.first())
+        .and_then(|first| first.get("message"))
+        .and_then(|message| message.get("content"))
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 响应缺少 choices[0].message.content".to_string()))?;
+
+    if let Some(text) = message_content.as_str() {
+        return Ok(text.to_string());
+    }
+
+    if let Some(parts) = message_content.as_array() {
+        let merged = parts
+            .iter()
+            .filter_map(|part| {
+                if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+                    return Some(text.to_string());
+                }
+                part.get("content").and_then(|v| v.as_str()).map(ToString::to_string)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !merged.trim().is_empty() {
+            return Ok(merged);
+        }
+    }
+
+    Err(CommandFlowError::Automation(
+        "GUI Agent 无法解析 message.content 文本".to_string(),
+    ))
+}
+
+fn strip_think_sections(content: &str) -> String {
+    static THINK_RE: OnceLock<Regex> = OnceLock::new();
+    let regex = THINK_RE.get_or_init(|| Regex::new(r"(?is)<think>.*?</think>").expect("valid think regex"));
+    regex.replace_all(content, "").to_string()
+}
+
+fn extract_action_expression(content: &str) -> CommandResult<String> {
+    static ACTION_RE: OnceLock<Regex> = OnceLock::new();
+    let regex = ACTION_RE.get_or_init(|| Regex::new(r"(?im)Action:\s*(.+)").expect("valid action regex"));
+
+    let expression = regex
+        .captures(content)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().trim().to_string())
+        .filter(|line| !line.is_empty())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 未返回可解析的 Action 行".to_string()))?;
+
+    Ok(expression.trim_matches('`').trim().to_string())
+}
+
+fn parse_gui_agent_action(expression: &str) -> CommandResult<GuiAgentAction> {
+    if let Some(point) = parse_single_point_action(expression, "click")? {
+        return Ok(GuiAgentAction::Click { point });
+    }
+    if let Some(point) = parse_single_point_action(expression, "left_double")? {
+        return Ok(GuiAgentAction::LeftDouble { point });
+    }
+    if let Some(point) = parse_single_point_action(expression, "right_single")? {
+        return Ok(GuiAgentAction::RightSingle { point });
+    }
+
+    if let Some((start, end)) = parse_drag_action(expression)? {
+        return Ok(GuiAgentAction::Drag { start, end });
+    }
+
+    if let Some(key) = parse_string_arg_action(expression, "hotkey", "key")? {
+        return Ok(GuiAgentAction::Hotkey { key });
+    }
+
+    if let Some(content) = parse_string_arg_action(expression, "type", "content")? {
+        return Ok(GuiAgentAction::Type {
+            content: unescape_agent_string(&content),
+        });
+    }
+
+    if let Some((point, direction)) = parse_scroll_action(expression)? {
+        return Ok(GuiAgentAction::Scroll { point, direction });
+    }
+
+    if expression.trim().eq_ignore_ascii_case("wait()") {
+        return Ok(GuiAgentAction::Wait);
+    }
+
+    if let Some(content) = parse_string_arg_action(expression, "finished", "content")? {
+        return Ok(GuiAgentAction::Finished {
+            content: unescape_agent_string(&content),
+        });
+    }
+
+    Err(CommandFlowError::Automation(format!(
+        "GUI Agent 返回了不支持的动作: {}",
+        expression
+    )))
+}
+
+fn parse_single_point_action(expression: &str, action_name: &str) -> CommandResult<Option<(f64, f64)>> {
+    let pattern = format!(
+        r"(?i)^{}\s*\(\s*point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*\)\s*$",
+        regex::escape(action_name)
+    );
+    let regex = Regex::new(&pattern)
+        .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
+
+    let Some(captures) = regex.captures(expression.trim()) else {
+        return Ok(None);
+    };
+
+    let x = captures
+        .get(1)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 点位 X 解析失败".to_string()))?;
+    let y = captures
+        .get(2)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 点位 Y 解析失败".to_string()))?;
+
+    Ok(Some((x, y)))
+}
+
+fn parse_drag_action(expression: &str) -> CommandResult<Option<((f64, f64), (f64, f64))>> {
+    let regex = Regex::new(
+        r"(?i)^drag\s*\(\s*start_point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*,\s*end_point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*\)\s*$",
+    )
+    .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
+
+    let Some(captures) = regex.captures(expression.trim()) else {
+        return Ok(None);
+    };
+
+    let sx = captures
+        .get(1)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽起点 X 解析失败".to_string()))?;
+    let sy = captures
+        .get(2)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽起点 Y 解析失败".to_string()))?;
+    let ex = captures
+        .get(3)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽终点 X 解析失败".to_string()))?;
+    let ey = captures
+        .get(4)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽终点 Y 解析失败".to_string()))?;
+
+    Ok(Some(((sx, sy), (ex, ey))))
+}
+
+fn parse_scroll_action(expression: &str) -> CommandResult<Option<((f64, f64), String)>> {
+    let regex = Regex::new(
+        r"(?i)^scroll\s*\(\s*point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*,\s*direction\s*=\s*'\s*(down|up|right|left)\s*'\s*\)\s*$",
+    )
+    .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
+
+    let Some(captures) = regex.captures(expression.trim()) else {
+        return Ok(None);
+    };
+
+    let x = captures
+        .get(1)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 滚动点 X 解析失败".to_string()))?;
+    let y = captures
+        .get(2)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 滚动点 Y 解析失败".to_string()))?;
+    let direction = captures
+        .get(3)
+        .map(|m| m.as_str().to_lowercase())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 滚动方向解析失败".to_string()))?;
+
+    Ok(Some(((x, y), direction)))
+}
+
+fn parse_string_arg_action(expression: &str, action_name: &str, arg_name: &str) -> CommandResult<Option<String>> {
+    let pattern = format!(
+        r"(?is)^{}\s*\(\s*{}\s*=\s*'(.*)'\s*\)\s*$",
+        regex::escape(action_name),
+        regex::escape(arg_name)
+    );
+    let regex = Regex::new(&pattern)
+        .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
+
+    let Some(captures) = regex.captures(expression.trim()) else {
+        return Ok(None);
+    };
+
+    let content = captures
+        .get(1)
+        .map(|m| m.as_str().to_string())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 字符串参数解析失败".to_string()))?;
+
+    Ok(Some(content))
+}
+
+fn unescape_agent_string(content: &str) -> String {
+    let mut output = String::with_capacity(content.len());
+    let mut chars = content.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                match next {
+                    'n' => output.push('\n'),
+                    '\\' => output.push('\\'),
+                    '\'' => output.push('\''),
+                    '"' => output.push('"'),
+                    other => {
+                        output.push('\\');
+                        output.push(other);
+                    }
+                }
+            } else {
+                output.push('\\');
+            }
+        } else {
+            output.push(ch);
+        }
+    }
+
+    output
+}
+
+fn relative_to_absolute(point: (f64, f64), image_width: u32, image_height: u32) -> (i32, i32) {
+    let x = (point.0 / 1000.0) * image_width as f64;
+    let y = (point.1 / 1000.0) * image_height as f64;
+    (x.round() as i32, y.round() as i32)
+}
+
+async fn apply_gui_agent_action(
+    action: GuiAgentAction,
+    image_width: u32,
+    image_height: u32,
+    should_cancel: &impl Fn() -> bool,
+    on_log: &mut impl FnMut(&str, String),
+) -> CommandResult<()> {
+    match action {
+        GuiAgentAction::Click { point } => {
+            let abs = relative_to_absolute(point, image_width, image_height);
+            mouse::click(abs.0, abs.1, 1)?;
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 click: 相对坐标=({:.2}, {:.2}) -> 绝对坐标=({}, {})",
+                    point.0, point.1, abs.0, abs.1
+                ),
+            );
+        }
+        GuiAgentAction::LeftDouble { point } => {
+            let abs = relative_to_absolute(point, image_width, image_height);
+            mouse::click(abs.0, abs.1, 2)?;
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 left_double: 相对坐标=({:.2}, {:.2}) -> 绝对坐标=({}, {})",
+                    point.0, point.1, abs.0, abs.1
+                ),
+            );
+        }
+        GuiAgentAction::RightSingle { point } => {
+            let abs = relative_to_absolute(point, image_width, image_height);
+            mouse::button_down(abs.0, abs.1, "right")?;
+            mouse::button_up(abs.0, abs.1, "right")?;
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 right_single: 相对坐标=({:.2}, {:.2}) -> 绝对坐标=({}, {})",
+                    point.0, point.1, abs.0, abs.1
+                ),
+            );
+        }
+        GuiAgentAction::Drag { start, end } => {
+            let abs_start = relative_to_absolute(start, image_width, image_height);
+            let abs_end = relative_to_absolute(end, image_width, image_height);
+            mouse::drag(abs_start.0, abs_start.1, abs_end.0, abs_end.1)?;
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 drag: 起点相对=({:.2}, {:.2}) -> 绝对=({}, {}), 终点相对=({:.2}, {:.2}) -> 绝对=({}, {})",
+                    start.0,
+                    start.1,
+                    abs_start.0,
+                    abs_start.1,
+                    end.0,
+                    end.1,
+                    abs_end.0,
+                    abs_end.1
+                ),
+            );
+        }
+        GuiAgentAction::Hotkey { key } => {
+            let tokens = key
+                .split_whitespace()
+                .map(|token| token.trim())
+                .filter(|token| !token.is_empty())
+                .collect::<Vec<_>>();
+
+            if tokens.is_empty() {
+                return Err(CommandFlowError::Validation("GUI Agent hotkey 为空".to_string()));
+            }
+
+            if tokens.len() > 3 {
+                return Err(CommandFlowError::Validation(
+                    "GUI Agent hotkey 超过 3 个键，拒绝执行".to_string(),
+                ));
+            }
+
+            if tokens.len() == 1 {
+                keyboard::key_tap_by_name(tokens[0])?;
+            } else {
+                let main_key = tokens[tokens.len() - 1].to_string();
+                let modifiers = tokens[..tokens.len() - 1]
+                    .iter()
+                    .map(|item| item.to_string())
+                    .collect::<Vec<_>>();
+                keyboard::shortcut(&modifiers, &main_key)?;
+            }
+
+            on_log("info", format!("GUI Agent 执行 hotkey: {}", key));
+        }
+        GuiAgentAction::Type { content } => {
+            keyboard::text_input(&content)?;
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 type: 内容长度={}{}",
+                    content.chars().count(),
+                    if content.ends_with('\n') { "（末尾含换行提交）" } else { "" }
+                ),
+            );
+        }
+        GuiAgentAction::Scroll { point, direction } => {
+            let abs = relative_to_absolute(point, image_width, image_height);
+            mouse::move_to(abs.0, abs.1)?;
+
+            match direction.as_str() {
+                "up" => mouse::wheel(1)?,
+                "down" => mouse::wheel(-1)?,
+                "right" => {
+                    return Err(CommandFlowError::Validation(
+                        "GUI Agent scroll direction=right 当前实现暂不支持（仅支持 up/down）"
+                            .to_string(),
+                    ));
+                }
+                "left" => {
+                    return Err(CommandFlowError::Validation(
+                        "GUI Agent scroll direction=left 当前实现暂不支持（仅支持 up/down）"
+                            .to_string(),
+                    ));
+                }
+                _ => {
+                    return Err(CommandFlowError::Validation(format!(
+                        "GUI Agent scroll direction 非法: {}",
+                        direction
+                    )));
+                }
+            }
+
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 scroll: 方向={}，相对坐标=({:.2}, {:.2}) -> 绝对坐标=({}, {})",
+                    direction, point.0, point.1, abs.0, abs.1
+                ),
+            );
+        }
+        GuiAgentAction::Wait => {
+            interruptible_sleep(Duration::from_secs(5), should_cancel).await?;
+            let (_rgba, width, height) = screenshot::capture_fullscreen_rgba()?;
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 wait: 已等待 5s，并重新截取屏幕（{}x{}）用于后续判断。",
+                    width, height
+                ),
+            );
+        }
+        GuiAgentAction::Finished { content } => {
+            on_log(
+                "info",
+                format!(
+                    "GUI Agent 执行 finished: {}",
+                    content
+                ),
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn resolve_screenshot_output_path(node: &WorkflowNode) -> CommandResult<Option<String>> {

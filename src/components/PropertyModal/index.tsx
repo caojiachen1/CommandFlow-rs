@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getNodeMeta, type ParamField } from '../../utils/nodeMeta'
-import { listOpenWindows } from '../../utils/execution'
+import { fetchLlmModels, listOpenWindows } from '../../utils/execution'
+import { resolveGuiAgentChatEndpointPreview } from '../../utils/llmEndpoint'
 import type { NodeKind } from '../../types/workflow'
 import SmartInputSelect from '../SmartInputSelect'
 import StyledSelect from '../StyledSelect'
@@ -114,6 +115,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [windowTitles, setWindowTitles] = useState<string[]>([])
+  const [guiModelNames, setGuiModelNames] = useState<string[]>([])
 
   const variableNames = dedupe(
     nodes
@@ -152,6 +154,36 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
       cancelled = true
     }
   }, [open, selectedNode])
+
+  useEffect(() => {
+    if (!selectedNode || !open || selectedNode.data.kind !== 'guiAgent') {
+      setGuiModelNames([])
+      return
+    }
+
+    const baseUrl = String(selectedNode.data.params.baseUrl ?? selectedMeta?.defaultParams.baseUrl ?? '').trim()
+    const apiKey = String(selectedNode.data.params.apiKey ?? selectedMeta?.defaultParams.apiKey ?? '').trim()
+
+    if (!baseUrl) {
+      setGuiModelNames([])
+      return
+    }
+
+    let cancelled = false
+    void fetchLlmModels(baseUrl, apiKey)
+      .then((models) => {
+        if (cancelled) return
+        setGuiModelNames(models)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setGuiModelNames([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, selectedMeta?.defaultParams.apiKey, selectedMeta?.defaultParams.baseUrl, selectedNode])
 
   const getStringSuggestions = (field: ParamField): string[] => {
     if (!selectedNode) return []
@@ -192,6 +224,9 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     if (kind === 'hotkeyTrigger' && field.key === 'hotkey') {
       return COMMON_HOTKEYS
     }
+    if (kind === 'guiAgent' && field.key === 'model') {
+      return guiModelNames
+    }
 
     return []
   }
@@ -218,6 +253,11 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
 
   const shouldShowField = (field: ParamField): boolean => {
     if (!selectedNode) return true
+
+    if (selectedNode.data.kind === 'guiAgent' && field.key === 'systemPrompt') {
+      return false
+    }
+
     if (selectedNode.data.kind === 'windowActivate') {
       const mode = String(selectedNode.data.params.switchMode ?? selectedMeta?.defaultParams.switchMode ?? 'title')
       if (mode === 'title') {
@@ -538,6 +578,11 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
                   <div key={field.key} className="space-y-1.5">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{field.label}</label>
                     {renderField(field)}
+                    {selectedNode.data.kind === 'guiAgent' && field.key === 'baseUrl' ? (
+                      <p className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">
+                        预览：{resolveGuiAgentChatEndpointPreview(String(selectedNode.data.params.baseUrl ?? selectedMeta?.defaultParams.baseUrl ?? '')) || '（请先输入 Base URL）'}
+                      </p>
+                    ) : null}
                     {field.description ? (
                       <p className="text-[11px] text-slate-400 dark:text-slate-500">{field.description}</p>
                     ) : null}

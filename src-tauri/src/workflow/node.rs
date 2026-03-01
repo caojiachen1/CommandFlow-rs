@@ -33,6 +33,7 @@ pub enum NodeKind {
     FileWriteText,
     ShowMessage,
     Delay,
+    GuiAgent,
     Condition,
     Loop,
     WhileLoop,

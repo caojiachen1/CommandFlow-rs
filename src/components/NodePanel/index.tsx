@@ -47,6 +47,7 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
       { label: '写入文本文件', kind: 'fileWriteText', color: 'bg-pink-600' },
       { label: '弹窗提示', kind: 'showMessage', color: 'bg-orange-500' },
       { label: '等待延时', kind: 'delay', color: 'bg-purple-500' },
+      { label: 'GUI Agent', kind: 'guiAgent', color: 'bg-violet-600' },
     ],
   },
   {

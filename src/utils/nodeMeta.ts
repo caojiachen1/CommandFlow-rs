@@ -181,7 +181,7 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   screenshot: {
     label: '屏幕截图',
-    description: '执行屏幕截图，可选择是否保存到本地文件夹。',
+    description: '执行屏幕截图，可选择是否保存到本地文件夹，并输出截图(base64)。',
     defaultParams: { shouldSave: true, saveDir: '', fullscreen: false, width: 320, height: 240 },
     fields: [
       { key: 'shouldSave', label: '是否保存', type: 'boolean' },
@@ -189,6 +189,82 @@ const metas: Record<NodeKind, NodeMeta> = {
       { key: 'fullscreen', label: '是否全屏', type: 'boolean' },
       { key: 'width', label: '宽度', type: 'number', min: 1, step: 1 },
       { key: 'height', label: '高度', type: 'number', min: 1, step: 1 },
+    ],
+  },
+  guiAgent: {
+    label: 'GUI Agent',
+    description: '使用多模态 LLM 解析截图并自动执行 GUI 指令。',
+    defaultParams: {
+      imageInput: '',
+      baseUrl: 'https://api.openai.com/v1/chat/completions',
+      apiKey: '',
+      model: 'gpt-4.1-mini',
+      stripThink: true,
+      instruction: '请根据截图执行下一步操作。',
+      systemPrompt: `You are a GUI agent. You are given a task and your action history, with screenshots. You need to perform the next action to complete the task.
+
+## Output Format
+
+\`\`\`
+Action: ...
+\`\`\`
+
+## Action Space
+click(point='<point>x1 y1</point>')
+left_double(point='<point>x1 y1</point>')
+right_single(point='<point>x1 y1</point>')
+drag(start_point='<point>x1 y1</point>', end_point='<point>x2 y2</point>')
+hotkey(key='ctrl c') # Split keys with a space and use lowercase. Also, do not use more than 3 keys in one hotkey action.
+type(content='xxx') # Use escape characters \\', \\\" and \\n in content part to ensure we can parse the content in normal python string format. If you want to submit your input, use \\n at the end of content.
+scroll(point='<point>x1 y1</point>', direction='down or up or right or left') # Show more information on the \`direction\` side.
+wait() #Sleep for 5s and take a screenshot to check for any changes.
+finished(content='xxx') # Use escape characters \\', \\" and \\n in content part to ensure we can parse the content in normal python string format.
+
+## User Instruction
+{instruction}`,
+    },
+    fields: [
+      {
+        key: 'baseUrl',
+        label: 'Base URL',
+        type: 'string',
+        placeholder: 'https://api.openai.com/v1/chat/completions',
+      },
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        type: 'string',
+        placeholder: 'sk-***',
+      },
+      {
+        key: 'model',
+        label: '模型名称',
+        type: 'string',
+        placeholder: 'gpt-4.1-mini',
+      },
+      {
+        key: 'stripThink',
+        label: '剥离思考链(<think>)',
+        type: 'boolean',
+      },
+      {
+        key: 'imageInput',
+        label: '输入图片(base64)',
+        type: 'string',
+        placeholder: '可连接“屏幕截图.截图”输出，或粘贴 base64',
+      },
+      {
+        key: 'instruction',
+        label: '识别指令',
+        type: 'string',
+        placeholder: '例如：点击登录按钮',
+      },
+      {
+        key: 'systemPrompt',
+        label: 'System Prompt',
+        type: 'text',
+        placeholder: '支持 {instruction} 占位符，将自动替换为识别指令',
+      },
     ],
   },
   windowActivate: {

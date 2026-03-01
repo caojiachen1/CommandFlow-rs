@@ -30,3 +30,10 @@ export const setBackgroundMode = async (enabled: boolean): Promise<string> => {
   }
   return invoke<string>('set_background_mode', { enabled })
 }
+
+export const fetchLlmModels = async (baseUrl: string, apiKey: string): Promise<string[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+  return invoke<string[]>('fetch_llm_models', { baseUrl, apiKey })
+}

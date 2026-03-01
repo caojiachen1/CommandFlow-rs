@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeMeta, type ParamField } from '../utils/nodeMeta'
-import { listOpenWindows } from '../utils/execution'
+import { fetchLlmModels, listOpenWindows } from '../utils/execution'
+import { isLikelyValidBaseUrl, resolveGuiAgentChatEndpointPreview } from '../utils/llmEndpoint'
 import {
   createParamInputHandleId,
   getNodePortSpec,
@@ -43,6 +44,7 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if (kind === 'screenshot' && fieldKey === 'saveDir') {
     return true
   }
+
   return kind === 'fileDelete' && fieldKey === 'path'
 }
 
@@ -180,6 +182,10 @@ const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, param
     if (field.key === 'inputVar') return inputMode === 'var'
   }
 
+  if (kind === 'guiAgent' && field.key === 'systemPrompt') {
+    return false
+  }
+
   return field.type !== 'boolean'
 }
 
@@ -201,6 +207,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [openSuggestFieldKey, setOpenSuggestFieldKey] = useState<string | null>(null)
   const [activeSuggestIndex, setActiveSuggestIndex] = useState(0)
   const [windowTitles, setWindowTitles] = useState<string[]>([])
+  const [guiModelNames, setGuiModelNames] = useState<string[]>([])
   const [pathEditor, setPathEditor] = useState<{
     fieldKey: string
     value: string
@@ -264,6 +271,35 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     }
   }, [data.kind])
 
+  useEffect(() => {
+    if (data.kind !== 'guiAgent') {
+      setGuiModelNames([])
+      return
+    }
+
+    const baseUrl = String(params.baseUrl ?? meta.defaultParams.baseUrl ?? '').trim()
+    const apiKey = String(params.apiKey ?? meta.defaultParams.apiKey ?? '').trim()
+    if (!baseUrl) {
+      setGuiModelNames([])
+      return
+    }
+
+    let cancelled = false
+    void fetchLlmModels(baseUrl, apiKey)
+      .then((models) => {
+        if (cancelled) return
+        setGuiModelNames(models)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setGuiModelNames([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [data.kind, meta.defaultParams.apiKey, meta.defaultParams.baseUrl, params.apiKey, params.baseUrl])
+
   const getStringSuggestions = (field: ParamField): string[] => {
     const kind = data.kind
 
@@ -282,6 +318,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       variableReferenceField
     ) {
       return variableNames
+    }
+
+    if (kind === 'guiAgent' && field.key === 'model') {
+      return guiModelNames
     }
 
     return []
@@ -493,6 +533,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const isNumber = field.type === 'number'
     const isSelect = field.type === 'select'
     const isJson = field.type === 'json'
+    const isSensitiveField = data.kind === 'guiAgent' && field.key === 'apiKey'
     const canUseArrows = isNumber
     const isPathField = isFilePathField(data.kind, field.key)
     const isScreenshotSizeFieldDisabled =
@@ -598,10 +639,11 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var'))
 
     const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, field.key)
-    const supportsInlineSuggestions = supportsVariableSuggestions || supportsWindowTitleSuggestions
+    const supportsGuiModelSuggestions = data.kind === 'guiAgent' && field.key === 'model'
+    const supportsInlineSuggestions = supportsVariableSuggestions || supportsWindowTitleSuggestions || supportsGuiModelSuggestions
 
-    const canShowSuggestions = !connectedToInput && !isNumber && !isSelect && !isJson && !isPathField && supportsInlineSuggestions
-    const usesFloatingTextEditor = !connectedToInput && !isNumber && !isSelect && !isPathField && !supportsInlineSuggestions
+    const canShowSuggestions = !connectedToInput && !isNumber && !isSelect && !isJson && !isPathField && !isSensitiveField && supportsInlineSuggestions
+    const usesFloatingTextEditor = !connectedToInput && !isNumber && !isSelect && !isPathField && !isSensitiveField && !supportsInlineSuggestions
     const filteredSuggestions = canShowSuggestions
       ? (supportsWindowTitleSuggestions
         ? suggestions
@@ -640,7 +682,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             </button>
           ) : null}
           <input
-            type="text"
+            type={isSensitiveField ? 'password' : 'text'}
             value={displayValue}
             readOnly={connectedToInput || isPathField || usesFloatingTextEditor}
             disabled={isInputDisabled}
@@ -866,7 +908,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 </button>
               ))
             ) : (
-              <div className="px-2 py-1.5 text-[11px] text-slate-400">暂无已定义变量</div>
+              <div className="px-2 py-1.5 text-[11px] text-slate-400">暂无可选项</div>
             )}
           </div>
         ) : null}
@@ -939,107 +981,128 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
         {textEditor?.fieldKey === field.key ? (
           createPortal(
-            <div
-              ref={textEditorPanelRef}
-              className="fixed z-[305] w-[480px] max-w-[88vw] rounded-xl border border-white/20 bg-[#1f2127] p-2 shadow-2xl"
-              style={{
-                left: textEditor.anchorLeft + textEditor.anchorWidth / 2,
-                top: textEditor.anchorTop - 8,
-                transform: 'translate(-50%, -100%)',
-              }}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="mb-1 px-1 text-[11px] font-semibold text-slate-200">{field.label}</div>
-              <textarea
-                autoFocus
-                value={textEditor.value}
-                onChange={(event) => {
-                  setTextEditor((prev) => (prev ? { ...prev, value: event.target.value } : prev))
-                  if (textEditorError) setTextEditorError(null)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    setTextEditor(null)
-                    setTextEditorError(null)
-                    return
-                  }
+            (() => {
+              const isBaseUrlEditor = data.kind === 'guiAgent' && field.key === 'baseUrl'
+              const endpointPreview = isBaseUrlEditor
+                ? resolveGuiAgentChatEndpointPreview(textEditor?.value ?? '')
+                : ''
+              const hasBaseUrlInput = (textEditor?.value ?? '').trim().length > 0
+              const isBaseUrlValid = isBaseUrlEditor
+                ? isLikelyValidBaseUrl(textEditor?.value ?? '')
+                : true
 
-                  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                    event.preventDefault()
-                    if (!textEditor) return
-
-                    if (textEditor.isJson) {
-                      try {
-                        const parsed = JSON.parse(textEditor.value)
-                        setDrafts((state) => ({ ...state, [field.key]: textEditor.value }))
-                        updateParam(field.key, parsed)
-                        setErrors((state) => {
-                          const nextState = { ...state }
-                          delete nextState[field.key]
-                          return nextState
-                        })
+              return (
+                <div
+                  ref={textEditorPanelRef}
+                  className="fixed z-[305] w-[480px] max-w-[88vw] rounded-xl border border-white/20 bg-[#1f2127] p-2 shadow-2xl"
+                  style={{
+                    left: textEditor.anchorLeft + textEditor.anchorWidth / 2,
+                    top: textEditor.anchorTop - 8,
+                    transform: 'translate(-50%, -100%)',
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="mb-1 px-1 text-[11px] font-semibold text-slate-200">{field.label}</div>
+                  <textarea
+                    autoFocus
+                    value={textEditor.value}
+                    onChange={(event) => {
+                      setTextEditor((prev) => (prev ? { ...prev, value: event.target.value } : prev))
+                      if (textEditorError) setTextEditorError(null)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
                         setTextEditor(null)
                         setTextEditorError(null)
-                      } catch {
-                        setTextEditorError('JSON 格式不正确')
+                        return
                       }
-                      return
-                    }
 
-                    commitStringValue(field, textEditor.value)
-                    setTextEditor(null)
-                    setTextEditorError(null)
-                  }
-                }}
-                className="nodrag h-32 w-full resize-y rounded-lg border border-white/20 bg-[#23262d] px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
-              />
-              {textEditorError ? <div className="mt-1 px-1 text-[10px] text-rose-300">{textEditorError}</div> : null}
-              <div className="mt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTextEditor(null)
-                    setTextEditorError(null)
-                  }}
-                  className="nodrag h-8 min-w-[66px] rounded-full border border-white/20 px-3 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!textEditor) return
+                      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                        event.preventDefault()
+                        if (!textEditor) return
 
-                    if (textEditor.isJson) {
-                      try {
-                        const parsed = JSON.parse(textEditor.value)
-                        setDrafts((state) => ({ ...state, [field.key]: textEditor.value }))
-                        updateParam(field.key, parsed)
-                        setErrors((state) => {
-                          const nextState = { ...state }
-                          delete nextState[field.key]
-                          return nextState
-                        })
+                        if (textEditor.isJson) {
+                          try {
+                            const parsed = JSON.parse(textEditor.value)
+                            setDrafts((state) => ({ ...state, [field.key]: textEditor.value }))
+                            updateParam(field.key, parsed)
+                            setErrors((state) => {
+                              const nextState = { ...state }
+                              delete nextState[field.key]
+                              return nextState
+                            })
+                            setTextEditor(null)
+                            setTextEditorError(null)
+                          } catch {
+                            setTextEditorError('JSON 格式不正确')
+                          }
+                          return
+                        }
+
+                        commitStringValue(field, textEditor.value)
                         setTextEditor(null)
                         setTextEditorError(null)
-                      } catch {
-                        setTextEditorError('JSON 格式不正确')
                       }
-                      return
-                    }
+                    }}
+                    className="nodrag h-32 w-full resize-y rounded-lg border border-white/20 bg-[#23262d] px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
+                  />
 
-                    commitStringValue(field, textEditor.value)
-                    setTextEditor(null)
-                    setTextEditorError(null)
-                  }}
-                  className="nodrag h-8 min-w-[66px] rounded-full bg-white/70 px-3 text-xs font-bold text-slate-800 transition-colors hover:bg-white"
-                >
-                  确定
-                </button>
-              </div>
-              <div className="mt-1 px-1 text-[10px] text-slate-400">提示：按 Ctrl+Enter 可快速确认</div>
-            </div>,
+                  {isBaseUrlEditor ? (
+                    <div className={`mt-1 px-1 text-[10px] ${hasBaseUrlInput && !isBaseUrlValid ? 'text-rose-300' : 'text-cyan-200/90'}`}>
+                      预览：{endpointPreview || '（请先输入 Base URL）'}
+                      {hasBaseUrlInput && !isBaseUrlValid ? '（URL 可能无效，请使用 http/https 完整地址）' : ''}
+                    </div>
+                  ) : null}
+
+                  {textEditorError ? <div className="mt-1 px-1 text-[10px] text-rose-300">{textEditorError}</div> : null}
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTextEditor(null)
+                        setTextEditorError(null)
+                      }}
+                      className="nodrag h-8 min-w-[66px] rounded-full border border-white/20 px-3 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!textEditor) return
+
+                        if (textEditor.isJson) {
+                          try {
+                            const parsed = JSON.parse(textEditor.value)
+                            setDrafts((state) => ({ ...state, [field.key]: textEditor.value }))
+                            updateParam(field.key, parsed)
+                            setErrors((state) => {
+                              const nextState = { ...state }
+                              delete nextState[field.key]
+                              return nextState
+                            })
+                            setTextEditor(null)
+                            setTextEditorError(null)
+                          } catch {
+                            setTextEditorError('JSON 格式不正确')
+                          }
+                          return
+                        }
+
+                        commitStringValue(field, textEditor.value)
+                        setTextEditor(null)
+                        setTextEditorError(null)
+                      }}
+                      className="nodrag h-8 min-w-[66px] rounded-full bg-white/70 px-3 text-xs font-bold text-slate-800 transition-colors hover:bg-white"
+                    >
+                      确定
+                    </button>
+                  </div>
+                  <div className="mt-1 px-1 text-[10px] text-slate-400">提示：按 Ctrl+Enter 可快速确认</div>
+                </div>
+              )
+            })(),
             document.body,
           )
         ) : null}
