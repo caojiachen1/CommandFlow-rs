@@ -672,6 +672,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   shiftSelectValue(field, -1)
                 }
               }}
+              onDoubleClick={(e) => e.stopPropagation()}
               className={`nodrag mr-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
                 isInputDisabled
                   ? 'text-slate-500 cursor-not-allowed'
@@ -843,6 +844,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }
             }}
+            onDoubleClick={(e) => e.stopPropagation()}
             className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold ${isInputDisabled ? 'text-slate-400' : 'text-slate-100'} outline-none ${
               isPathField || usesFloatingTextEditor ? 'cursor-default select-none caret-transparent' : ''
             }`}
@@ -861,6 +863,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   shiftSelectValue(field, 1)
                 }
               }}
+              onDoubleClick={(e) => e.stopPropagation()}
               className={`nodrag ml-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
                 isInputDisabled
                   ? 'text-slate-500 cursor-not-allowed'
