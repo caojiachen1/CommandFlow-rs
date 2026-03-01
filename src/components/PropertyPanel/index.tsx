@@ -76,10 +76,13 @@ const isVariableOperandField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'condition' || kind === 'whileLoop') && (fieldKey === 'left' || fieldKey === 'right')
 
 const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath') && fieldKey === 'name'
+  (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath' || kind === 'varGet') && fieldKey === 'name'
 
 const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') && fieldKey === 'inputVar'
+
+const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'clipboardRead' || kind === 'fileReadText') && fieldKey === 'outputVar'
 
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if ((kind === 'fileCopy' || kind === 'fileMove') && (fieldKey === 'sourcePath' || fieldKey === 'targetPath')) {
@@ -180,7 +183,13 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     if (kind === 'varMath' && field.key === 'name') {
       return variableNames
     }
+    if (kind === 'varGet' && field.key === 'name') {
+      return variableNames
+    }
     if (isInputVariableField(kind, field.key)) {
+      return variableNames
+    }
+    if (isOutputVariableField(kind, field.key)) {
       return variableNames
     }
     if (isVariableOperandField(kind, field.key)) {
@@ -211,7 +220,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       [key]: value,
     }
 
-    if (selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet') {
+    if (selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet' || selectedNode.data.kind === 'constValue') {
       const valueType = String(nextParams.valueType ?? 'number')
       if (valueType === 'string') {
         nextParams.value = String(nextParams.valueString ?? '')
@@ -304,7 +313,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       return !unaryOperations.has(operation)
     }
 
-    if ((selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet') && field.key.startsWith('value')) {
+    if ((selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet' || selectedNode.data.kind === 'constValue') && field.key.startsWith('value')) {
       const valueType = String(selectedNode.data.params.valueType ?? 'number')
       if (field.key === 'valueType') return true
       if (field.key === 'valueString') return valueType === 'string'
@@ -493,7 +502,12 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
             ? selectedNode.data.params.leftType === 'var'
             : selectedNode.data.params.rightType === 'var')
 
-        if (isVariableNameField(selectedNode.data.kind, field.key) || isInputVariableField(selectedNode.data.kind, field.key) || variableReferenceField) {
+        if (
+          isVariableNameField(selectedNode.data.kind, field.key) ||
+          isInputVariableField(selectedNode.data.kind, field.key) ||
+          isOutputVariableField(selectedNode.data.kind, field.key) ||
+          variableReferenceField
+        ) {
           return (
             <SmartInputSelect
               value={String(currentValue ?? '')}

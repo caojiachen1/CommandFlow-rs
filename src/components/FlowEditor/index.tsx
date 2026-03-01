@@ -18,7 +18,10 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import type { NodeKind } from '../../types/workflow'
 import { getNodeMeta } from '../../utils/nodeMeta'
 import {
+  createParamInputHandleId,
+  getParamFieldKeyFromHandleId,
   getNodePortSpec,
+  isParamInputHandleId,
   isParamOutputHandleId,
   normalizeSourceHandleId,
   normalizeTargetHandleId,
@@ -81,30 +84,125 @@ interface PendingConnectStart {
 }
 
 interface NodeQuickInsertState {
-  sourceNodeId: string
-  sourceHandleId: string | null
+  pendingNodeId: string
+  pendingHandleType: 'source' | 'target'
+  pendingHandleId: string | null
   flowX: number
   flowY: number
   panelX: number
   panelY: number
 }
 
-type QuickInsertSourceType = 'control' | 'data'
+type HandleValueType = 'control' | 'string' | 'number' | 'json' | 'any'
 
 const CONTROL_FLOW_SOURCE_HANDLES = new Set(['next', 'true', 'false', 'loop', 'done'])
 
-const resolveQuickInsertSourceType = (sourceHandleId: string | null): QuickInsertSourceType =>
-  sourceHandleId && CONTROL_FLOW_SOURCE_HANDLES.has(sourceHandleId) ? 'control' : 'data'
+const toValueTypeFromFieldType = (fieldType: string): HandleValueType => {
+  if (fieldType === 'number') return 'number'
+  if (fieldType === 'json') return 'json'
+  return 'string'
+}
 
-const resolveQuickInsertTargetHandle = (kind: NodeKind, sourceType: QuickInsertSourceType): string | null => {
+const isTypeCompatible = (sourceType: HandleValueType, targetType: HandleValueType): boolean => {
+  if (sourceType === 'control' || targetType === 'control') {
+    return sourceType === targetType
+  }
+  if (sourceType === 'any' || targetType === 'any') {
+    return true
+  }
+  return sourceType === targetType
+}
+
+const resolveSourceHandleValueType = (
+  kind: NodeKind,
+  params: Record<string, unknown>,
+  sourceHandleId: string | null,
+): HandleValueType | null => {
+  const normalizedSource = normalizeSourceHandleId(kind, sourceHandleId)
+  if (!normalizedSource) return null
+
+  if (CONTROL_FLOW_SOURCE_HANDLES.has(normalizedSource)) {
+    return 'control'
+  }
+
+  if (kind === 'varGet' && normalizedSource === 'value') {
+    return 'any'
+  }
+
+  if (kind === 'constValue' && normalizedSource === 'value') {
+    const valueType = String(params.valueType ?? 'number')
+    if (valueType === 'number') return 'number'
+    if (valueType === 'json') return 'json'
+    if (valueType === 'boolean') return 'any'
+    return 'string'
+  }
+
+  return 'any'
+}
+
+const resolveTargetHandleValueType = (kind: NodeKind, targetHandleId: string | null): HandleValueType | null => {
+  const normalizedTarget = normalizeTargetHandleId(kind, targetHandleId)
+  if (!normalizedTarget) return null
+
+  if (normalizedTarget === 'in') {
+    return 'control'
+  }
+
+  if (!isParamInputHandleId(normalizedTarget)) {
+    return null
+  }
+
+  const fieldKey = getParamFieldKeyFromHandleId(normalizedTarget)
+  if (!fieldKey) return null
+  const field = getNodeMeta(kind).fields.find((item) => item.key === fieldKey)
+  if (!field) return null
+  return toValueTypeFromFieldType(field.type)
+}
+
+const resolveQuickInsertTargetHandle = (kind: NodeKind, sourceValueType: HandleValueType): string | null => {
   const spec = getNodePortSpec(kind)
 
-  if (sourceType === 'control') {
+  if (sourceValueType === 'control') {
     return spec.inputs.some((input) => input.id === 'in') ? 'in' : null
   }
 
-  const firstParamInput = spec.inputs.find((input) => input.id.startsWith('param:'))
-  return firstParamInput?.id ?? null
+  const meta = getNodeMeta(kind)
+  for (const field of meta.fields) {
+    const handleId = createParamInputHandleId(field.key)
+    if (!spec.inputs.some((input) => input.id === handleId)) {
+      continue
+    }
+    const targetType = toValueTypeFromFieldType(field.type)
+    if (isTypeCompatible(sourceValueType, targetType)) {
+      return handleId
+    }
+  }
+
+  return null
+}
+
+const resolveQuickInsertSourceHandle = (kind: NodeKind, targetValueType: HandleValueType): string | null => {
+  const spec = getNodePortSpec(kind)
+
+  if (targetValueType === 'control') {
+    const controlOutput = spec.outputs.find((output) => CONTROL_FLOW_SOURCE_HANDLES.has(output.id))
+    return controlOutput?.id ?? null
+  }
+
+  const dataOutputs = spec.outputs.filter((output) => !CONTROL_FLOW_SOURCE_HANDLES.has(output.id))
+  if (dataOutputs.length === 0) {
+    return null
+  }
+
+  if (kind === 'varGet') {
+    return dataOutputs.some((output) => output.id === 'value') ? 'value' : dataOutputs[0].id
+  }
+
+  if (kind === 'constValue') {
+    return dataOutputs.some((output) => output.id === 'value') ? 'value' : dataOutputs[0].id
+  }
+
+  return dataOutputs[0].id
 }
 
 const getClientPoint = (event: MouseEvent | TouchEvent) => {
@@ -200,15 +298,33 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     if (!quickInsert) return []
 
     const keyword = quickInsertKeyword.trim().toLowerCase()
-    const sourceNode = nodes.find((node) => node.id === quickInsert.sourceNodeId)
-    const normalizedSourceHandle = sourceNode
-      ? normalizeSourceHandleId(sourceNode.data.kind, quickInsert.sourceHandleId)
-      : null
-    const sourceType = resolveQuickInsertSourceType(normalizedSourceHandle)
+    const pendingNode = nodes.find((node) => node.id === quickInsert.pendingNodeId)
+    if (!pendingNode) return []
 
-    const typeMatchedItems = quickInsertItems.filter((item) =>
-      Boolean(resolveQuickInsertTargetHandle(item.kind, sourceType)),
-    )
+    const typeMatchedItems = quickInsertItems.filter((item) => {
+      if (quickInsert.pendingHandleType === 'source') {
+        const sourceValueType = resolveSourceHandleValueType(
+          pendingNode.data.kind,
+          pendingNode.data.params,
+          quickInsert.pendingHandleId,
+        )
+        if (!sourceValueType) return false
+        return Boolean(resolveQuickInsertTargetHandle(item.kind, sourceValueType))
+      }
+
+      const targetValueType = resolveTargetHandleValueType(pendingNode.data.kind, quickInsert.pendingHandleId)
+      if (!targetValueType) return false
+      const sourceHandle = resolveQuickInsertSourceHandle(item.kind, targetValueType)
+      if (!sourceHandle) return false
+
+      if (sourceHandle === 'value' && item.kind === 'constValue') {
+        return true
+      }
+
+      const meta = getNodeMeta(item.kind)
+      const sourceType = resolveSourceHandleValueType(item.kind, meta.defaultParams, sourceHandle)
+      return Boolean(sourceType && isTypeCompatible(sourceType, targetValueType))
+    })
 
     if (!keyword) return typeMatchedItems
     return typeMatchedItems.filter((item) => item.searchText.includes(keyword))
@@ -354,7 +470,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       const pending = pendingConnectStartRef.current
       pendingConnectStartRef.current = null
 
-      if (!pending || pending.handleType !== 'source' || connectionState.isValid) {
+      if (!pending || connectionState.isValid) {
         return
       }
 
@@ -372,8 +488,9 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
 
       window.setTimeout(() => {
         setQuickInsert({
-          sourceNodeId: pending.nodeId,
-          sourceHandleId: pending.handleId,
+          pendingNodeId: pending.nodeId,
+          pendingHandleType: pending.handleType,
+          pendingHandleId: pending.handleId,
           flowX: flowPosition.x,
           flowY: flowPosition.y,
           panelX,
@@ -390,22 +507,50 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       if (!quickInsert) return
 
       const createdNodeId = addNode(kind, { x: quickInsert.flowX, y: quickInsert.flowY })
-      const sourceNode = nodes.find((node) => node.id === quickInsert.sourceNodeId)
-      const sourceHandle = sourceNode
-        ? normalizeSourceHandleId(sourceNode.data.kind, quickInsert.sourceHandleId)
-        : null
+      const pendingNode = nodes.find((node) => node.id === quickInsert.pendingNodeId)
 
-      const sourceType = resolveQuickInsertSourceType(sourceHandle)
-      const quickTargetHandle = resolveQuickInsertTargetHandle(kind, sourceType)
-      const targetHandle = normalizeTargetHandleId(kind, quickTargetHandle)
+      if (!pendingNode) {
+        closeQuickInsert()
+        return
+      }
 
-      if (sourceNode && sourceHandle && targetHandle) {
-        connectNodes({
-          source: sourceNode.id,
-          sourceHandle,
-          target: createdNodeId,
-          targetHandle,
-        })
+      if (quickInsert.pendingHandleType === 'source') {
+        const sourceHandle = normalizeSourceHandleId(pendingNode.data.kind, quickInsert.pendingHandleId)
+        const sourceValueType = resolveSourceHandleValueType(
+          pendingNode.data.kind,
+          pendingNode.data.params,
+          quickInsert.pendingHandleId,
+        )
+        const quickTargetHandle = sourceValueType ? resolveQuickInsertTargetHandle(kind, sourceValueType) : null
+        const targetHandle = normalizeTargetHandleId(kind, quickTargetHandle)
+
+        if (sourceHandle && targetHandle) {
+          connectNodes({
+            source: pendingNode.id,
+            sourceHandle,
+            target: createdNodeId,
+            targetHandle,
+          })
+        }
+      } else {
+        const targetHandle = normalizeTargetHandleId(pendingNode.data.kind, quickInsert.pendingHandleId)
+        const targetValueType = resolveTargetHandleValueType(pendingNode.data.kind, quickInsert.pendingHandleId)
+        const quickSourceHandle = targetValueType ? resolveQuickInsertSourceHandle(kind, targetValueType) : null
+
+        const sourceMeta = getNodeMeta(kind)
+        const sourceType = quickSourceHandle
+          ? resolveSourceHandleValueType(kind, sourceMeta.defaultParams, quickSourceHandle)
+          : null
+        const sourceHandle = normalizeSourceHandleId(kind, quickSourceHandle)
+
+        if (sourceHandle && targetHandle && sourceType && targetValueType && isTypeCompatible(sourceType, targetValueType)) {
+          connectNodes({
+            source: createdNodeId,
+            sourceHandle,
+            target: pendingNode.id,
+            targetHandle,
+          })
+        }
       }
 
       closeQuickInsert()
@@ -434,7 +579,13 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
 
       const normalizedSource = normalizeSourceHandleId(sourceNode.data.kind, sourceHandle)
       const normalizedTarget = normalizeTargetHandleId(targetNode.data.kind, targetHandle)
-      return Boolean(normalizedSource && normalizedTarget)
+      if (!normalizedSource || !normalizedTarget) return false
+
+      const sourceType = resolveSourceHandleValueType(sourceNode.data.kind, sourceNode.data.params, normalizedSource)
+      const targetType = resolveTargetHandleValueType(targetNode.data.kind, normalizedTarget)
+      if (!sourceType || !targetType) return false
+
+      return isTypeCompatible(sourceType, targetType)
     },
     [nodes],
   )

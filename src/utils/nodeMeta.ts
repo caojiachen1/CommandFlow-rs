@@ -787,14 +787,38 @@ const metas: Record<NodeKind, NodeMeta> = {
   constValue: {
     label: '常量输出',
     description: '纯输出节点：输出固定常量值。',
-    defaultParams: { value: 1 },
+    defaultParams: {
+      valueType: 'number',
+      valueString: 'hello',
+      valueNumber: 1,
+      valueBoolean: 'false',
+      valueJson: 'null',
+      value: 1,
+    },
     fields: [
       {
-        key: 'value',
-        label: '常量值(JSON)',
-        type: 'json',
-        description: '可填写字符串/数字/布尔/对象，例如 "hello"、123、true。',
+        key: 'valueType',
+        label: '值类型',
+        type: 'select',
+        options: [
+          { label: '字符串', value: 'string' },
+          { label: '数字', value: 'number' },
+          { label: '布尔', value: 'boolean' },
+          { label: 'JSON', value: 'json' },
+        ],
       },
+      { key: 'valueString', label: '常量值(字符串)', type: 'string', placeholder: 'hello' },
+      { key: 'valueNumber', label: '常量值(数字)', type: 'number', step: 1 },
+      {
+        key: 'valueBoolean',
+        label: '常量值(布尔)',
+        type: 'select',
+        options: [
+          { label: 'true', value: 'true' },
+          { label: 'false', value: 'false' },
+        ],
+      },
+      { key: 'valueJson', label: '常量值(JSON)', type: 'json', description: '对象/数组等复杂值。' },
     ],
   },
 }

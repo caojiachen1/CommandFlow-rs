@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react'
 import { createPortal } from 'react-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeMeta, type ParamField } from '../utils/nodeMeta'
 import {
@@ -58,6 +58,20 @@ const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
 ]
 
+const dedupe = (values: string[]) => Array.from(new Set(values.filter((value) => value.trim().length > 0)))
+
+const isVariableOperandField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'condition' || kind === 'whileLoop') && (fieldKey === 'left' || fieldKey === 'right')
+
+const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath' || kind === 'varGet') && fieldKey === 'name'
+
+const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') && fieldKey === 'inputVar'
+
+const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'clipboardRead' || kind === 'fileReadText') && fieldKey === 'outputVar'
+
 const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, params: Record<string, unknown>) => {
   if (kind === 'windowActivate') {
     const mode = String(params.switchMode ?? 'title')
@@ -101,7 +115,7 @@ const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, param
     return !unaryOperations.has(operation)
   }
 
-  if ((kind === 'varDefine' || kind === 'varSet') && field.key.startsWith('value')) {
+  if ((kind === 'varDefine' || kind === 'varSet' || kind === 'constValue') && field.key.startsWith('value')) {
     const valueType = String(params.valueType ?? 'number')
     if (field.key === 'valueType') return true
     if (field.key === 'valueString') return valueType === 'string'
@@ -169,6 +183,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const isSelected = selected
   const portSpec = getNodePortSpec(data.kind)
   const updateNodeParams = useWorkflowStore((state) => state.updateNodeParams)
+  const nodes = useWorkflowStore((state) => state.nodes)
   const edges = useWorkflowStore((state) => state.edges)
   const nodePosition = useWorkflowStore((state) =>
     state.nodes.find((node) => node.id === id)?.position,
@@ -179,6 +194,8 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [openSelectFieldKey, setOpenSelectFieldKey] = useState<string | null>(null)
+  const [openSuggestFieldKey, setOpenSuggestFieldKey] = useState<string | null>(null)
+  const [activeSuggestIndex, setActiveSuggestIndex] = useState(0)
   const [pathEditor, setPathEditor] = useState<{
     fieldKey: string
     value: string
@@ -188,13 +205,41 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   } | null>(null)
   const pathEditorPanelRef = useRef<HTMLDivElement | null>(null)
 
+  const variableNames = useMemo(
+    () =>
+      dedupe(
+        nodes
+          .filter((node) => node.data.kind === 'varDefine')
+          .map((node) => (typeof node.data.params.name === 'string' ? node.data.params.name.trim() : '')),
+      ),
+    [nodes],
+  )
+
+  const getStringSuggestions = (field: ParamField): string[] => {
+    const kind = data.kind
+    const variableReferenceField =
+      isVariableOperandField(kind, field.key) &&
+      (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var')
+
+    if (
+      isVariableNameField(kind, field.key) ||
+      isInputVariableField(kind, field.key) ||
+      isOutputVariableField(kind, field.key) ||
+      variableReferenceField
+    ) {
+      return variableNames
+    }
+
+    return []
+  }
+
   const updateParam = (key: string, value: unknown) => {
     const nextParams: Record<string, unknown> = {
       ...params,
       [key]: value,
     }
 
-    if (data.kind === 'varDefine' || data.kind === 'varSet') {
+    if (data.kind === 'varDefine' || data.kind === 'varSet' || data.kind === 'constValue') {
       const valueType = String(nextParams.valueType ?? 'number')
       if (valueType === 'string') {
         nextParams.value = String(nextParams.valueString ?? '')
@@ -291,7 +336,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   }
 
   useEffect(() => {
-    if (!pathEditor && !openSelectFieldKey) return
+    if (!pathEditor && !openSelectFieldKey && !openSuggestFieldKey) return
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement
@@ -304,6 +349,13 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         const inSelectRoot = target.closest('[data-node-select-root="true"]')
         if (!inSelectRoot) {
           setOpenSelectFieldKey(null)
+        }
+      }
+
+      if (openSuggestFieldKey) {
+        const inSuggestRoot = target.closest('[data-node-suggest-root="true"]')
+        if (!inSuggestRoot) {
+          setOpenSuggestFieldKey(null)
         }
       }
     }
@@ -321,11 +373,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       document.removeEventListener('pointerdown', handlePointerDown, true)
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [pathEditor, openSelectFieldKey])
+  }, [pathEditor, openSelectFieldKey, openSuggestFieldKey])
 
   useEffect(() => {
-    if (pathEditor) setPathEditor(null)
-    if (openSelectFieldKey) setOpenSelectFieldKey(null)
+    setPathEditor(null)
+    setOpenSelectFieldKey(null)
+    setOpenSuggestFieldKey(null)
   }, [nodePosition?.x, nodePosition?.y])
 
   const commitStringValue = (field: ParamField, value: string) => {
@@ -358,7 +411,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               if (connectedToInput) return
               setOpenSelectFieldKey((prev) => (prev === field.key ? null : field.key))
             }}
-            className="flex w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
+            className="nodrag flex w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
           >
             <span className="truncate text-slate-100">{selectedOption?.label ?? '请选择'}</span>
             <span className="ml-auto text-slate-300">▾</span>
@@ -388,7 +441,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                     })
                     setOpenSelectFieldKey(null)
                   }}
-                  className={`block w-full rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors ${
+                  className={`nodrag block w-full rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors ${
                     option.value === String(currentValue ?? '')
                       ? 'bg-cyan-500 text-white'
                       : 'text-slate-200 hover:bg-white/10'
@@ -421,8 +474,21 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       return String(currentValue ?? '')
     })()
 
+    const suggestions = getStringSuggestions(field)
+    const supportsVariableSuggestions =
+      isVariableNameField(data.kind, field.key) ||
+      isInputVariableField(data.kind, field.key) ||
+      isOutputVariableField(data.kind, field.key) ||
+      (isVariableOperandField(data.kind, field.key) &&
+        (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var'))
+
+    const canShowSuggestions = !connectedToInput && !isNumber && !isSelect && !isJson && !isPathField && supportsVariableSuggestions
+    const filteredSuggestions = canShowSuggestions
+      ? suggestions.filter((option) => option.toLowerCase().includes(displayValue.trim().toLowerCase()))
+      : []
+
     return (
-      <div className="relative">
+      <div className="relative" data-node-suggest-root="true">
         <div className={`flex items-center rounded-full border bg-black/20 px-2 py-1 text-[11px] shadow-inner dark:bg-black/35 ${errors[field.key] ? 'border-rose-400/80' : 'border-white/25 dark:border-white/20'}`}>
           {canUseArrows ? (
             <button
@@ -436,7 +502,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   shiftSelectValue(field, -1)
                 }
               }}
-              className="mr-2 rounded-full px-1.5 py-0.5 text-[11px] text-slate-200 transition-colors hover:bg-white/15"
+              className="nodrag mr-2 rounded-full px-1.5 py-0.5 text-[11px] text-slate-200 transition-colors hover:bg-white/15"
             >
               ◀
             </button>
@@ -515,6 +581,52 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
               setDrafts((state) => ({ ...state, [field.key]: nextRaw }))
               commitStringValue(field, nextRaw)
+              if (canShowSuggestions) {
+                setOpenSuggestFieldKey(field.key)
+                setActiveSuggestIndex(0)
+              }
+            }}
+            onFocus={() => {
+              if (canShowSuggestions) {
+                setOpenSuggestFieldKey(field.key)
+                setActiveSuggestIndex(0)
+              }
+            }}
+            onKeyDown={(event) => {
+              if (!canShowSuggestions || openSuggestFieldKey !== field.key) return
+
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                if (filteredSuggestions.length > 0) {
+                  setActiveSuggestIndex((idx) => Math.min(idx + 1, filteredSuggestions.length - 1))
+                }
+                return
+              }
+
+              if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                if (filteredSuggestions.length > 0) {
+                  setActiveSuggestIndex((idx) => Math.max(idx - 1, 0))
+                }
+                return
+              }
+
+              if (event.key === 'Enter') {
+                if (filteredSuggestions.length > 0) {
+                  event.preventDefault()
+                  const picked = filteredSuggestions[Math.max(0, Math.min(activeSuggestIndex, filteredSuggestions.length - 1))]
+                  if (picked !== undefined) {
+                    commitStringValue(field, picked)
+                    setOpenSuggestFieldKey(null)
+                  }
+                }
+                return
+              }
+
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                setOpenSuggestFieldKey(null)
+              }
             }}
             onBlur={() => {
               if (connectedToInput) return
@@ -526,7 +638,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }
             }}
-            className={`w-full bg-transparent text-center text-[11px] font-semibold text-slate-100 outline-none ${isPathField ? 'cursor-default select-none caret-transparent' : ''}`}
+            className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold text-slate-100 outline-none ${isPathField ? 'cursor-default select-none caret-transparent' : ''}`}
           />
           {canUseArrows ? (
             <button
@@ -540,7 +652,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   shiftSelectValue(field, 1)
                 }
               }}
-              className="ml-2 rounded-full px-1.5 py-0.5 text-[11px] text-slate-200 transition-colors hover:bg-white/15"
+              className="nodrag ml-2 rounded-full px-1.5 py-0.5 text-[11px] text-slate-200 transition-colors hover:bg-white/15"
             >
               ▶
             </button>
@@ -555,6 +667,34 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         />
         {errors[field.key] ? (
           <div className="mt-1 px-1 text-[10px] text-rose-300">{errors[field.key]}</div>
+        ) : null}
+
+        {canShowSuggestions && openSuggestFieldKey === field.key ? (
+          <div className="absolute left-0 right-0 z-[270] mt-1 max-h-36 overflow-auto rounded-xl border border-white/20 bg-[#1f2127]/95 p-1 shadow-2xl backdrop-blur">
+            {filteredSuggestions.length > 0 ? (
+              filteredSuggestions.map((option, index) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`nodrag block w-full rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors ${
+                    index === activeSuggestIndex
+                      ? 'bg-cyan-500 text-white'
+                      : 'text-slate-200 hover:bg-white/10'
+                  }`}
+                  onMouseEnter={() => setActiveSuggestIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    commitStringValue(field, option)
+                    setOpenSuggestFieldKey(null)
+                  }}
+                >
+                  {option}
+                </button>
+              ))
+            ) : (
+              <div className="px-2 py-1.5 text-[11px] text-slate-400">暂无已定义变量</div>
+            )}
+          </div>
         ) : null}
 
         {pathEditor?.fieldKey === field.key ? (
@@ -589,7 +729,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                       setPathEditor(null)
                     }
                   }}
-                  className="h-8 w-full rounded-lg border border-white/20 bg-[#23262d] px-2.5 text-xs text-slate-100 outline-none focus:border-cyan-400"
+                  className="nodrag h-8 w-full rounded-lg border border-white/20 bg-[#23262d] px-2.5 text-xs text-slate-100 outline-none focus:border-cyan-400"
                 />
                 <PathPickerDropdown
                   fieldLabel={field.label ?? field.key}
@@ -608,7 +748,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                     commitStringValue(field, pathEditor.value)
                     setPathEditor(null)
                   }}
-                  className="h-8 min-w-[66px] shrink-0 rounded-full bg-white/70 px-2.5 text-xs font-bold text-slate-800 transition-colors hover:bg-white"
+                  className="nodrag h-8 min-w-[66px] shrink-0 rounded-full bg-white/70 px-2.5 text-xs font-bold text-slate-800 transition-colors hover:bg-white"
                 >
                   OK
                 </button>
@@ -687,11 +827,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             )
           })}
         </div>
-      ) : (
-        <div className="rounded-md border border-dashed border-white/20 px-2 py-2 text-[10px] opacity-70">
-          无可编辑输入
-        </div>
-      )}
+      ) : null}
 
       <div className="mt-1 px-1 text-[9px] text-slate-300/70">{data.kind}</div>
     </div>
