@@ -493,13 +493,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const isNumber = field.type === 'number'
     const isSelect = field.type === 'select'
     const isJson = field.type === 'json'
-    const canUseArrows = !connectedToInput && isNumber
+    const canUseArrows = isNumber
     const isPathField = isFilePathField(data.kind, field.key)
     const selectOptions = field.options ?? []
     const selectedOption = selectOptions.find((option) => option.value === String(currentValue ?? ''))
 
     if (isSelect) {
-      const connectedLabel = connectedToInput ? '来自上游' : null
       return (
         <div
           className="relative"
@@ -517,7 +516,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             }}
             className="nodrag flex w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
           >
-            <span className="truncate text-slate-100">{connectedLabel ?? selectedOption?.label ?? '请选择'}</span>
+            <span className={`truncate ${connectedToInput ? 'text-slate-400' : 'text-slate-100'}`}>
+              {selectedOption?.label ?? '请选择'}
+            </span>
             <span className="ml-auto text-slate-300">▾</span>
           </button>
 
@@ -564,9 +565,6 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     }
 
     const displayValue = (() => {
-      if (connectedToInput) {
-        return ''
-      }
       if (drafts[field.key] !== undefined) {
         return drafts[field.key]
       }
@@ -614,7 +612,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           {canUseArrows ? (
             <button
               type="button"
+              disabled={connectedToInput}
               onClick={() => {
+                if (connectedToInput) return
                 if (isNumber) {
                   shiftNumberValue(field, -1)
                   return
@@ -623,7 +623,11 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   shiftSelectValue(field, -1)
                 }
               }}
-              className="nodrag mr-2 rounded-full px-1.5 py-0.5 text-[11px] text-slate-200 transition-colors hover:bg-white/15"
+              className={`nodrag mr-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
+                connectedToInput
+                  ? 'text-slate-500 cursor-not-allowed'
+                  : 'text-slate-200 hover:bg-white/15'
+              }`}
             >
               ◀
             </button>
@@ -633,7 +637,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             value={displayValue}
             readOnly={connectedToInput || isPathField || usesFloatingTextEditor}
             disabled={connectedToInput}
-            placeholder={connectedToInput ? '已连接上游' : (usesFloatingTextEditor ? '点击打开编辑器' : (field.placeholder ?? ''))}
+            placeholder={usesFloatingTextEditor ? '点击打开编辑器' : (field.placeholder ?? '')}
             onMouseDown={(event) => {
               if (!isPathField || connectedToInput) return
               event.preventDefault()
@@ -790,14 +794,16 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }
             }}
-            className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold text-slate-100 outline-none ${
+            className={`nodrag w-full bg-transparent text-center text-[11px] font-semibold ${connectedToInput ? 'text-slate-400' : 'text-slate-100'} outline-none ${
               isPathField || usesFloatingTextEditor ? 'cursor-default select-none caret-transparent' : ''
             }`}
           />
           {canUseArrows ? (
             <button
               type="button"
+              disabled={connectedToInput}
               onClick={() => {
+                if (connectedToInput) return
                 if (isNumber) {
                   shiftNumberValue(field, 1)
                   return
@@ -806,7 +812,11 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   shiftSelectValue(field, 1)
                 }
               }}
-              className="nodrag ml-2 rounded-full px-1.5 py-0.5 text-[11px] text-slate-200 transition-colors hover:bg-white/15"
+              className={`nodrag ml-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
+                connectedToInput
+                  ? 'text-slate-500 cursor-not-allowed'
+                  : 'text-slate-200 hover:bg-white/15'
+              }`}
             >
               ▶
             </button>
