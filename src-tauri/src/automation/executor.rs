@@ -2121,8 +2121,35 @@ async fn execute_gui_agent_action(
         content
     };
 
-    let action_expr = extract_action_expression(&normalized_content)?;
-    let action = parse_gui_agent_action(&action_expr)?;
+    let action_expr = match extract_action_expression(&normalized_content) {
+        Ok(expr) => expr,
+        Err(error) => {
+            on_log(
+                "warn",
+                format!(
+                    "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
+                    node.label,
+                    truncate_for_log(&normalized_content, 4000)
+                ),
+            );
+            return Err(error);
+        }
+    };
+
+    let action = match parse_gui_agent_action(&action_expr) {
+        Ok(action) => action,
+        Err(error) => {
+            on_log(
+                "warn",
+                format!(
+                    "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
+                    node.label,
+                    truncate_for_log(&normalized_content, 4000)
+                ),
+            );
+            return Err(error);
+        }
+    };
 
     on_log(
         "info",
@@ -2244,6 +2271,20 @@ fn strip_think_sections(content: &str) -> String {
     regex.replace_all(content, "").to_string()
 }
 
+fn truncate_for_log(content: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return "...(truncated)".to_string();
+    }
+
+    let total = content.chars().count();
+    if total <= max_chars {
+        return content.to_string();
+    }
+
+    let head = content.chars().take(max_chars).collect::<String>();
+    format!("{}...(truncated, total_chars={})", head, total)
+}
+
 fn extract_action_expression(content: &str) -> CommandResult<String> {
     static ACTION_RE: OnceLock<Regex> = OnceLock::new();
     let regex = ACTION_RE.get_or_init(|| Regex::new(r"(?im)Action:\s*(.+)").expect("valid action regex"));
@@ -2259,149 +2300,244 @@ fn extract_action_expression(content: &str) -> CommandResult<String> {
 }
 
 fn parse_gui_agent_action(expression: &str) -> CommandResult<GuiAgentAction> {
-    if let Some(point) = parse_single_point_action(expression, "click")? {
-        return Ok(GuiAgentAction::Click { point });
-    }
-    if let Some(point) = parse_single_point_action(expression, "left_double")? {
-        return Ok(GuiAgentAction::LeftDouble { point });
-    }
-    if let Some(point) = parse_single_point_action(expression, "right_single")? {
-        return Ok(GuiAgentAction::RightSingle { point });
-    }
+    let Some(call) = parse_named_action_call(expression)? else {
+        return Err(CommandFlowError::Automation(format!(
+            "GUI Agent 返回了不支持的动作: {}",
+            expression
+        )));
+    };
 
-    if let Some((start, end)) = parse_drag_action(expression)? {
-        return Ok(GuiAgentAction::Drag { start, end });
+    match call.name.as_str() {
+        "click" => {
+            let point = parse_required_point_arg(&call.args, "point", "GUI Agent click")?;
+            Ok(GuiAgentAction::Click { point })
+        }
+        "left_double" => {
+            let point = parse_required_point_arg(&call.args, "point", "GUI Agent left_double")?;
+            Ok(GuiAgentAction::LeftDouble { point })
+        }
+        "right_single" => {
+            let point = parse_required_point_arg(&call.args, "point", "GUI Agent right_single")?;
+            Ok(GuiAgentAction::RightSingle { point })
+        }
+        "drag" => {
+            let start = parse_required_point_arg(&call.args, "start_point", "GUI Agent drag")?;
+            let end = parse_required_point_arg(&call.args, "end_point", "GUI Agent drag")?;
+            Ok(GuiAgentAction::Drag { start, end })
+        }
+        "hotkey" => {
+            let key = parse_required_string_arg(&call.args, "key", "GUI Agent hotkey")?;
+            Ok(GuiAgentAction::Hotkey { key })
+        }
+        "type" => {
+            let content = parse_required_string_arg(&call.args, "content", "GUI Agent type")?;
+            Ok(GuiAgentAction::Type {
+                content: unescape_agent_string(&content),
+            })
+        }
+        "scroll" => {
+            let point = parse_required_point_arg(&call.args, "point", "GUI Agent scroll")?;
+            let direction = parse_required_direction_arg(&call.args, "direction")?;
+            Ok(GuiAgentAction::Scroll { point, direction })
+        }
+        "wait" => Ok(GuiAgentAction::Wait),
+        "finished" => {
+            let content = parse_required_string_arg(&call.args, "content", "GUI Agent finished")?;
+            Ok(GuiAgentAction::Finished {
+                content: unescape_agent_string(&content),
+            })
+        }
+        _ => Err(CommandFlowError::Automation(format!(
+            "GUI Agent 返回了不支持的动作: {}",
+            expression
+        ))),
     }
-
-    if let Some(key) = parse_string_arg_action(expression, "hotkey", "key")? {
-        return Ok(GuiAgentAction::Hotkey { key });
-    }
-
-    if let Some(content) = parse_string_arg_action(expression, "type", "content")? {
-        return Ok(GuiAgentAction::Type {
-            content: unescape_agent_string(&content),
-        });
-    }
-
-    if let Some((point, direction)) = parse_scroll_action(expression)? {
-        return Ok(GuiAgentAction::Scroll { point, direction });
-    }
-
-    if expression.trim().eq_ignore_ascii_case("wait()") {
-        return Ok(GuiAgentAction::Wait);
-    }
-
-    if let Some(content) = parse_string_arg_action(expression, "finished", "content")? {
-        return Ok(GuiAgentAction::Finished {
-            content: unescape_agent_string(&content),
-        });
-    }
-
-    Err(CommandFlowError::Automation(format!(
-        "GUI Agent 返回了不支持的动作: {}",
-        expression
-    )))
 }
 
-fn parse_single_point_action(expression: &str, action_name: &str) -> CommandResult<Option<(f64, f64)>> {
-    let pattern = format!(
-        r"(?i)^{}\s*\(\s*point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*\)\s*$",
-        regex::escape(action_name)
-    );
-    let regex = Regex::new(&pattern)
-        .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
+#[derive(Debug)]
+struct ParsedNamedAction {
+    name: String,
+    args: HashMap<String, String>,
+}
+
+fn parse_named_action_call(expression: &str) -> CommandResult<Option<ParsedNamedAction>> {
+    static CALL_RE: OnceLock<Regex> = OnceLock::new();
+    let regex = CALL_RE.get_or_init(|| {
+        Regex::new(r"(?is)^\s*([a-z_][a-z0-9_]*)\s*\((.*)\)\s*$")
+            .expect("valid named action regex")
+    });
 
     let Some(captures) = regex.captures(expression.trim()) else {
         return Ok(None);
     };
 
-    let x = captures
+    let action_name = captures
         .get(1)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 点位 X 解析失败".to_string()))?;
-    let y = captures
-        .get(2)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 点位 Y 解析失败".to_string()))?;
-
-    Ok(Some((x, y)))
-}
-
-fn parse_drag_action(expression: &str) -> CommandResult<Option<((f64, f64), (f64, f64))>> {
-    let regex = Regex::new(
-        r"(?i)^drag\s*\(\s*start_point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*,\s*end_point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*\)\s*$",
-    )
-    .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
-
-    let Some(captures) = regex.captures(expression.trim()) else {
-        return Ok(None);
-    };
-
-    let sx = captures
-        .get(1)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽起点 X 解析失败".to_string()))?;
-    let sy = captures
-        .get(2)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽起点 Y 解析失败".to_string()))?;
-    let ex = captures
-        .get(3)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽终点 X 解析失败".to_string()))?;
-    let ey = captures
-        .get(4)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 拖拽终点 Y 解析失败".to_string()))?;
-
-    Ok(Some(((sx, sy), (ex, ey))))
-}
-
-fn parse_scroll_action(expression: &str) -> CommandResult<Option<((f64, f64), String)>> {
-    let regex = Regex::new(
-        r"(?i)^scroll\s*\(\s*point\s*=\s*'\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*'\s*,\s*direction\s*=\s*'\s*(down|up|right|left)\s*'\s*\)\s*$",
-    )
-    .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
-
-    let Some(captures) = regex.captures(expression.trim()) else {
-        return Ok(None);
-    };
-
-    let x = captures
-        .get(1)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 滚动点 X 解析失败".to_string()))?;
-    let y = captures
-        .get(2)
-        .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 滚动点 Y 解析失败".to_string()))?;
-    let direction = captures
-        .get(3)
         .map(|m| m.as_str().to_lowercase())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 滚动方向解析失败".to_string()))?;
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 动作名解析失败".to_string()))?;
+    let args_raw = captures
+        .get(2)
+        .map(|m| m.as_str())
+        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 参数区解析失败".to_string()))?;
 
-    Ok(Some(((x, y), direction)))
+    let args = parse_named_args(args_raw)?;
+
+    Ok(Some(ParsedNamedAction {
+        name: action_name,
+        args,
+    }))
 }
 
-fn parse_string_arg_action(expression: &str, action_name: &str, arg_name: &str) -> CommandResult<Option<String>> {
-    let pattern = format!(
-        r"(?is)^{}\s*\(\s*{}\s*=\s*'(.*)'\s*\)\s*$",
-        regex::escape(action_name),
-        regex::escape(arg_name)
-    );
-    let regex = Regex::new(&pattern)
-        .map_err(|error| CommandFlowError::Automation(format!("动作正则构建失败: {}", error)))?;
+fn parse_named_args(raw: &str) -> CommandResult<HashMap<String, String>> {
+    let mut args = HashMap::<String, String>::new();
+    let chars: Vec<char> = raw.chars().collect();
+    let mut index = 0usize;
 
-    let Some(captures) = regex.captures(expression.trim()) else {
-        return Ok(None);
-    };
+    while index < chars.len() {
+        while index < chars.len() && (chars[index].is_whitespace() || chars[index] == ',') {
+            index += 1;
+        }
+        if index >= chars.len() {
+            break;
+        }
 
-    let content = captures
+        if !(chars[index].is_ascii_alphabetic() || chars[index] == '_') {
+            return Err(CommandFlowError::Automation(
+                "GUI Agent 参数名格式非法".to_string(),
+            ));
+        }
+
+        let key_start = index;
+        index += 1;
+        while index < chars.len() && (chars[index].is_ascii_alphanumeric() || chars[index] == '_') {
+            index += 1;
+        }
+        let key = chars[key_start..index]
+            .iter()
+            .collect::<String>()
+            .to_lowercase();
+
+        while index < chars.len() && chars[index].is_whitespace() {
+            index += 1;
+        }
+        if index >= chars.len() || chars[index] != '=' {
+            return Err(CommandFlowError::Automation(format!(
+                "GUI Agent 参数 '{}' 缺少 '='",
+                key
+            )));
+        }
+        index += 1;
+
+        while index < chars.len() && chars[index].is_whitespace() {
+            index += 1;
+        }
+        if index >= chars.len() {
+            return Err(CommandFlowError::Automation(format!(
+                "GUI Agent 参数 '{}' 缺少值",
+                key
+            )));
+        }
+
+        let quote = chars[index];
+        if quote != '\'' && quote != '"' {
+            return Err(CommandFlowError::Automation(format!(
+                "GUI Agent 参数 '{}' 需要使用引号包裹",
+                key
+            )));
+        }
+        index += 1;
+
+        let mut value = String::new();
+        while index < chars.len() {
+            let ch = chars[index];
+            if ch == '\\' {
+                if index + 1 >= chars.len() {
+                    value.push(ch);
+                    index += 1;
+                    continue;
+                }
+
+                value.push(ch);
+                value.push(chars[index + 1]);
+                index += 2;
+                continue;
+            }
+
+            if ch == quote {
+                index += 1;
+                break;
+            }
+
+            value.push(ch);
+            index += 1;
+        }
+
+        args.insert(key, value);
+
+        while index < chars.len() && chars[index].is_whitespace() {
+            index += 1;
+        }
+        if index < chars.len() {
+            if chars[index] != ',' {
+                return Err(CommandFlowError::Automation(
+                    "GUI Agent 参数分隔符非法（应为逗号）".to_string(),
+                ));
+            }
+            index += 1;
+        }
+    }
+
+    Ok(args)
+}
+
+fn parse_required_string_arg(
+    args: &HashMap<String, String>,
+    key: &str,
+    action_name: &str,
+) -> CommandResult<String> {
+    args.get(key)
+        .cloned()
+        .ok_or_else(|| CommandFlowError::Automation(format!("{} 缺少参数 '{}'", action_name, key)))
+}
+
+fn parse_required_point_arg(
+    args: &HashMap<String, String>,
+    key: &str,
+    action_name: &str,
+) -> CommandResult<(f64, f64)> {
+    let raw = parse_required_string_arg(args, key, action_name)?;
+
+    static POINT_RE: OnceLock<Regex> = OnceLock::new();
+    let regex = POINT_RE.get_or_init(|| {
+        Regex::new(r"(?is)^\s*<point>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*</point>\s*$")
+            .expect("valid point regex")
+    });
+
+    let captures = regex
+        .captures(raw.trim())
+        .ok_or_else(|| CommandFlowError::Automation(format!("{} 参数 '{}' 点位格式非法", action_name, key)))?;
+
+    let x = captures
         .get(1)
-        .map(|m| m.as_str().to_string())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 字符串参数解析失败".to_string()))?;
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation(format!("{} 参数 '{}' X 解析失败", action_name, key)))?;
+    let y = captures
+        .get(2)
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .ok_or_else(|| CommandFlowError::Automation(format!("{} 参数 '{}' Y 解析失败", action_name, key)))?;
 
-    Ok(Some(content))
+    Ok((x, y))
+}
+
+fn parse_required_direction_arg(args: &HashMap<String, String>, key: &str) -> CommandResult<String> {
+    let direction = parse_required_string_arg(args, key, "GUI Agent scroll")?.to_lowercase();
+    match direction.as_str() {
+        "down" | "up" | "right" | "left" => Ok(direction),
+        _ => Err(CommandFlowError::Automation(format!(
+            "GUI Agent scroll 参数 '{}' 非法: {}",
+            key, direction
+        ))),
+    }
 }
 
 fn unescape_agent_string(content: &str) -> String {
@@ -2545,8 +2681,8 @@ async fn apply_gui_agent_action(
             mouse::move_to(abs.0, abs.1)?;
 
             match direction.as_str() {
-                "up" => mouse::wheel(1)?,
-                "down" => mouse::wheel(-1)?,
+                "up" => mouse::wheel(-1)?,
+                "down" => mouse::wheel(1)?,
                 "right" => {
                     return Err(CommandFlowError::Validation(
                         "GUI Agent scroll direction=right 当前实现暂不支持（仅支持 up/down）"
