@@ -1,4 +1,4 @@
-use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, window};
+use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, system_settings, window};
 use arboard::Clipboard;
 use base64::Engine as _;
 use regex::Regex;
@@ -813,6 +813,73 @@ impl WorkflowExecutor {
                 let force = get_bool(node, "force", false);
                 power::sign_out(force).await?;
                 set_node_output(ctx, node, "action", Value::String("signOut".to_string()));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemVolumeMute => {
+                let mode = get_string(node, "mode", "toggle");
+                system_settings::set_volume_mute(&mode).await?;
+                set_node_output(ctx, node, "mode", Value::String(mode));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemVolumeSet => {
+                let percent = get_u64(node, "percent", 50).min(100) as u8;
+                system_settings::set_volume_percent(percent).await?;
+                set_node_output(ctx, node, "percent", value_from_u64(percent as u64));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemVolumeAdjust => {
+                let delta = get_i32(node, "delta", 10);
+                system_settings::adjust_volume(delta).await?;
+                set_node_output(ctx, node, "delta", value_from_i32(delta));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemBrightnessSet => {
+                let percent = get_u64(node, "percent", 60).min(100) as u8;
+                system_settings::set_brightness_percent(percent).await?;
+                set_node_output(ctx, node, "percent", value_from_u64(percent as u64));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemWifiSwitch => {
+                let state = get_string(node, "state", "toggle");
+                system_settings::switch_wifi(&state).await?;
+                set_node_output(ctx, node, "state", Value::String(state));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemBluetoothSwitch => {
+                let state = get_string(node, "state", "toggle");
+                system_settings::switch_bluetooth(&state).await?;
+                set_node_output(ctx, node, "state", Value::String(state));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemNetworkAdapterSwitch => {
+                let adapter_name = get_string(node, "adapterName", "");
+                let state = get_string(node, "state", "toggle");
+                let adapter_name_opt = if adapter_name.trim().is_empty() {
+                    None
+                } else {
+                    Some(adapter_name.as_str())
+                };
+                system_settings::switch_network_adapter(adapter_name_opt, &state).await?;
+                set_node_output(ctx, node, "adapterName", Value::String(adapter_name));
+                set_node_output(ctx, node, "state", Value::String(state));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemTheme => {
+                let mode = get_string(node, "mode", "dark");
+                system_settings::set_theme(&mode).await?;
+                set_node_output(ctx, node, "mode", Value::String(mode));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemPowerPlan => {
+                let plan = get_string(node, "plan", "balanced");
+                system_settings::set_power_plan(&plan).await?;
+                set_node_output(ctx, node, "plan", Value::String(plan));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::SystemOpenSettings => {
+                let page = get_string(node, "page", "system");
+                system_settings::open_settings_page(&page).await?;
+                set_node_output(ctx, node, "page", Value::String(page));
                 Ok(NextDirective::Default)
             }
             NodeKind::Condition => {

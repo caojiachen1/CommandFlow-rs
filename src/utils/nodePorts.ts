@@ -295,6 +295,46 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  systemVolumeMute: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemVolumeSet: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemVolumeAdjust: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemBrightnessSet: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemWifiSwitch: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemBluetoothSwitch: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemNetworkAdapterSwitch: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemTheme: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemPowerPlan: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  systemOpenSettings: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   condition: {
     inputs: singleIn(),
     outputs: [

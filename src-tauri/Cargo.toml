@@ -21,6 +21,7 @@ arboard = "3"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 enigo = "0.2"
+ddc-hi = "0.4.1"
 image = "0.25"
 opencv = { version = "0.96", default-features = false, features = ["imgcodecs", "imgproc"], optional = true }
 regex = "1"

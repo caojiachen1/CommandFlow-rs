@@ -255,6 +255,14 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       [key]: value,
     }
 
+    // ensure brightness percent stays within 0-100 before any other handling
+    if (selectedNode.data.kind === 'systemBrightnessSet' && key === 'percent') {
+      const num = Number(nextParams.percent ?? 0)
+      if (!Number.isNaN(num)) {
+        nextParams.percent = Math.min(100, Math.max(0, num))
+      }
+    }
+
     if (selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet' || selectedNode.data.kind === 'constValue') {
       const valueType = String(nextParams.valueType ?? 'number')
       if (valueType === 'string') {

@@ -58,6 +58,21 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
     ],
   },
   {
+    title: '系统设置',
+    items: [
+      { label: '系统音量静音', kind: 'systemVolumeMute', color: 'bg-emerald-600' },
+      { label: '系统音量设置', kind: 'systemVolumeSet', color: 'bg-emerald-500' },
+      { label: '系统音量增减', kind: 'systemVolumeAdjust', color: 'bg-green-500' },
+      { label: '系统亮度设置', kind: 'systemBrightnessSet', color: 'bg-yellow-500' },
+      { label: 'WiFi 开关', kind: 'systemWifiSwitch', color: 'bg-cyan-500' },
+      { label: '蓝牙开关', kind: 'systemBluetoothSwitch', color: 'bg-sky-500' },
+      { label: '网络适配器开关', kind: 'systemNetworkAdapterSwitch', color: 'bg-blue-500' },
+      { label: '系统主题模式', kind: 'systemTheme', color: 'bg-indigo-500' },
+      { label: '电源计划', kind: 'systemPowerPlan', color: 'bg-violet-500' },
+      { label: '打开系统设置页', kind: 'systemOpenSettings', color: 'bg-fuchsia-500' },
+    ],
+  },
+  {
     title: '控制流',
     items: [
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500' },

@@ -594,6 +594,174 @@ finished(content='xxx') # Use escape characters \\', \\" and \\n in content part
       { key: 'force', label: '强制关闭应用', type: 'boolean' },
     ],
   },
+  systemVolumeMute: {
+    label: '系统音量静音',
+    description: '控制系统主音量静音状态（静音/取消静音/切换）。',
+    defaultParams: {
+      mode: 'toggle',
+    },
+    fields: [
+      {
+        key: 'mode',
+        label: '静音模式',
+        type: 'select',
+        options: [
+          { label: '切换', value: 'toggle' },
+          { label: '静音', value: 'mute' },
+          { label: '取消静音', value: 'unmute' },
+        ],
+      },
+    ],
+  },
+  systemVolumeSet: {
+    label: '系统音量设置',
+    description: '将系统主音量设置为指定百分比。',
+    defaultParams: {
+      percent: 50,
+    },
+    fields: [
+      { key: 'percent', label: '音量(%)', type: 'number', min: 0, max: 100, step: 1 },
+    ],
+  },
+  systemVolumeAdjust: {
+    label: '系统音量增减',
+    description: '按步长增大或减小系统主音量。',
+    defaultParams: {
+      delta: 10,
+    },
+    fields: [
+      { key: 'delta', label: '变化值(可负数)', type: 'number', min: -100, max: 100, step: 1 },
+    ],
+  },
+  systemBrightnessSet: {
+    label: '系统亮度设置',
+    description: '设置屏幕亮度百分比（不同系统支持度不同）。',
+    defaultParams: {
+      percent: 60,
+    },
+    fields: [
+      { key: 'percent', label: '亮度(%)', type: 'number', min: 0, max: 100, step: 1 },
+    ],
+  },
+  systemWifiSwitch: {
+    label: 'WiFi 开关',
+    description: '控制 WiFi 状态（开启/关闭/切换）。',
+    defaultParams: {
+      state: 'toggle',
+    },
+    fields: [
+      {
+        key: 'state',
+        label: '目标状态',
+        type: 'select',
+        options: [
+          { label: '切换', value: 'toggle' },
+          { label: '开启', value: 'on' },
+          { label: '关闭', value: 'off' },
+        ],
+      },
+    ],
+  },
+  systemBluetoothSwitch: {
+    label: '蓝牙开关',
+    description: '控制蓝牙设备状态（开启/关闭/切换，部分系统需管理员权限）。',
+    defaultParams: {
+      state: 'toggle',
+    },
+    fields: [
+      {
+        key: 'state',
+        label: '目标状态',
+        type: 'select',
+        options: [
+          { label: '切换', value: 'toggle' },
+          { label: '开启', value: 'on' },
+          { label: '关闭', value: 'off' },
+        ],
+      },
+    ],
+  },
+  systemNetworkAdapterSwitch: {
+    label: '网络适配器开关',
+    description: '按适配器名启用/禁用网络适配器（留空时自动选首个适配器）。',
+    defaultParams: {
+      adapterName: '',
+      state: 'toggle',
+    },
+    fields: [
+      { key: 'adapterName', label: '适配器名称', type: 'string', placeholder: 'Wi-Fi' },
+      {
+        key: 'state',
+        label: '目标状态',
+        type: 'select',
+        options: [
+          { label: '切换', value: 'toggle' },
+          { label: '启用', value: 'on' },
+          { label: '禁用', value: 'off' },
+        ],
+      },
+    ],
+  },
+  systemTheme: {
+    label: '系统主题模式',
+    description: '切换系统浅色/深色主题。',
+    defaultParams: {
+      mode: 'dark',
+    },
+    fields: [
+      {
+        key: 'mode',
+        label: '主题模式',
+        type: 'select',
+        options: [
+          { label: '深色', value: 'dark' },
+          { label: '浅色', value: 'light' },
+        ],
+      },
+    ],
+  },
+  systemPowerPlan: {
+    label: '电源计划',
+    description: '切换系统电源计划（节能/平衡/高性能）。',
+    defaultParams: {
+      plan: 'balanced',
+    },
+    fields: [
+      {
+        key: 'plan',
+        label: '电源计划',
+        type: 'select',
+        options: [
+          { label: '平衡', value: 'balanced' },
+          { label: '高性能', value: 'highPerformance' },
+          { label: '节能', value: 'powerSaver' },
+        ],
+      },
+    ],
+  },
+  systemOpenSettings: {
+    label: '打开系统设置页',
+    description: '打开系统设置页面（如声音、显示、网络、蓝牙等）。',
+    defaultParams: {
+      page: 'sound',
+    },
+    fields: [
+      {
+        key: 'page',
+        label: '设置页面',
+        type: 'select',
+        options: [
+          { label: '声音', value: 'sound' },
+          { label: '显示', value: 'display' },
+          { label: '网络', value: 'network' },
+          { label: 'WiFi', value: 'wifi' },
+          { label: '蓝牙', value: 'bluetooth' },
+          { label: '电源与电池', value: 'power' },
+          { label: '系统首页', value: 'system' },
+        ],
+      },
+    ],
+  },
   condition: {
     label: '条件判断',
     description: 'if 条件判断。',
