@@ -521,9 +521,11 @@ impl WorkflowExecutor {
                 let (rgba, width, height) = if fullscreen {
                     screenshot::capture_fullscreen_rgba()?
                 } else {
+                    let start_x = get_u32(node, "startX", 0);
+                    let start_y = get_u32(node, "startY", 0);
                     let width = get_u32(node, "width", 320);
                     let height = get_u32(node, "height", 240);
-                    screenshot::capture_region_rgba(width.max(1), height.max(1))?
+                    screenshot::capture_region_rgba(start_x, start_y, width.max(1), height.max(1))?
                 };
 
                 let screenshot_base64 = screenshot::encode_rgba_to_png_base64(&rgba, width, height)?;
@@ -538,7 +540,12 @@ impl WorkflowExecutor {
                 Ok(NextDirective::Default)
             }
             NodeKind::GuiAgent => {
-                execute_gui_agent_action(node, should_cancel, on_log).await?;
+                let metadata = execute_gui_agent_action(node, should_cancel, on_log).await?;
+                set_node_output(ctx, node, "metadata", metadata);
+                Ok(NextDirective::Default)
+            }
+            NodeKind::GuiAgentActionParser => {
+                execute_gui_agent_action_parser(node, ctx, on_log)?;
                 Ok(NextDirective::Default)
             }
             NodeKind::WindowActivate => {
@@ -2015,7 +2022,7 @@ async fn execute_gui_agent_action(
     node: &WorkflowNode,
     should_cancel: &impl Fn() -> bool,
     on_log: &mut impl FnMut(&str, String),
-) -> CommandResult<()> {
+) -> CommandResult<Value> {
     if should_cancel() {
         return Err(CommandFlowError::Canceled);
     }
@@ -2580,8 +2587,8 @@ async fn apply_gui_agent_action(
     image_height: u32,
     should_cancel: &impl Fn() -> bool,
     on_log: &mut impl FnMut(&str, String),
-) -> CommandResult<()> {
-    match action {
+) -> CommandResult<Value> {
+    let metadata = match action {
         GuiAgentAction::Click { point } => {
             let abs = relative_to_absolute(point, image_width, image_height);
             mouse::click(abs.0, abs.1, 1)?;
@@ -2592,6 +2599,12 @@ async fn apply_gui_agent_action(
                     point.0, point.1, abs.0, abs.1
                 ),
             );
+            serde_json::json!({
+                "action": "click",
+                "relative": { "x": point.0, "y": point.1 },
+                "absolute": { "x": abs.0, "y": abs.1 },
+                "image": { "width": image_width, "height": image_height }
+            })
         }
         GuiAgentAction::LeftDouble { point } => {
             let abs = relative_to_absolute(point, image_width, image_height);
@@ -2603,6 +2616,12 @@ async fn apply_gui_agent_action(
                     point.0, point.1, abs.0, abs.1
                 ),
             );
+            serde_json::json!({
+                "action": "left_double",
+                "relative": { "x": point.0, "y": point.1 },
+                "absolute": { "x": abs.0, "y": abs.1 },
+                "image": { "width": image_width, "height": image_height }
+            })
         }
         GuiAgentAction::RightSingle { point } => {
             let abs = relative_to_absolute(point, image_width, image_height);
@@ -2615,6 +2634,12 @@ async fn apply_gui_agent_action(
                     point.0, point.1, abs.0, abs.1
                 ),
             );
+            serde_json::json!({
+                "action": "right_single",
+                "relative": { "x": point.0, "y": point.1 },
+                "absolute": { "x": abs.0, "y": abs.1 },
+                "image": { "width": image_width, "height": image_height }
+            })
         }
         GuiAgentAction::Drag { start, end } => {
             let abs_start = relative_to_absolute(start, image_width, image_height);
@@ -2634,6 +2659,18 @@ async fn apply_gui_agent_action(
                     abs_end.1
                 ),
             );
+            serde_json::json!({
+                "action": "drag",
+                "relative": {
+                    "start": { "x": start.0, "y": start.1 },
+                    "end": { "x": end.0, "y": end.1 }
+                },
+                "absolute": {
+                    "start": { "x": abs_start.0, "y": abs_start.1 },
+                    "end": { "x": abs_end.0, "y": abs_end.1 }
+                },
+                "image": { "width": image_width, "height": image_height }
+            })
         }
         GuiAgentAction::Hotkey { key } => {
             let tokens = key
@@ -2664,6 +2701,11 @@ async fn apply_gui_agent_action(
             }
 
             on_log("info", format!("GUI Agent 执行 hotkey: {}", key));
+            serde_json::json!({
+                "action": "hotkey",
+                "key": key,
+                "image": { "width": image_width, "height": image_height }
+            })
         }
         GuiAgentAction::Type { content } => {
             keyboard::text_input(&content)?;
@@ -2675,6 +2717,11 @@ async fn apply_gui_agent_action(
                     if content.ends_with('\n') { "（末尾含换行提交）" } else { "" }
                 ),
             );
+            serde_json::json!({
+                "action": "type",
+                "content": content,
+                "image": { "width": image_width, "height": image_height }
+            })
         }
         GuiAgentAction::Scroll { point, direction } => {
             let abs = relative_to_absolute(point, image_width, image_height);
@@ -2710,6 +2757,13 @@ async fn apply_gui_agent_action(
                     direction, point.0, point.1, abs.0, abs.1
                 ),
             );
+            serde_json::json!({
+                "action": "scroll",
+                "direction": direction,
+                "relative": { "x": point.0, "y": point.1 },
+                "absolute": { "x": abs.0, "y": abs.1 },
+                "image": { "width": image_width, "height": image_height }
+            })
         }
         GuiAgentAction::Wait => {
             interruptible_sleep(Duration::from_secs(5), should_cancel).await?;
@@ -2721,6 +2775,11 @@ async fn apply_gui_agent_action(
                     width, height
                 ),
             );
+            serde_json::json!({
+                "action": "wait",
+                "waitSeconds": 5,
+                "image": { "width": width, "height": height }
+            })
         }
         GuiAgentAction::Finished { content } => {
             on_log(
@@ -2730,6 +2789,144 @@ async fn apply_gui_agent_action(
                     content
                 ),
             );
+            serde_json::json!({
+                "action": "finished",
+                "content": content,
+                "image": { "width": image_width, "height": image_height }
+            })
+        }
+    };
+
+    Ok(metadata)
+}
+
+fn read_metadata_object(node: &WorkflowNode) -> CommandResult<serde_json::Map<String, Value>> {
+    let raw = node.params.get("metadata").cloned().unwrap_or(Value::Null);
+
+    if let Some(object) = raw.as_object() {
+        return Ok(object.clone());
+    }
+
+    if let Some(text) = raw.as_str() {
+        let parsed: Value = serde_json::from_str(text).map_err(|error| {
+            CommandFlowError::Validation(format!(
+                "node '{}' metadata 不是合法 JSON: {}",
+                node.id, error
+            ))
+        })?;
+        if let Some(object) = parsed.as_object() {
+            return Ok(object.clone());
+        }
+    }
+
+    Ok(serde_json::Map::new())
+}
+
+fn extract_xy(object: &serde_json::Map<String, Value>, key: &str) -> (Option<i32>, Option<i32>) {
+    let point = object
+        .get(key)
+        .and_then(|value| value.as_object())
+        .cloned()
+        .unwrap_or_default();
+
+    let x = point.get("x").and_then(|value| value.as_i64()).map(|value| value as i32);
+    let y = point.get("y").and_then(|value| value.as_i64()).map(|value| value as i32);
+    (x, y)
+}
+
+fn execute_gui_agent_action_parser(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    on_log: &mut impl FnMut(&str, String),
+) -> CommandResult<()> {
+    let operation = get_string(node, "operation", "click").to_lowercase();
+    let metadata = read_metadata_object(node)?;
+    let metadata_action = metadata
+        .get("action")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if !metadata_action.is_empty() && metadata_action != operation {
+        on_log(
+            "warn",
+            format!(
+                "GUI Agent 元数据解析节点 '{}' 选择动作='{}'，但 metadata.action='{}'。",
+                node.label, operation, metadata_action
+            ),
+        );
+    }
+
+    match operation.as_str() {
+        "click" | "left_double" | "right_single" => {
+            let absolute = metadata
+                .get("absolute")
+                .and_then(|value| value.as_object())
+                .cloned()
+                .unwrap_or_default();
+            let x = absolute.get("x").and_then(|value| value.as_i64()).map(|value| value as i32);
+            let y = absolute.get("y").and_then(|value| value.as_i64()).map(|value| value as i32);
+            set_node_output(ctx, node, "x", value_from_i32(x.unwrap_or_default()));
+            set_node_output(ctx, node, "y", value_from_i32(y.unwrap_or_default()));
+        }
+        "drag" => {
+            let absolute = metadata
+                .get("absolute")
+                .and_then(|value| value.as_object())
+                .cloned()
+                .unwrap_or_default();
+            let (start_x, start_y) = extract_xy(&absolute, "start");
+            let (end_x, end_y) = extract_xy(&absolute, "end");
+            set_node_output(ctx, node, "startX", value_from_i32(start_x.unwrap_or_default()));
+            set_node_output(ctx, node, "startY", value_from_i32(start_y.unwrap_or_default()));
+            set_node_output(ctx, node, "endX", value_from_i32(end_x.unwrap_or_default()));
+            set_node_output(ctx, node, "endY", value_from_i32(end_y.unwrap_or_default()));
+        }
+        "hotkey" => {
+            let key = metadata
+                .get("key")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            set_node_output(ctx, node, "key", Value::String(key));
+        }
+        "type" | "finished" => {
+            let content = metadata
+                .get("content")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            set_node_output(ctx, node, "content", Value::String(content));
+        }
+        "scroll" => {
+            let absolute = metadata
+                .get("absolute")
+                .and_then(|value| value.as_object())
+                .cloned()
+                .unwrap_or_default();
+            let x = absolute.get("x").and_then(|value| value.as_i64()).map(|value| value as i32);
+            let y = absolute.get("y").and_then(|value| value.as_i64()).map(|value| value as i32);
+            let direction = metadata
+                .get("direction")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            set_node_output(ctx, node, "x", value_from_i32(x.unwrap_or_default()));
+            set_node_output(ctx, node, "y", value_from_i32(y.unwrap_or_default()));
+            set_node_output(ctx, node, "direction", Value::String(direction));
+        }
+        "wait" => {
+            let seconds = metadata
+                .get("waitSeconds")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(5);
+            set_node_output(ctx, node, "waitSeconds", value_from_u64(seconds));
+        }
+        _ => {
+            return Err(CommandFlowError::Validation(format!(
+                "node '{}' unsupported parser operation '{}'",
+                node.id, operation
+            )));
         }
     }
 

@@ -48,6 +48,7 @@ const groups: Array<{ title: string; items: Array<{ label: string; kind: NodeKin
       { label: '弹窗提示', kind: 'showMessage', color: 'bg-orange-500' },
       { label: '等待延时', kind: 'delay', color: 'bg-purple-500' },
       { label: 'GUI Agent', kind: 'guiAgent', color: 'bg-violet-600' },
+      { label: 'GUI Agent 元数据解析', kind: 'guiAgentActionParser', color: 'bg-violet-500' },
     ],
   },
   {

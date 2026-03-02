@@ -34,6 +34,7 @@ pub enum NodeKind {
     ShowMessage,
     Delay,
     GuiAgent,
+    GuiAgentActionParser,
     Condition,
     Loop,
     WhileLoop,

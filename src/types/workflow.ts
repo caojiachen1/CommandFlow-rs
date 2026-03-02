@@ -27,6 +27,7 @@ export type ActionNodeKind =
   | 'showMessage'
   | 'delay'
   | 'guiAgent'
+  | 'guiAgentActionParser'
 export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch'
 export type DataNodeKind = 'varDefine' | 'varSet' | 'varMath' | 'varGet' | 'constValue'
 

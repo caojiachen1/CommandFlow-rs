@@ -182,11 +182,13 @@ const metas: Record<NodeKind, NodeMeta> = {
   screenshot: {
     label: '屏幕截图',
     description: '执行屏幕截图，可选择是否保存到本地文件夹，并输出截图(base64)。',
-    defaultParams: { shouldSave: true, saveDir: '', fullscreen: false, width: 320, height: 240 },
+    defaultParams: { shouldSave: true, saveDir: '', fullscreen: false, startX: 0, startY: 0, width: 320, height: 240 },
     fields: [
       { key: 'shouldSave', label: '是否保存', type: 'boolean' },
       { key: 'saveDir', label: '保存文件夹', type: 'string', placeholder: 'D:\\captures' },
       { key: 'fullscreen', label: '是否全屏', type: 'boolean' },
+      { key: 'startX', label: '起点 X', type: 'number', min: 0, step: 1 },
+      { key: 'startY', label: '起点 Y', type: 'number', min: 0, step: 1 },
       { key: 'width', label: '宽度', type: 'number', min: 1, step: 1 },
       { key: 'height', label: '高度', type: 'number', min: 1, step: 1 },
     ],
@@ -264,6 +266,40 @@ finished(content='xxx') # Use escape characters \\', \\" and \\n in content part
         label: 'System Prompt',
         type: 'text',
         placeholder: '支持 {instruction} 占位符，将自动替换为识别指令',
+      },
+    ],
+  },
+  guiAgentActionParser: {
+    label: 'GUI Agent 元数据解析',
+    description: '解析 GUI Agent metadata，并按选定动作输出结构化字段。',
+    defaultParams: {
+      operation: 'click',
+      metadata: {
+        action: 'click',
+      },
+    },
+    fields: [
+      {
+        key: 'operation',
+        label: '动作类型',
+        type: 'select',
+        options: [
+          { label: 'click', value: 'click' },
+          { label: 'left_double', value: 'left_double' },
+          { label: 'right_single', value: 'right_single' },
+          { label: 'drag', value: 'drag' },
+          { label: 'hotkey', value: 'hotkey' },
+          { label: 'type', value: 'type' },
+          { label: 'scroll', value: 'scroll' },
+          { label: 'wait', value: 'wait' },
+          { label: 'finished', value: 'finished' },
+        ],
+      },
+      {
+        key: 'metadata',
+        label: 'Metadata(JSON)',
+        type: 'json',
+        description: '建议连接 GUI Agent 节点 metadata 输出触点。',
       },
     ],
   },

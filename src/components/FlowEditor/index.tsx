@@ -66,6 +66,7 @@ const allowedKinds: NodeKind[] = [
   'showMessage',
   'delay',
   'guiAgent',
+  'guiAgentActionParser',
   'condition',
   'loop',
   'whileLoop',
@@ -100,7 +101,7 @@ const resolveSourceHandleValueType = (
   params: Record<string, unknown>,
   sourceHandleId: string | null,
 ): ReturnType<typeof getOutputHandleValueType> => {
-  const normalizedSource = normalizeSourceHandleId(kind, sourceHandleId)
+  const normalizedSource = normalizeSourceHandleId(kind, sourceHandleId, params)
   if (!normalizedSource) return null
   return getOutputHandleValueType(kind, normalizedSource, params)
 }
@@ -235,6 +236,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       showMessage: ClickNode,
       delay: ClickNode,
       guiAgent: ClickNode,
+      guiAgentActionParser: ClickNode,
     }),
     [],
   )
@@ -478,7 +480,11 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       }
 
       if (quickInsert.pendingHandleType === 'source') {
-        const sourceHandle = normalizeSourceHandleId(pendingNode.data.kind, quickInsert.pendingHandleId)
+        const sourceHandle = normalizeSourceHandleId(
+          pendingNode.data.kind,
+          quickInsert.pendingHandleId,
+          pendingNode.data.params,
+        )
         const sourceValueType = resolveSourceHandleValueType(
           pendingNode.data.kind,
           pendingNode.data.params,
@@ -504,7 +510,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         const sourceType = quickSourceHandle
           ? resolveSourceHandleValueType(kind, sourceMeta.defaultParams, quickSourceHandle)
           : null
-        const sourceHandle = normalizeSourceHandleId(kind, quickSourceHandle)
+        const sourceHandle = normalizeSourceHandleId(kind, quickSourceHandle, sourceMeta.defaultParams)
 
         if (
           sourceHandle &&
@@ -546,7 +552,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       const targetNode = nodes.find((node) => node.id === target)
       if (!sourceNode || !targetNode) return false
 
-      const normalizedSource = normalizeSourceHandleId(sourceNode.data.kind, sourceHandle)
+      const normalizedSource = normalizeSourceHandleId(sourceNode.data.kind, sourceHandle, sourceNode.data.params)
       const normalizedTarget = normalizeTargetHandleId(targetNode.data.kind, targetHandle)
       if (!normalizedSource || !normalizedTarget) return false
 

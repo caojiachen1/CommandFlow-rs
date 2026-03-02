@@ -419,7 +419,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     const currentValue = getResolvedFieldValue(field)
     const isScreenshotSizeFieldDisabled =
       selectedNode.data.kind === 'screenshot' &&
-      (field.key === 'width' || field.key === 'height') &&
+      (field.key === 'startX' || field.key === 'startY' || field.key === 'width' || field.key === 'height') &&
       Boolean(selectedNode.data.params.fullscreen)
     const isScreenshotSaveDirFieldDisabled =
       selectedNode.data.kind === 'screenshot' &&

@@ -40,6 +40,51 @@ const resolveTypedValueType = (raw: unknown): HandleValueType => {
   return 'any'
 }
 
+const getGuiAgentParserOperation = (params: Record<string, unknown> = {}): string =>
+  String(params.operation ?? 'click').toLowerCase()
+
+const getGuiAgentParserDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
+  const operation = getGuiAgentParserOperation(params)
+
+  if (operation === 'click' || operation === 'left_double' || operation === 'right_single') {
+    return [
+      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
+      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
+    ]
+  }
+
+  if (operation === 'drag') {
+    return [
+      { id: 'startX', label: 'startX', maxConnections: MANY, valueType: 'number' },
+      { id: 'startY', label: 'startY', maxConnections: MANY, valueType: 'number' },
+      { id: 'endX', label: 'endX', maxConnections: MANY, valueType: 'number' },
+      { id: 'endY', label: 'endY', maxConnections: MANY, valueType: 'number' },
+    ]
+  }
+
+  if (operation === 'hotkey') {
+    return [{ id: 'key', label: 'key', maxConnections: MANY, valueType: 'string' }]
+  }
+
+  if (operation === 'type' || operation === 'finished') {
+    return [{ id: 'content', label: 'content', maxConnections: MANY, valueType: 'string' }]
+  }
+
+  if (operation === 'scroll') {
+    return [
+      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
+      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
+      { id: 'direction', label: 'direction', maxConnections: MANY, valueType: 'string' },
+    ]
+  }
+
+  if (operation === 'wait') {
+    return [{ id: 'waitSeconds', label: 'waitSeconds', maxConnections: MANY, valueType: 'number' }]
+  }
+
+  return []
+}
+
 export const isHandleValueTypeCompatible = (
   sourceType: HandleValueType,
   targetType: HandleValueType,
@@ -172,6 +217,10 @@ const specs: Record<NodeKind, NodePortSpec> = {
   },
   guiAgent: {
     inputs: singleIn(),
+    outputs: [...singleOut(), { id: 'metadata', label: 'metadata', maxConnections: MANY, valueType: 'json' }],
+  },
+  guiAgentActionParser: {
+    inputs: singleIn(),
     outputs: singleOut(),
   },
   windowActivate: {
@@ -283,13 +332,17 @@ const specs: Record<NodeKind, NodePortSpec> = {
 
 const mergedSpecCache = new Map<NodeKind, NodePortSpec>()
 
-export const getNodePortSpec = (kind: NodeKind): NodePortSpec => {
-  const cached = mergedSpecCache.get(kind)
-  if (cached) return cached
+export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> = {}): NodePortSpec => {
+  const canUseCache = kind !== 'guiAgentActionParser'
+  if (canUseCache) {
+    const cached = mergedSpecCache.get(kind)
+    if (cached) return cached
+  }
 
   const base = specs[kind]
   const meta = getNodeMeta(kind)
   const connectableFields = meta.fields.filter((field) => isConnectableFieldType(field.type))
+  const dynamicOutputs = kind === 'guiAgentActionParser' ? getGuiAgentParserDynamicOutputs(params) : []
 
   const merged: NodePortSpec = {
     inputs: [
@@ -301,10 +354,12 @@ export const getNodePortSpec = (kind: NodeKind): NodePortSpec => {
         valueType: toHandleValueType(field.type),
       })),
     ],
-    outputs: [...base.outputs],
+    outputs: [...base.outputs, ...dynamicOutputs],
   }
 
-  mergedSpecCache.set(kind, merged)
+  if (canUseCache) {
+    mergedSpecCache.set(kind, merged)
+  }
   return merged
 }
 
@@ -322,14 +377,22 @@ const normalizeHandleId = (
   return null
 }
 
-export const normalizeSourceHandleId = (kind: NodeKind, handleId: string | null | undefined): string | null =>
-  normalizeHandleId(getNodePortSpec(kind).outputs, handleId)
+export const normalizeSourceHandleId = (
+  kind: NodeKind,
+  handleId: string | null | undefined,
+  params: Record<string, unknown> = {},
+): string | null =>
+  normalizeHandleId(getNodePortSpec(kind, params).outputs, handleId)
 
 export const normalizeTargetHandleId = (kind: NodeKind, handleId: string | null | undefined): string | null =>
   normalizeHandleId(getNodePortSpec(kind).inputs, handleId)
 
-export const getOutputHandleMaxConnections = (kind: NodeKind, handleId: string): number =>
-  getNodePortSpec(kind).outputs.find((port) => port.id === handleId)?.maxConnections ?? 0
+export const getOutputHandleMaxConnections = (
+  kind: NodeKind,
+  handleId: string,
+  params: Record<string, unknown> = {},
+): number =>
+  getNodePortSpec(kind, params).outputs.find((port) => port.id === handleId)?.maxConnections ?? 0
 
 export const getInputHandleMaxConnections = (kind: NodeKind, handleId: string): number =>
   getNodePortSpec(kind).inputs.find((port) => port.id === handleId)?.maxConnections ?? 0
@@ -339,7 +402,7 @@ export const getOutputHandleValueType = (
   handleId: string,
   params: Record<string, unknown> = {},
 ): HandleValueType | null => {
-  const normalized = normalizeSourceHandleId(kind, handleId)
+  const normalized = normalizeSourceHandleId(kind, handleId, params)
   if (!normalized) return null
 
   if (kind === 'constValue' && normalized === 'value') {
@@ -350,7 +413,7 @@ export const getOutputHandleValueType = (
     return resolveTypedValueType(params.valueType)
   }
 
-  return getNodePortSpec(kind).outputs.find((port) => port.id === normalized)?.valueType ?? null
+  return getNodePortSpec(kind, params).outputs.find((port) => port.id === normalized)?.valueType ?? null
 }
 
 export const getInputHandleValueType = (kind: NodeKind, handleId: string): HandleValueType | null => {

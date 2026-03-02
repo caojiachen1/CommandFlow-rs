@@ -191,7 +191,7 @@ const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, param
 
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
   const isSelected = selected
-  const portSpec = getNodePortSpec(data.kind)
+  const portSpec = getNodePortSpec(data.kind, data.params)
   const updateNodeParams = useWorkflowStore((state) => state.updateNodeParams)
   const nodes = useWorkflowStore((state) => state.nodes)
   const edges = useWorkflowStore((state) => state.edges)
@@ -538,7 +538,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const isPathField = isFilePathField(data.kind, field.key)
     const isScreenshotSizeFieldDisabled =
       data.kind === 'screenshot' &&
-      (field.key === 'width' || field.key === 'height') &&
+      (field.key === 'startX' || field.key === 'startY' || field.key === 'width' || field.key === 'height') &&
       Boolean(params.fullscreen)
     const isScreenshotSaveDirFieldDisabled =
       data.kind === 'screenshot' && field.key === 'saveDir' && !Boolean(params.shouldSave ?? true)

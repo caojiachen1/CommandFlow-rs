@@ -70,7 +70,7 @@ pub fn capture_fullscreen_rgba() -> CommandResult<(Vec<u8>, u32, u32)> {
     capture_primary_rgba()
 }
 
-pub fn capture_region_rgba(width: u32, height: u32) -> CommandResult<(Vec<u8>, u32, u32)> {
+pub fn capture_region_rgba(start_x: u32, start_y: u32, width: u32, height: u32) -> CommandResult<(Vec<u8>, u32, u32)> {
     let monitor = primary_monitor()?;
     let monitor_width = monitor
         .width()
@@ -79,8 +79,19 @@ pub fn capture_region_rgba(width: u32, height: u32) -> CommandResult<(Vec<u8>, u
         .height()
         .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
 
-    let target_width = width.min(monitor_width);
-    let target_height = height.min(monitor_height);
+    if monitor_width == 0 || monitor_height == 0 {
+        return Err(CommandFlowError::Automation(
+            "invalid monitor size for region screenshot".to_string(),
+        ));
+    }
+
+    let clamped_start_x = start_x.min(monitor_width.saturating_sub(1));
+    let clamped_start_y = start_y.min(monitor_height.saturating_sub(1));
+    let available_width = monitor_width.saturating_sub(clamped_start_x);
+    let available_height = monitor_height.saturating_sub(clamped_start_y);
+
+    let target_width = width.min(available_width);
+    let target_height = height.min(available_height);
 
     if target_width == 0 || target_height == 0 {
         return Err(CommandFlowError::Automation(
@@ -89,7 +100,7 @@ pub fn capture_region_rgba(width: u32, height: u32) -> CommandResult<(Vec<u8>, u
     }
 
     let region_image = monitor
-        .capture_region(0, 0, target_width, target_height)
+        .capture_region(clamped_start_x, clamped_start_y, target_width, target_height)
         .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
     let region_rgba = region_image.into_raw();
 
@@ -397,8 +408,8 @@ pub fn encode_rgba_to_png_base64(rgba: &[u8], width: u32, height: u32) -> Comman
     Ok(general_purpose::STANDARD.encode(encoded))
 }
 
-pub fn capture_region(path: &str, width: u32, height: u32) -> CommandResult<String> {
-    let (rgba, target_width, target_height) = capture_region_rgba(width, height)?;
+pub fn capture_region(path: &str, start_x: u32, start_y: u32, width: u32, height: u32) -> CommandResult<String> {
+    let (rgba, target_width, target_height) = capture_region_rgba(start_x, start_y, width, height)?;
     save_rgba(path, rgba, target_width, target_height)
 }
 

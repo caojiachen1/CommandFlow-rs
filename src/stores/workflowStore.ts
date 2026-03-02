@@ -149,7 +149,7 @@ const applyConnectionWithReplacement = (
     return null
   }
 
-  const sourceHandle = normalizeSourceHandleId(sourceNode.data.kind, connection.sourceHandle)
+  const sourceHandle = normalizeSourceHandleId(sourceNode.data.kind, connection.sourceHandle, sourceNode.data.params)
   const targetHandle = normalizeTargetHandleId(targetNode.data.kind, connection.targetHandle)
   if (!sourceHandle || !targetHandle) {
     return null
@@ -176,7 +176,7 @@ const applyConnectionWithReplacement = (
 
   let nextEdges = edges
 
-  const sourceMax = getOutputHandleMaxConnections(sourceNode.data.kind, sourceHandle)
+  const sourceMax = getOutputHandleMaxConnections(sourceNode.data.kind, sourceHandle, sourceNode.data.params)
   if (sourceMax <= 0) {
     return null
   }
@@ -275,7 +275,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       if (!node) return state
 
       if (handleType === 'source') {
-        const normalized = normalizeSourceHandleId(node.data.kind, handleId)
+        const normalized = normalizeSourceHandleId(node.data.kind, handleId, node.data.params)
         if (!normalized) return state
         const nextEdges = state.edges.filter(
           (edge) => !(edge.source === nodeId && edge.sourceHandle === normalized),
