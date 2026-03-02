@@ -5,14 +5,14 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 export default function StatusBar() {
   const { cursor, nodes } = useWorkflowStore()
   const { statusText, running } = useExecutionStore()
-  const { zoom, coordinateMode } = useSettingsStore()
+  const { zoom } = useSettingsStore()
 
   return (
     <footer className="relative z-50 flex h-10 items-center gap-6 border-t border-slate-200 bg-white px-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-slate-400">
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full bg-slate-300 dark:bg-neutral-700" />
         <span>坐标: <span className="font-mono text-cyan-600 dark:text-cyan-400">{cursor.x}, {cursor.y}</span></span>
-        <span className="ml-1 opacity-50 text-[9px]">({coordinateMode === 'virtualScreen' ? '虚拟屏幕' : '活动窗口'})</span>
+        <span className="ml-1 opacity-50 text-[9px]">(物理像素/全局)</span>
       </div>
       
       <div className="h-3 w-[1px] bg-slate-200 dark:bg-neutral-800" />

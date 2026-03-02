@@ -7,11 +7,12 @@ import Toolbar from './components/Toolbar'
 import StatusBar from './components/StatusBar'
 import VariablePanel from './components/VariablePanel'
 import ExecutionLog from './components/ExecutionLog'
+import CoordinatePicker from './components/CoordinatePicker'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
-import { runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
+import { pickCoordinate, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
@@ -19,7 +20,7 @@ const menuGroups = {
   文件: ['新建', '打开', '保存', '另存为'],
   编辑: ['撤销', '重做', '复制', '粘贴'],
   视图: ['放大', '缩小', '重置缩放', '后台模式'],
-  运行: ['运行', '停止', '单步'],
+  运行: ['运行', '停止', '单步', '拾取坐标'],
   帮助: ['文档', '快捷键'],
 }
 
@@ -68,6 +69,7 @@ function App() {
   const [helpModalOpen, setHelpModalOpen] = useState(false)
   const [helpType, setHelpType] = useState<'docs' | 'shortcuts'>('docs')
   const [backgroundMode, setBackgroundModeState] = useState(false)
+  const [coordinatePicking, setCoordinatePicking] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const continuousStepRunningRef = useRef(false)
@@ -526,6 +528,30 @@ function App() {
     backgroundModeRef.current = backgroundMode
   }, [backgroundMode])
 
+  const startCoordinatePicking = useCallback(async () => {
+    if (coordinatePicking) return
+
+    setCoordinatePicking(true)
+    addLog('info', '进入系统级坐标拾取（全屏 / 物理精准像素）。请在 Overlay 中点击目标位置。')
+
+    try {
+      const point = await pickCoordinate()
+      addLog(
+        'success',
+        `坐标拾取成功：x=${point.x}, y=${point.y}（物理像素/全局）`,
+      )
+    } catch (error) {
+      const message = String(error)
+      if (message.includes('取消')) {
+        addLog('warn', '已取消坐标拾取。')
+      } else {
+        addLog('error', `坐标拾取失败：${message}`)
+      }
+    } finally {
+      setCoordinatePicking(false)
+    }
+  }, [addLog, coordinatePicking])
+
   const getParamString = (node: WorkflowNode, key: string, fallback = '') => {
     const value = node.data.params[key]
     return typeof value === 'string' ? value : fallback
@@ -975,6 +1001,9 @@ function App() {
       case '单步':
         void runSingleStep()
         break
+      case '拾取坐标':
+        await startCoordinatePicking()
+        break
       case '文档':
         setHelpType('docs')
         setHelpModalOpen(true)
@@ -1163,6 +1192,11 @@ function App() {
             >
               停止
             </button>
+            <CoordinatePicker
+              picking={coordinatePicking}
+              onPick={startCoordinatePicking}
+              compact
+            />
             <button
               type="button"
               onClick={() => void handleMenuAction('后台模式')}
@@ -1180,6 +1214,8 @@ function App() {
           <div className="shrink-0 flex flex-col">
             <Toolbar
               backgroundMode={backgroundMode}
+              coordinatePicking={coordinatePicking}
+              onPickCoordinate={startCoordinatePicking}
               onToggleBackgroundMode={() => {
                 void handleMenuAction('后台模式')
               }}

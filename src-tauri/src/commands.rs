@@ -6,14 +6,20 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use tokio::sync::oneshot;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size};
 
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::RECT;
+use windows_sys::Win32::Foundation::{POINT, RECT};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, GetSystemMetrics, SystemParametersInfoW,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SPI_GETWORKAREA,
+};
 
 #[derive(Debug, Clone, Copy)]
 struct WindowSnapshot {
@@ -62,6 +68,55 @@ pub struct CoordinateInfo {
     pub y: i32,
     pub is_physical_pixel: bool,
     pub mode: String,
+}
+
+fn coordinate_pick_sender_store(
+) -> &'static Mutex<Option<oneshot::Sender<Result<CoordinateInfo, String>>>> {
+    static COORDINATE_PICK_SENDER: OnceLock<
+        Mutex<Option<oneshot::Sender<Result<CoordinateInfo, String>>>>,
+    > = OnceLock::new();
+    COORDINATE_PICK_SENDER.get_or_init(|| Mutex::new(None))
+}
+
+fn complete_coordinate_pick(result: Result<CoordinateInfo, String>) -> Result<(), String> {
+    let sender_mutex = coordinate_pick_sender_store();
+    let mut sender_guard = sender_mutex
+        .lock()
+        .map_err(|_| "坐标拾取状态锁已损坏。".to_string())?;
+
+    let sender = sender_guard
+        .take()
+        .ok_or_else(|| "当前没有进行中的坐标拾取。".to_string())?;
+
+    sender
+        .send(result)
+        .map_err(|_| "坐标拾取结果发送失败。".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn read_cursor_virtual_screen_point() -> Result<(i32, i32), String> {
+    let mut point: POINT = unsafe { std::mem::zeroed() };
+    let ok = unsafe { GetCursorPos(&mut point as *mut POINT) };
+    if ok == 0 {
+        return Err("获取当前鼠标坐标失败。".to_string());
+    }
+
+    Ok((point.x, point.y))
+}
+
+#[cfg(target_os = "windows")]
+fn get_virtual_screen_bounds() -> (i32, i32, u32, u32) {
+    let x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+    let y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+    let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+    let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+
+    (
+        x,
+        y,
+        width.max(1) as u32,
+        height.max(1) as u32,
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -202,15 +257,134 @@ pub async fn load_workflow(path: String) -> Result<WorkflowGraph, String> {
 }
 
 #[tauri::command]
-pub async fn pick_coordinate(mode: Option<String>) -> Result<CoordinateInfo, String> {
-    let resolved_mode = mode.unwrap_or_else(|| "virtualScreen".to_string());
+pub async fn pick_coordinate(app: AppHandle) -> Result<CoordinateInfo, String> {
+    {
+        let sender_mutex = coordinate_pick_sender_store();
+        let sender_guard = sender_mutex
+            .lock()
+            .map_err(|_| "坐标拾取状态锁已损坏。".to_string())?;
+        if sender_guard.is_some() {
+            return Err("已有坐标拾取正在进行中。".to_string());
+        }
+    }
 
-    Ok(CoordinateInfo {
-        x: 0,
-        y: 0,
-        is_physical_pixel: true,
-        mode: resolved_mode,
-    })
+    if let Some(existing) = app.get_webview_window("coordinate-overlay") {
+        let _ = existing.close();
+    }
+
+    let (tx, rx) = oneshot::channel::<Result<CoordinateInfo, String>>();
+    {
+        let sender_mutex = coordinate_pick_sender_store();
+        let mut sender_guard = sender_mutex
+            .lock()
+            .map_err(|_| "坐标拾取状态锁已损坏。".to_string())?;
+        *sender_guard = Some(tx);
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        "coordinate-overlay",
+        tauri::WebviewUrl::App("index.html?coordinateOverlay=1".into()),
+    )
+    .title("Coordinate Overlay")
+    .decorations(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(true)
+    .transparent(true)
+    .build()
+    .map_err(|error| {
+        let sender_mutex = coordinate_pick_sender_store();
+        if let Ok(mut sender_guard) = sender_mutex.lock() {
+            sender_guard.take();
+        }
+        format!("创建坐标拾取 Overlay 失败：{}", error)
+    })?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Err(fullscreen_error) = window.set_fullscreen(true) {
+            let (x, y, width, height) = get_virtual_screen_bounds();
+            window
+                .set_position(Position::Physical(PhysicalPosition { x, y }))
+                .map_err(|error| format!("设置 Overlay 位置失败：{}", error))?;
+            window
+                .set_size(Size::Physical(PhysicalSize { width, height }))
+                .map_err(|error| format!("设置 Overlay 尺寸失败：{}", error))?;
+            eprintln!(
+                "[coordinate-overlay] set_fullscreen failed on windows, fallback to virtual screen bounds: {}",
+                fullscreen_error
+            );
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_fullscreen(true)
+            .map_err(|error| format!("设置 Overlay 全屏失败：{}", error))?;
+    }
+
+    let _ = window.set_focus();
+
+    let output = match tokio::time::timeout(Duration::from_secs(300), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("坐标拾取流程异常中断。".to_string()),
+        Err(_) => Err("坐标拾取超时，已自动取消。".to_string()),
+    };
+
+    {
+        let sender_mutex = coordinate_pick_sender_store();
+        if let Ok(mut sender_guard) = sender_mutex.lock() {
+            sender_guard.take();
+        }
+    }
+
+    if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+        let _ = overlay.close();
+    }
+
+    output
+}
+
+#[tauri::command]
+pub async fn confirm_coordinate_pick(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let (x, y) = read_cursor_virtual_screen_point()?;
+        complete_coordinate_pick(Ok(CoordinateInfo {
+            x,
+            y,
+            is_physical_pixel: true,
+            mode: "virtualScreen".to_string(),
+        }))?;
+
+        if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+            let _ = overlay.close();
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+            let _ = overlay.close();
+        }
+        complete_coordinate_pick(Err("当前平台尚未支持系统级坐标拾取。".to_string()))
+    }
+}
+
+#[tauri::command]
+pub async fn cancel_coordinate_pick(app: AppHandle, reason: Option<String>) -> Result<(), String> {
+    let cancel_reason = reason.unwrap_or_else(|| "已取消坐标拾取。".to_string());
+
+    if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+        let _ = overlay.close();
+    }
+
+    complete_coordinate_pick(Err(cancel_reason))
 }
 
 #[tauri::command]
@@ -302,7 +476,7 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
     let snapshot_mutex = window_snapshot_store();
 
     if enabled {
-        let compact_width = 460u32;
+        let compact_width = 620u32;
         let compact_height = 340u32;
 
         {

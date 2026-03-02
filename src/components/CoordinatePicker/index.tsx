@@ -1,18 +1,21 @@
-import { useSettingsStore } from '../../stores/settingsStore'
+interface CoordinatePickerProps {
+  picking: boolean
+  onPick: () => void
+  compact?: boolean
+}
 
-export default function CoordinatePicker() {
-  const { coordinateMode, setCoordinateMode } = useSettingsStore()
-
+export default function CoordinatePicker({ picking, onPick, compact = false }: CoordinatePickerProps) {
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-[11px] text-slate-500">坐标模式</span>
+    <div className="flex items-center gap-1.5">
+      {!compact && <span className="text-[11px] text-slate-500">坐标拾取</span>}
       <button
         type="button"
-        onClick={() => setCoordinateMode(coordinateMode === 'virtualScreen' ? 'activeWindow' : 'virtualScreen')}
-        className="rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-neutral-700"
-        title="后续将接入全局热键坐标拾取"
+        onClick={onPick}
+        disabled={picking}
+        className="rounded bg-cyan-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-500"
+        title="进入坐标拾取模式"
       >
-        {coordinateMode === 'virtualScreen' ? '物理像素/全局' : '相对窗口'}
+        {picking ? '拾取中...' : '拾取坐标'}
       </button>
     </div>
   )

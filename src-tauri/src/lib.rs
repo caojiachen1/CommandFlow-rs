@@ -46,6 +46,8 @@ pub fn run() {
             commands::save_workflow,
             commands::load_workflow,
             commands::pick_coordinate,
+            commands::confirm_coordinate_pick,
+            commands::cancel_coordinate_pick,
             commands::list_open_windows,
             commands::fetch_llm_models,
             commands::health_check,

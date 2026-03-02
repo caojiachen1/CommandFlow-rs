@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { BackendWorkflowGraph } from './workflowBridge'
+import type { CoordinatePoint } from '../types/workflow'
 
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 
@@ -29,6 +30,31 @@ export const setBackgroundMode = async (enabled: boolean): Promise<string> => {
     return enabled ? '浏览器模式：已切换到紧凑视图。' : '浏览器模式：已恢复标准视图。'
   }
   return invoke<string>('set_background_mode', { enabled })
+}
+
+export const pickCoordinate = async (): Promise<CoordinatePoint> => {
+  if (!isTauriRuntime()) {
+    return {
+      x: 0,
+      y: 0,
+      isPhysicalPixel: true,
+      mode: 'virtualScreen',
+    }
+  }
+
+  const payload = await invoke<{
+    x: number
+    y: number
+    is_physical_pixel: boolean
+    mode: 'virtualScreen' | 'activeWindow'
+  }>('pick_coordinate')
+
+  return {
+    x: payload.x,
+    y: payload.y,
+    isPhysicalPixel: payload.is_physical_pixel,
+    mode: payload.mode,
+  }
 }
 
 export const fetchLlmModels = async (baseUrl: string, apiKey: string): Promise<string[]> => {

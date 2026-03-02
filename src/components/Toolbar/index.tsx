@@ -4,13 +4,16 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { runWorkflow, stopWorkflow } from '../../utils/execution'
 import { toBackendGraph } from '../../utils/workflowBridge'
 import { useState } from 'react'
+import CoordinatePicker from '../CoordinatePicker'
 
 interface ToolbarProps {
   backgroundMode: boolean
   onToggleBackgroundMode: () => void
+  onPickCoordinate: () => void
+  coordinatePicking: boolean
 }
 
-export default function Toolbar({ backgroundMode, onToggleBackgroundMode }: ToolbarProps) {
+export default function Toolbar({ backgroundMode, onToggleBackgroundMode, onPickCoordinate, coordinatePicking }: ToolbarProps) {
   const { running, setRunning, addLog, clearVariables } = useExecutionStore()
   const { zoom } = useSettingsStore()
   const { undo, redo, exportWorkflow, graphName, setGraphName } = useWorkflowStore()
@@ -133,6 +136,7 @@ export default function Toolbar({ backgroundMode, onToggleBackgroundMode }: Tool
       )}
 
       <div className="ml-auto flex items-center gap-3">
+        <CoordinatePicker picking={coordinatePicking} onPick={onPickCoordinate} compact />
         <div className="rounded-full bg-slate-200/50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:bg-neutral-800/50 dark:text-slate-400">
           缩放: {Math.round(zoom * 100)}%
         </div>

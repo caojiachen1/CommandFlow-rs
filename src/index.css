@@ -28,6 +28,12 @@ body {
   background: #202020;
 }
 
+html.coordinate-overlay-mode,
+html.coordinate-overlay-mode body,
+html.coordinate-overlay-mode #root {
+  background: transparent !important;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
