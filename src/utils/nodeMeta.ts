@@ -542,6 +542,58 @@ finished(content='xxx') # Use escape characters \\', \\" and \\n in content part
     defaultParams: { ms: 500 },
     fields: [{ key: 'ms', label: '毫秒', type: 'number', min: 0, step: 100 }],
   },
+  powerShutdown: {
+    label: '系统关机',
+    description: '执行系统关机。支持延时和强制关闭应用。',
+    defaultParams: {
+      timeoutSec: 0,
+      force: false,
+    },
+    fields: [
+      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
+      { key: 'force', label: '强制关闭应用', type: 'boolean' },
+    ],
+  },
+  powerRestart: {
+    label: '系统重启',
+    description: '执行系统重启。支持延时和强制关闭应用。',
+    defaultParams: {
+      timeoutSec: 0,
+      force: false,
+    },
+    fields: [
+      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
+      { key: 'force', label: '强制关闭应用', type: 'boolean' },
+    ],
+  },
+  powerSleep: {
+    label: '系统睡眠',
+    description: '让系统进入睡眠模式。',
+    defaultParams: {},
+    fields: [],
+  },
+  powerHibernate: {
+    label: '系统休眠',
+    description: '让系统进入休眠模式。',
+    defaultParams: {},
+    fields: [],
+  },
+  powerLock: {
+    label: '锁定系统',
+    description: '立即锁定当前会话（锁屏）。',
+    defaultParams: {},
+    fields: [],
+  },
+  powerSignOut: {
+    label: '注销登录',
+    description: '注销当前用户会话。',
+    defaultParams: {
+      force: false,
+    },
+    fields: [
+      { key: 'force', label: '强制关闭应用', type: 'boolean' },
+    ],
+  },
   condition: {
     label: '条件判断',
     description: 'if 条件判断。',

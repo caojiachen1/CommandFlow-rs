@@ -1,4 +1,4 @@
-use crate::automation::{file_ops, image_match, keyboard, mouse, screenshot, window};
+use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, window};
 use arboard::Clipboard;
 use base64::Engine as _;
 use regex::Regex;
@@ -778,6 +778,41 @@ impl WorkflowExecutor {
                 let duration = get_u64(node, "ms", 100);
                 interruptible_sleep(Duration::from_millis(duration), should_cancel).await?;
                 set_node_output(ctx, node, "ms", value_from_u64(duration));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::PowerShutdown => {
+                let timeout_sec = get_u64(node, "timeoutSec", 0);
+                let force = get_bool(node, "force", false);
+                power::shutdown(timeout_sec, force).await?;
+                set_node_output(ctx, node, "action", Value::String("shutdown".to_string()));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::PowerRestart => {
+                let timeout_sec = get_u64(node, "timeoutSec", 0);
+                let force = get_bool(node, "force", false);
+                power::restart(timeout_sec, force).await?;
+                set_node_output(ctx, node, "action", Value::String("restart".to_string()));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::PowerSleep => {
+                power::sleep().await?;
+                set_node_output(ctx, node, "action", Value::String("sleep".to_string()));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::PowerHibernate => {
+                power::hibernate().await?;
+                set_node_output(ctx, node, "action", Value::String("hibernate".to_string()));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::PowerLock => {
+                power::lock_screen().await?;
+                set_node_output(ctx, node, "action", Value::String("lock".to_string()));
+                Ok(NextDirective::Default)
+            }
+            NodeKind::PowerSignOut => {
+                let force = get_bool(node, "force", false);
+                power::sign_out(force).await?;
+                set_node_output(ctx, node, "action", Value::String("signOut".to_string()));
                 Ok(NextDirective::Default)
             }
             NodeKind::Condition => {

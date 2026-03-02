@@ -271,6 +271,30 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: [...singleOut(), { id: 'ms', label: 'ms', maxConnections: MANY, valueType: 'number' }],
   },
+  powerShutdown: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  powerRestart: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  powerSleep: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  powerHibernate: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  powerLock: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  powerSignOut: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   condition: {
     inputs: singleIn(),
     outputs: [
