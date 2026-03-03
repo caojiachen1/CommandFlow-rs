@@ -8,11 +8,12 @@ import StatusBar from './components/StatusBar'
 import VariablePanel from './components/VariablePanel'
 import ExecutionLog from './components/ExecutionLog'
 import CoordinatePicker from './components/CoordinatePicker'
+import LlmSettingsModal from './components/LlmSettingsModal'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useExecutionStore } from './stores/executionStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
-import { pickCoordinate, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
+import { pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
@@ -21,6 +22,7 @@ const menuGroups = {
   编辑: ['撤销', '重做', '复制', '粘贴'],
   视图: ['放大', '缩小', '重置缩放', '后台模式'],
   运行: ['运行', '停止', '单步', '拾取坐标'],
+  设置: ['LLM 预设'],
   帮助: ['文档', '快捷键'],
 }
 
@@ -48,6 +50,68 @@ const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
   kind === 'hotkeyTrigger' || kind === 'timerTrigger' || kind === 'manualTrigger' || kind === 'windowTrigger'
 const isManualTriggerKind = (kind: WorkflowNode['data']['kind']) => kind === 'manualTrigger'
 
+let completionAudioContext: AudioContext | null = null
+
+const getCompletionAudioContext = async () => {
+  const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!AudioContextCtor) {
+    throw new Error('AudioContext unavailable')
+  }
+
+  if (!completionAudioContext || completionAudioContext.state === 'closed') {
+    completionAudioContext = new AudioContextCtor()
+  }
+
+  if (completionAudioContext.state === 'suspended') {
+    await completionAudioContext.resume()
+  }
+
+  return completionAudioContext
+}
+
+const playWorkflowCompletedTone = () => {
+  void (async () => {
+    try {
+      await playCompletionBeep()
+    } catch {
+      // continue with web audio fallback
+    }
+
+    try {
+      const audioContext = await getCompletionAudioContext()
+      const now = audioContext.currentTime
+
+      const gain = audioContext.createGain()
+      gain.gain.setValueAtTime(0.0001, now)
+      gain.gain.exponentialRampToValueAtTime(0.06, now + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.36)
+      gain.connect(audioContext.destination)
+
+      const oscA = audioContext.createOscillator()
+      oscA.type = 'sine'
+      oscA.frequency.setValueAtTime(880, now)
+      oscA.connect(gain)
+      oscA.start(now)
+      oscA.stop(now + 0.16)
+
+      const oscB = audioContext.createOscillator()
+      oscB.type = 'triangle'
+      oscB.frequency.setValueAtTime(1174, now + 0.18)
+      oscB.connect(gain)
+      oscB.start(now + 0.18)
+      oscB.stop(now + 0.34)
+    } catch {
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance('执行完成')
+        utterance.lang = 'zh-CN'
+        utterance.rate = 1.1
+        window.speechSynthesis.cancel()
+        window.speechSynthesis.speak(utterance)
+      }
+    }
+  })()
+}
+
 function App() {
   const {
     undo,
@@ -68,6 +132,7 @@ function App() {
   const [lastFilePath, setLastFilePath] = useState<string | null>(null)
   const [helpModalOpen, setHelpModalOpen] = useState(false)
   const [helpType, setHelpType] = useState<'docs' | 'shortcuts'>('docs')
+  const [llmSettingsOpen, setLlmSettingsOpen] = useState(false)
   const [backgroundMode, setBackgroundModeState] = useState(false)
   const [coordinatePicking, setCoordinatePicking] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -485,6 +550,7 @@ function App() {
         if (!nextEntryStart) {
           resetStepSession()
           addLog('success', `单步完成：${message}（已到流程末尾）`)
+          playWorkflowCompletedTone()
           return
         }
 
@@ -753,6 +819,7 @@ function App() {
         const nextNodeId = pickNextNodeId(currentNode, stepCtxRef.current)
         if (!nextNodeId) {
           addLog('success', '连续单步完成：已到达流程末尾。')
+          playWorkflowCompletedTone()
           return
         }
 
@@ -988,6 +1055,7 @@ function App() {
           addLog('info', `开始执行：${workflowFile.graph.name}`)
           const message = await runWorkflow(graph)
           addLog('success', message)
+          playWorkflowCompletedTone()
         } catch (error) {
           addLog('error', `执行失败：${String(error)}`)
         } finally {
@@ -1011,6 +1079,9 @@ function App() {
       case '快捷键':
         setHelpType('shortcuts')
         setHelpModalOpen(true)
+        break
+      case 'LLM 预设':
+        setLlmSettingsOpen(true)
         break
       default:
         console.log(`点击了 ${item}`)
@@ -1164,6 +1235,8 @@ function App() {
           </div>
         </div>
       )}
+
+      <LlmSettingsModal open={llmSettingsOpen} onClose={() => setLlmSettingsOpen(false)} />
 
       {backgroundMode ? (
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">

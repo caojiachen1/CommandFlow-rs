@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { getNodeMeta, type ParamField } from '../../utils/nodeMeta'
-import { fetchLlmModels, listOpenWindows } from '../../utils/execution'
-import { resolveGuiAgentChatEndpointPreview } from '../../utils/llmEndpoint'
+import { listOpenWindows } from '../../utils/execution'
 import type { NodeKind } from '../../types/workflow'
 import SmartInputSelect from '../SmartInputSelect'
 import StyledSelect from '../StyledSelect'
@@ -119,10 +119,10 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   )
 
   const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
+  const llmPresets = useSettingsStore((state) => state.llmPresets)
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [windowTitles, setWindowTitles] = useState<string[]>([])
-  const [guiModelNames, setGuiModelNames] = useState<string[]>([])
 
   const variableNames = useMemo(
     () =>
@@ -165,36 +165,6 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       cancelled = true
     }
   }, [expanded, selectedNode])
-
-  useEffect(() => {
-    if (!selectedNode || !expanded || selectedNode.data.kind !== 'guiAgent') {
-      setGuiModelNames([])
-      return
-    }
-
-    const baseUrl = String(selectedNode.data.params.baseUrl ?? selectedMeta?.defaultParams.baseUrl ?? '').trim()
-    const apiKey = String(selectedNode.data.params.apiKey ?? selectedMeta?.defaultParams.apiKey ?? '').trim()
-
-    if (!baseUrl) {
-      setGuiModelNames([])
-      return
-    }
-
-    let cancelled = false
-    void fetchLlmModels(baseUrl, apiKey)
-      .then((models) => {
-        if (cancelled) return
-        setGuiModelNames(models)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setGuiModelNames([])
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [expanded, selectedMeta?.defaultParams.apiKey, selectedMeta?.defaultParams.baseUrl, selectedNode])
 
   const getStringSuggestions = (field: ParamField): string[] => {
     if (!selectedNode) return []
@@ -241,10 +211,6 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     if (kind === 'hotkeyTrigger' && field.key === 'hotkey') {
       return COMMON_HOTKEYS
     }
-    if (kind === 'guiAgent' && field.key === 'model') {
-      return guiModelNames
-    }
-
     return []
   }
 
@@ -463,6 +429,17 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     }
 
     if (field.type === 'select') {
+      if (selectedNode.data.kind === 'guiAgent' && field.key === 'llmPresetId') {
+        return (
+          <StyledSelect
+            value={String(currentValue ?? '')}
+            options={llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))}
+            onChange={(nextValue) => updateParam(field.key, nextValue)}
+            placeholder={llmPresets.length > 0 ? '请选择 LLM 预设' : '请先在设置中新增预设'}
+          />
+        )
+      }
+
       return (
         <StyledSelect
           value={String(currentValue ?? field.options?.[0]?.value ?? '')}
@@ -677,16 +654,16 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                     <div key={field.key} className="space-y-1.5">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{field.label}</label>
                       {renderField(field)}
-                      {selectedNode.data.kind === 'guiAgent' && field.key === 'baseUrl' ? (
-                        <p className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">
-                          预览：{resolveGuiAgentChatEndpointPreview(String(selectedNode.data.params.baseUrl ?? selectedMeta?.defaultParams.baseUrl ?? '')) || '（请先输入 Base URL）'}
-                        </p>
-                      ) : null}
                       {field.description ? (
                         <p className="text-[11px] text-slate-400 dark:text-slate-500">{field.description}</p>
                       ) : null}
                     </div>
                   ))}
+                  {selectedNode.data.kind === 'guiAgent' && !Boolean(selectedNode.data.params.continuousMode ?? selectedMeta?.defaultParams.continuousMode ?? true) ? (
+                    <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300">
+                      非连续模式需手动提供图片输入。
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-[11px] text-slate-400 dark:border-neutral-700 dark:text-slate-500">

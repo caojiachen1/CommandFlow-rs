@@ -50,6 +50,7 @@ pub fn run() {
             commands::cancel_coordinate_pick,
             commands::list_open_windows,
             commands::fetch_llm_models,
+            commands::play_completion_beep,
             commands::health_check,
             commands::set_background_mode,
         ])

@@ -1,4 +1,5 @@
 import type { WorkflowFile } from '../types/workflow'
+import { useSettingsStore } from '../stores/settingsStore'
 
 interface BackendWorkflowNode {
   id: string
@@ -24,6 +25,21 @@ export interface BackendWorkflowGraph {
   edges: BackendWorkflowEdge[]
 }
 
+const resolveGuiAgentPresetParams = (params: Record<string, unknown>): Record<string, unknown> => {
+  const presetId = typeof params.llmPresetId === 'string' ? params.llmPresetId : ''
+  if (!presetId) return params
+
+  const preset = useSettingsStore.getState().llmPresets.find((item) => item.id === presetId)
+  if (!preset) return params
+
+  return {
+    ...params,
+    baseUrl: preset.baseUrl,
+    apiKey: preset.apiKey,
+    model: preset.model,
+  }
+}
+
 export const toBackendGraph = (file: WorkflowFile): BackendWorkflowGraph => ({
   id: file.graph.id,
   name: file.graph.name,
@@ -33,7 +49,7 @@ export const toBackendGraph = (file: WorkflowFile): BackendWorkflowGraph => ({
     kind: node.data.kind,
     position_x: node.position.x,
     position_y: node.position.y,
-    params: node.data.params,
+    params: node.data.kind === 'guiAgent' ? resolveGuiAgentPresetParams(node.data.params) : node.data.params,
   })),
   edges: file.graph.edges.map((edge) => ({
     id: edge.id,

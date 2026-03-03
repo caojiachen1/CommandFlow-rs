@@ -3,13 +3,13 @@ import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeMeta, type ParamField } from '../utils/nodeMeta'
-import { fetchLlmModels, listOpenWindows } from '../utils/execution'
-import { isLikelyValidBaseUrl, resolveGuiAgentChatEndpointPreview } from '../utils/llmEndpoint'
+import { listOpenWindows } from '../utils/execution'
 import {
   createParamInputHandleId,
   getNodePortSpec,
 } from '../utils/nodePorts'
 import { useWorkflowStore } from '../stores/workflowStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import PathPickerDropdown from '../components/PathPickerDropdown'
 
 interface BaseNodeProps {
@@ -217,7 +217,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [openSuggestFieldKey, setOpenSuggestFieldKey] = useState<string | null>(null)
   const [activeSuggestIndex, setActiveSuggestIndex] = useState(0)
   const [windowTitles, setWindowTitles] = useState<string[]>([])
-  const [guiModelNames, setGuiModelNames] = useState<string[]>([])
+  const llmPresets = useSettingsStore((state) => state.llmPresets)
   const [pathEditor, setPathEditor] = useState<{
     fieldKey: string
     value: string
@@ -281,35 +281,6 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     }
   }, [data.kind])
 
-  useEffect(() => {
-    if (data.kind !== 'guiAgent') {
-      setGuiModelNames([])
-      return
-    }
-
-    const baseUrl = String(params.baseUrl ?? meta.defaultParams.baseUrl ?? '').trim()
-    const apiKey = String(params.apiKey ?? meta.defaultParams.apiKey ?? '').trim()
-    if (!baseUrl) {
-      setGuiModelNames([])
-      return
-    }
-
-    let cancelled = false
-    void fetchLlmModels(baseUrl, apiKey)
-      .then((models) => {
-        if (cancelled) return
-        setGuiModelNames(models)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setGuiModelNames([])
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [data.kind, meta.defaultParams.apiKey, meta.defaultParams.baseUrl, params.apiKey, params.baseUrl])
-
   const getStringSuggestions = (field: ParamField): string[] => {
     const kind = data.kind
 
@@ -328,10 +299,6 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       variableReferenceField
     ) {
       return variableNames
-    }
-
-    if (kind === 'guiAgent' && field.key === 'model') {
-      return guiModelNames
     }
 
     return []
@@ -556,7 +523,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       data.kind === 'guiAgent' && field.key === 'imageInput' && Boolean(params.continuousMode ?? true)
     const isInputDisabled =
       connectedToInput || isScreenshotSaveDirFieldDisabled || isScreenshotSizeFieldDisabled || isGuiAgentImageInputDisabled
-    const selectOptions = field.options ?? []
+    const selectOptions = data.kind === 'guiAgent' && field.key === 'llmPresetId'
+      ? llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))
+      : (field.options ?? [])
     const selectedOption = selectOptions.find((option) => option.value === String(currentValue ?? ''))
 
     if (isSelect) {
@@ -652,7 +621,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var'))
 
     const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, field.key)
-    const supportsGuiModelSuggestions = data.kind === 'guiAgent' && field.key === 'model'
+    const supportsGuiModelSuggestions = false
     const supportsInlineSuggestions = supportsVariableSuggestions || supportsWindowTitleSuggestions || supportsGuiModelSuggestions
 
     const canShowSuggestions = !connectedToInput && !isNumber && !isSelect && !isJson && !isPathField && !isSensitiveField && supportsInlineSuggestions
@@ -998,15 +967,6 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         {textEditor?.fieldKey === field.key ? (
           createPortal(
             (() => {
-              const isBaseUrlEditor = data.kind === 'guiAgent' && field.key === 'baseUrl'
-              const endpointPreview = isBaseUrlEditor
-                ? resolveGuiAgentChatEndpointPreview(textEditor?.value ?? '')
-                : ''
-              const hasBaseUrlInput = (textEditor?.value ?? '').trim().length > 0
-              const isBaseUrlValid = isBaseUrlEditor
-                ? isLikelyValidBaseUrl(textEditor?.value ?? '')
-                : true
-
               return (
                 <div
                   ref={textEditorPanelRef}
@@ -1063,13 +1023,6 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                     }}
                     className="nodrag h-32 w-full resize-y rounded-lg border border-white/20 bg-[#23262d] px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
                   />
-
-                  {isBaseUrlEditor ? (
-                    <div className={`mt-1 px-1 text-[10px] ${hasBaseUrlInput && !isBaseUrlValid ? 'text-rose-300' : 'text-cyan-200/90'}`}>
-                      预览：{endpointPreview || '（请先输入 Base URL）'}
-                      {hasBaseUrlInput && !isBaseUrlValid ? '（URL 可能无效，请使用 http/https 完整地址）' : ''}
-                    </div>
-                  ) : null}
 
                   {textEditorError ? <div className="mt-1 px-1 text-[10px] text-rose-300">{textEditorError}</div> : null}
                   <div className="mt-2 flex justify-end gap-2">
@@ -1191,6 +1144,11 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               </div>
             )
           })}
+          {data.kind === 'guiAgent' && !Boolean(params.continuousMode ?? true) ? (
+            <div className="rounded-lg border border-amber-300/60 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-200">
+              非连续模式需手动提供图片输入。
+            </div>
+          ) : null}
         </div>
       ) : null}
 

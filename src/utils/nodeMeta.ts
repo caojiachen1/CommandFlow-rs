@@ -199,10 +199,8 @@ const metas: Record<NodeKind, NodeMeta> = {
     defaultParams: {
       continuousMode: true,
       maxSteps: 20,
+      llmPresetId: '',
       imageInput: '',
-      baseUrl: 'https://api.openai.com',
-      apiKey: '',
-      model: 'gpt-5',
       stripThink: true,
       instruction: '请根据截图执行下一步操作。',
       systemPrompt: `You are a GUI agent. You are given a task and your action history, with screenshots. You need to perform the next action to complete the task.
@@ -244,22 +242,11 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
         step: 1,
       },
       {
-        key: 'baseUrl',
-        label: 'Base URL',
-        type: 'string',
-        placeholder: 'https://api.openai.com',
-      },
-      {
-        key: 'apiKey',
-        label: 'API Key',
-        type: 'string',
-        placeholder: 'sk-***',
-      },
-      {
-        key: 'model',
-        label: '模型名称',
-        type: 'string',
-        placeholder: 'gpt-5',
+        key: 'llmPresetId',
+        label: 'LLM 预设',
+        type: 'select',
+        options: [],
+        description: '在设置里维护 LLM 预设，这里仅选择预设。',
       },
       {
         key: 'stripThink',
@@ -271,6 +258,7 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
         label: '输入图片(base64)',
         type: 'string',
         placeholder: '连接图像，或输入base64',
+        description: '非连续模式需手动提供图片输入。',
       },
       {
         key: 'instruction',

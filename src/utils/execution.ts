@@ -63,3 +63,10 @@ export const fetchLlmModels = async (baseUrl: string, apiKey: string): Promise<s
   }
   return invoke<string[]>('fetch_llm_models', { baseUrl, apiKey })
 }
+
+export const playCompletionBeep = async (): Promise<void> => {
+  if (!isTauriRuntime()) {
+    return
+  }
+  await invoke<string>('play_completion_beep')
+}

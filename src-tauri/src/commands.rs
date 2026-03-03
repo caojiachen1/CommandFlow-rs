@@ -575,3 +575,20 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
 
     Ok("已退出后台模式。".to_string())
 }
+
+#[tauri::command]
+pub async fn play_completion_beep() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "[console]::Beep(880,180)"])
+            .status();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        print!("\x07");
+    }
+
+    Ok("played".to_string())
+}
