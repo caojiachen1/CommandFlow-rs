@@ -274,7 +274,7 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       },
       {
         key: 'instruction',
-        label: '识别指令',
+        label: '指令',
         type: 'string',
         placeholder: '例如：点击登录按钮',
       },
