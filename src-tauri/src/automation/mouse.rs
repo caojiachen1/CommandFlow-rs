@@ -40,6 +40,14 @@ pub fn wheel(vertical: i32) -> CommandResult<()> {
     Ok(())
 }
 
+pub fn wheel_horizontal(horizontal: i32) -> CommandResult<()> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .scroll(horizontal, Axis::Horizontal)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    Ok(())
+}
+
 pub fn drag(from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> CommandResult<()> {
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo

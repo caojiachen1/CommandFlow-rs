@@ -79,6 +79,16 @@ const isWindowTitleField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'title'
 
 const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, params: Record<string, unknown>) => {
+  if (kind === 'guiAgent') {
+    const continuousMode = Boolean(params.continuousMode ?? true)
+    if (field.key === 'imageInput') {
+      return !continuousMode
+    }
+    if (field.key === 'maxSteps') {
+      return continuousMode
+    }
+  }
+
   if (kind === 'windowActivate') {
     const mode = String(params.switchMode ?? 'title')
     if (mode === 'title') {
@@ -542,7 +552,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       Boolean(params.fullscreen)
     const isScreenshotSaveDirFieldDisabled =
       data.kind === 'screenshot' && field.key === 'saveDir' && !Boolean(params.shouldSave ?? true)
-    const isInputDisabled = connectedToInput || isScreenshotSaveDirFieldDisabled || isScreenshotSizeFieldDisabled
+    const isGuiAgentImageInputDisabled =
+      data.kind === 'guiAgent' && field.key === 'imageInput' && Boolean(params.continuousMode ?? true)
+    const isInputDisabled =
+      connectedToInput || isScreenshotSaveDirFieldDisabled || isScreenshotSizeFieldDisabled || isGuiAgentImageInputDisabled
     const selectOptions = field.options ?? []
     const selectedOption = selectOptions.find((option) => option.value === String(currentValue ?? ''))
 

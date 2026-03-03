@@ -314,6 +314,16 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
 
   const shouldShowField = (field: ParamField): boolean => {
     if (!selectedNode) return true
+    if (selectedNode.data.kind === 'guiAgent') {
+      const continuousMode = Boolean(selectedNode.data.params.continuousMode ?? selectedMeta?.defaultParams.continuousMode ?? true)
+      if (field.key === 'imageInput') {
+        return !continuousMode
+      }
+      if (field.key === 'maxSteps') {
+        return continuousMode
+      }
+    }
+
     if (selectedNode.data.kind === 'windowActivate') {
       const mode = String(selectedNode.data.params.switchMode ?? selectedMeta?.defaultParams.switchMode ?? 'title')
       if (mode === 'title') {
@@ -433,6 +443,10 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       selectedNode.data.kind === 'screenshot' &&
       field.key === 'saveDir' &&
       !Boolean(selectedNode.data.params.shouldSave ?? selectedMeta?.defaultParams.shouldSave ?? true)
+    const isGuiAgentImageInputDisabled =
+      selectedNode.data.kind === 'guiAgent' &&
+      field.key === 'imageInput' &&
+      Boolean(selectedNode.data.params.continuousMode ?? selectedMeta?.defaultParams.continuousMode ?? true)
 
     if (field.type === 'boolean') {
       return (
@@ -467,7 +481,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
           min={field.min}
           max={field.max}
           step={field.step ?? 1}
-          disabled={isScreenshotSizeFieldDisabled}
+          disabled={isScreenshotSizeFieldDisabled || isGuiAgentImageInputDisabled}
           onChange={(event) => updateParam(field.key, Number(event.target.value))}
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
         />
@@ -523,7 +537,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 type="text"
                 value={String(currentValue ?? '')}
                 placeholder={field.placeholder}
-                disabled={isScreenshotSaveDirFieldDisabled}
+                disabled={isScreenshotSaveDirFieldDisabled || isGuiAgentImageInputDisabled}
                 onChange={(event) => updateParam(field.key, event.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
               />
@@ -588,6 +602,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
             type="text"
             value={String(currentValue ?? '')}
             placeholder={field.placeholder}
+            disabled={isGuiAgentImageInputDisabled}
             onChange={(event) => updateParam(field.key, event.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
           />

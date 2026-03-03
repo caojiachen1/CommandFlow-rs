@@ -7,9 +7,10 @@ use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use crate::error::{CommandFlowError, CommandResult};
 use crate::workflow::graph::WorkflowGraph;
 use crate::workflow::node::{NodeKind, WorkflowNode};
+use image::{ImageBuffer, Rgba, RgbaImage};
 use serde_json::{Number, Value};
 use std::backtrace::Backtrace;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::ErrorKind;
 use std::io::Write;
@@ -21,6 +22,8 @@ use tokio::time::{sleep, Duration};
 
 const DEFAULT_POST_DELAY_MS: u64 = 50;
 const IMAGE_MATCH_DEBUG_SAVE_EVERY: u64 = 15;
+const GUI_AGENT_MAX_SCREENSHOTS: usize = 5;
+const GUI_AGENT_DEFAULT_MAX_STEPS: u64 = 20;
 const PARAM_INPUT_PREFIX: &str = "param:";
 const PARAM_INPUT_SUFFIX: &str = ":in";
 
@@ -2120,6 +2123,12 @@ enum GuiAgentAction {
     Finished { content: String },
 }
 
+#[derive(Debug, Clone)]
+struct GuiAgentHistoryTurn {
+    image_data_url: String,
+    assistant_output: String,
+}
+
 async fn execute_gui_agent_action(
     node: &WorkflowNode,
     should_cancel: &impl Fn() -> bool,
@@ -2133,6 +2142,9 @@ async fn execute_gui_agent_action(
     let api_key = get_string(node, "apiKey", "");
     let model = get_string(node, "model", "gpt-5");
     let instruction = get_string(node, "instruction", "");
+    let continuous_mode = get_bool(node, "continuousMode", true);
+    let max_steps = get_u64(node, "maxSteps", GUI_AGENT_DEFAULT_MAX_STEPS).max(1);
+    let history_screenshots = GUI_AGENT_MAX_SCREENSHOTS;
     let image_input = get_string(node, "imageInput", "");
     let image_format = get_string(node, "imageFormat", "png").to_lowercase();
     let max_tokens = get_u64(node, "maxTokens", 512);
@@ -2160,115 +2172,211 @@ async fn execute_gui_agent_action(
         )));
     }
 
-    if image_input.trim().is_empty() {
+    if !continuous_mode && image_input.trim().is_empty() {
         return Err(CommandFlowError::Validation(format!(
             "node '{}' GUI Agent imageInput cannot be empty",
             node.id
         )));
     }
 
-    let cleaned_base64 = normalize_base64_input(&image_input);
-    let (image_width, image_height) = decode_base64_image_dimensions(&cleaned_base64, &image_format)?;
-    let system_prompt = system_prompt_template.replace("{instruction}", &instruction);
+    let system_prompt = render_gui_agent_initial_prompt(&system_prompt_template, &instruction);
     let endpoint = resolve_chat_endpoint(&base_url);
 
-    let messages = serde_json::json!([
-        {
-            "role": "user",
-            "content": system_prompt
-        },
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": format!("data:image/{};base64,{}", image_format, cleaned_base64)
-                    }
-                }
-            ]
-        }
-    ]);
-
-    let payload = serde_json::json!({
-        "model": model,
-        "temperature": 0,
-        "max_tokens": max_tokens,
-        "messages": messages,
-    });
-
     let client = reqwest::Client::new();
-    let response = client
-        .post(endpoint)
-        .header(CONTENT_TYPE, "application/json")
-        .header(AUTHORIZATION, format!("Bearer {}", api_key))
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 请求失败: {}", error)))?;
+    let debug_dir = if continuous_mode {
+        Some(prepare_gui_agent_debug_dir(node)?)
+    } else {
+        None
+    };
+    let mut history = VecDeque::<GuiAgentHistoryTurn>::new();
+    let mut last_metadata = serde_json::json!({});
 
-    let status = response.status();
-    let raw_response = response
-        .text()
-        .await
-        .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应读取失败: {}", error)))?;
+    for step in 1..=max_steps {
+        if should_cancel() {
+            return Err(CommandFlowError::Canceled);
+        }
 
-    if !status.is_success() {
-        return Err(CommandFlowError::Automation(format!(
-            "GUI Agent 请求返回非 2xx（{}）：{}",
-            status, raw_response
-        )));
+        let (_cleaned_base64, image_width, image_height, data_url, debug_rgba) = if continuous_mode {
+            let (rgba, width, height) = screenshot::capture_fullscreen_rgba()?;
+            let base64 = screenshot::encode_rgba_to_png_base64(&rgba, width, height)?;
+            let data_url = format!("data:image/png;base64,{}", base64);
+            (base64, width, height, data_url, Some(rgba))
+        } else {
+            let base64 = normalize_base64_input(&image_input);
+            let (width, height) = decode_base64_image_dimensions(&base64, &image_format)?;
+            let data_url = format!("data:image/{};base64,{}", image_format, base64);
+            (base64, width, height, data_url, None)
+        };
+
+        if let (true, Some(dir), Some(rgba)) = (continuous_mode, debug_dir.as_ref(), debug_rgba.as_ref()) {
+            let input_path = dir.join(format!("step-{:03}-input.png", step));
+            let _ = screenshot::save_rgba_image(path_to_string(&input_path)?, rgba.clone(), image_width, image_height);
+        }
+
+        while history.len() > history_screenshots.saturating_sub(1) {
+            history.pop_front();
+        }
+
+        let messages = build_gui_agent_messages(&system_prompt, &history, &data_url);
+        let payload = serde_json::json!({
+            "model": model,
+            "temperature": 0,
+            "top_p": 0.7,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        });
+
+        let response = client
+            .post(&endpoint)
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {}", api_key))
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 请求失败: {}", error)))?;
+
+        let status = response.status();
+        let raw_response = response
+            .text()
+            .await
+            .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应读取失败: {}", error)))?;
+
+        if !status.is_success() {
+            return Err(CommandFlowError::Automation(format!(
+                "GUI Agent 请求返回非 2xx（{}）：{}",
+                status, raw_response
+            )));
+        }
+
+        let response_json: Value = serde_json::from_str(&raw_response)
+            .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应 JSON 解析失败: {}", error)))?;
+
+        let content = extract_llm_message_content(&response_json)?;
+        let normalized_content = if strip_think {
+            strip_think_sections(&content)
+        } else {
+            content
+        };
+        let thought = extract_thought_expression(&normalized_content).unwrap_or_default();
+
+        let action_expr = match extract_action_expression(&normalized_content) {
+            Ok(expr) => expr,
+            Err(error) => {
+                on_log(
+                    "warn",
+                    format!(
+                        "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
+                        node.label,
+                        truncate_for_log(&normalized_content, 4000)
+                    ),
+                );
+                return Err(error);
+            }
+        };
+
+        let action = match parse_gui_agent_action(&action_expr) {
+            Ok(action) => action,
+            Err(error) => {
+                on_log(
+                    "warn",
+                    format!(
+                        "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
+                        node.label,
+                        truncate_for_log(&normalized_content, 4000)
+                    ),
+                );
+                return Err(error);
+            }
+        };
+
+        on_log(
+            "info",
+            format!(
+                "GUI Agent 节点 '{}' 第 {} 轮输出：Thought={} | Action={}（图像尺寸={}x{}）",
+                node.label,
+                step,
+                truncate_for_log(&thought, 500),
+                action_expr,
+                image_width,
+                image_height
+            ),
+        );
+        on_log(
+            "info",
+            format!(
+                "GUI Agent 节点 '{}' 第 {} 轮 Thought 原文：{}",
+                node.label,
+                step,
+                if thought.trim().is_empty() {
+                    "（空）".to_string()
+                } else {
+                    truncate_for_log(&thought, 2000)
+                }
+            ),
+        );
+
+        let mut metadata = apply_gui_agent_action(
+            action.clone(),
+            image_width,
+            image_height,
+            should_cancel,
+            on_log,
+        )
+        .await?;
+
+        if let Some(object) = metadata.as_object_mut() {
+            object.insert("thought".to_string(), Value::String(thought.clone()));
+            object.insert("actionExpression".to_string(), Value::String(action_expr.clone()));
+            object.insert("round".to_string(), value_from_u64(step));
+        }
+
+        if let (true, Some(dir), Some(rgba)) = (continuous_mode, debug_dir.as_ref(), debug_rgba.as_ref()) {
+            save_gui_agent_debug_overlay(dir, step, rgba, image_width, image_height, &action)?;
+            let response_path = dir.join(format!("step-{:03}-response.txt", step));
+            fs::write(&response_path, normalized_content.as_bytes())
+                .map_err(|error| CommandFlowError::Io(format!("写入 GUI Agent debug 响应失败: {}", error)))?;
+
+            let metadata_path = dir.join(format!("step-{:03}-metadata.json", step));
+            let metadata_text = serde_json::to_string_pretty(&metadata)
+                .map_err(|error| CommandFlowError::Automation(format!("序列化 GUI Agent metadata 失败: {}", error)))?;
+            fs::write(&metadata_path, metadata_text.as_bytes())
+                .map_err(|error| CommandFlowError::Io(format!("写入 GUI Agent debug metadata 失败: {}", error)))?;
+        }
+
+        if continuous_mode {
+            history.push_back(GuiAgentHistoryTurn {
+                image_data_url: data_url,
+                assistant_output: normalized_content,
+            });
+            while history.len() > history_screenshots.saturating_sub(1) {
+                history.pop_front();
+            }
+        }
+
+        let is_finished = matches!(action, GuiAgentAction::Finished { .. });
+        last_metadata = metadata;
+
+        if !continuous_mode || is_finished {
+            return Ok(last_metadata);
+        }
     }
 
-    let response_json: Value = serde_json::from_str(&raw_response)
-        .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应 JSON 解析失败: {}", error)))?;
-
-    let content = extract_llm_message_content(&response_json)?;
-    let normalized_content = if strip_think {
-        strip_think_sections(&content)
-    } else {
-        content
-    };
-
-    let action_expr = match extract_action_expression(&normalized_content) {
-        Ok(expr) => expr,
-        Err(error) => {
-            on_log(
-                "warn",
-                format!(
-                    "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
-                    node.label,
-                    truncate_for_log(&normalized_content, 4000)
-                ),
-            );
-            return Err(error);
-        }
-    };
-
-    let action = match parse_gui_agent_action(&action_expr) {
-        Ok(action) => action,
-        Err(error) => {
-            on_log(
-                "warn",
-                format!(
-                    "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
-                    node.label,
-                    truncate_for_log(&normalized_content, 4000)
-                ),
-            );
-            return Err(error);
-        }
-    };
-
     on_log(
-        "info",
+        "warn",
         format!(
-            "GUI Agent 节点 '{}' 模型输出动作：{}（图像尺寸={}x{}）",
-            node.label, action_expr, image_width, image_height
+            "GUI Agent 节点 '{}' 达到最大连续步数 {}，已自动停止。",
+            node.label, max_steps
         ),
     );
 
-    apply_gui_agent_action(action, image_width, image_height, should_cancel, on_log).await
+    if let Some(object) = last_metadata.as_object_mut() {
+        object.insert(
+            "autoStopReason".to_string(),
+            Value::String("maxStepsReached".to_string()),
+        );
+    }
+
+    Ok(last_metadata)
 }
 
 fn normalize_base64_input(raw: &str) -> String {
@@ -2338,6 +2446,248 @@ fn resolve_chat_endpoint(base_url: &str) -> String {
     } else {
         format!("{}/v1/chat/completions", trimmed)
     }
+}
+
+fn render_gui_agent_initial_prompt(template: &str, instruction: &str) -> String {
+    let rendered = template
+        .replace("{instruction}", instruction)
+        .replace("{language}", "Chinese");
+    if instruction.trim().is_empty() || template.contains("{instruction}") {
+        return rendered;
+    }
+
+    format!("{}\n\nTask:\n{}", rendered, instruction)
+}
+
+fn build_gui_agent_messages(
+    initial_prompt: &str,
+    history: &VecDeque<GuiAgentHistoryTurn>,
+    current_image_data_url: &str,
+) -> Value {
+    let mut messages = vec![serde_json::json!({
+        "role": "user",
+        "content": initial_prompt,
+    })];
+
+    for turn in history {
+        messages.push(serde_json::json!({
+            "role": "user",
+            "content": [{
+                "type": "image_url",
+                "image_url": { "url": &turn.image_data_url }
+            }]
+        }));
+        messages.push(serde_json::json!({
+            "role": "assistant",
+            "content": &turn.assistant_output,
+        }));
+    }
+
+    messages.push(serde_json::json!({
+        "role": "user",
+        "content": [{
+            "type": "image_url",
+            "image_url": { "url": current_image_data_url }
+        }]
+    }));
+
+    Value::Array(messages)
+}
+
+fn extract_thought_expression(content: &str) -> Option<String> {
+    static THOUGHT_RE: OnceLock<Regex> = OnceLock::new();
+    let regex = THOUGHT_RE.get_or_init(|| {
+        Regex::new(r"(?is)Thought:\s*(.*?)\s*Action:").expect("valid thought regex")
+    });
+
+    regex
+        .captures(content)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().trim().trim_matches('`').trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+fn prepare_gui_agent_debug_dir(node: &WorkflowNode) -> CommandResult<PathBuf> {
+    let mut base = std::env::temp_dir();
+    base.push("commandflow-gui-agent-debug");
+
+    fs::create_dir_all(&base).map_err(|error| CommandFlowError::Io(error.to_string()))?;
+
+    let unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let safe_label = node
+        .label
+        .chars()
+        .map(|ch| if ch.is_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    let run_dir = base.join(format!("{}-{}-{}", safe_label, node.id, unix_ms));
+    fs::create_dir_all(&run_dir).map_err(|error| CommandFlowError::Io(error.to_string()))?;
+
+    Ok(run_dir)
+}
+
+fn save_gui_agent_debug_overlay(
+    debug_dir: &Path,
+    step: u64,
+    rgba: &[u8],
+    image_width: u32,
+    image_height: u32,
+    action: &GuiAgentAction,
+) -> CommandResult<()> {
+    let mut image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(image_width, image_height, rgba.to_vec())
+        .ok_or_else(|| CommandFlowError::Automation("failed to build GUI Agent debug overlay image".to_string()))?;
+
+    let accent = Rgba([255, 128, 0, 255]);
+    draw_border(&mut image, accent);
+
+    match action {
+        GuiAgentAction::Click { point }
+        | GuiAgentAction::LeftDouble { point }
+        | GuiAgentAction::RightSingle { point }
+        | GuiAgentAction::Scroll { point, .. } => {
+            let abs = relative_to_absolute(*point, image_width, image_height);
+            draw_circle_outline(&mut image, abs.0, abs.1, 16, Rgba([255, 64, 64, 255]));
+            draw_crosshair(&mut image, abs.0, abs.1, 20, Rgba([255, 255, 0, 255]));
+        }
+        GuiAgentAction::Drag { start, end } => {
+            let abs_start = relative_to_absolute(*start, image_width, image_height);
+            let abs_end = relative_to_absolute(*end, image_width, image_height);
+            draw_circle_outline(&mut image, abs_start.0, abs_start.1, 12, Rgba([80, 255, 120, 255]));
+            draw_circle_outline(&mut image, abs_end.0, abs_end.1, 12, Rgba([255, 80, 80, 255]));
+            draw_line(&mut image, abs_start.0, abs_start.1, abs_end.0, abs_end.1, Rgba([255, 230, 0, 255]));
+            draw_arrow_head(&mut image, abs_start.0, abs_start.1, abs_end.0, abs_end.1, Rgba([255, 230, 0, 255]));
+        }
+        GuiAgentAction::Hotkey { .. } => {
+            draw_border(&mut image, Rgba([90, 180, 255, 255]));
+        }
+        GuiAgentAction::Type { .. } => {
+            draw_border(&mut image, Rgba([200, 120, 255, 255]));
+        }
+        GuiAgentAction::Wait => {
+            draw_border(&mut image, Rgba([120, 220, 255, 255]));
+        }
+        GuiAgentAction::Finished { .. } => {
+            draw_border(&mut image, Rgba([90, 255, 90, 255]));
+        }
+    }
+
+    let output_path = debug_dir.join(format!("step-{:03}-overlay.png", step));
+    image
+        .save(&output_path)
+        .map_err(|error| CommandFlowError::Automation(format!("保存 GUI Agent debug 标注图失败: {}", error)))?;
+
+    Ok(())
+}
+
+fn set_pixel_safe(image: &mut RgbaImage, x: i32, y: i32, color: Rgba<u8>) {
+    if x < 0 || y < 0 {
+        return;
+    }
+    let (x_u, y_u) = (x as u32, y as u32);
+    if x_u >= image.width() || y_u >= image.height() {
+        return;
+    }
+    image.put_pixel(x_u, y_u, color);
+}
+
+fn draw_circle_outline(image: &mut RgbaImage, cx: i32, cy: i32, radius: i32, color: Rgba<u8>) {
+    if radius <= 0 {
+        return;
+    }
+
+    let mut x = radius;
+    let mut y = 0;
+    let mut decision = 1 - x;
+
+    while y <= x {
+        for (dx, dy) in [
+            (x, y),
+            (y, x),
+            (-y, x),
+            (-x, y),
+            (-x, -y),
+            (-y, -x),
+            (y, -x),
+            (x, -y),
+        ] {
+            set_pixel_safe(image, cx + dx, cy + dy, color);
+        }
+
+        y += 1;
+        if decision <= 0 {
+            decision += 2 * y + 1;
+        } else {
+            x -= 1;
+            decision += 2 * (y - x) + 1;
+        }
+    }
+}
+
+fn draw_line(image: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgba<u8>) {
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    let mut x = x0;
+    let mut y = y0;
+    loop {
+        set_pixel_safe(image, x, y, color);
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+fn draw_arrow_head(image: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgba<u8>) {
+    let vx = (x1 - x0) as f64;
+    let vy = (y1 - y0) as f64;
+    let length = (vx * vx + vy * vy).sqrt();
+    if length < 1.0 {
+        return;
+    }
+
+    let ux = vx / length;
+    let uy = vy / length;
+    let arrow_len = 12.0;
+    let angle = std::f64::consts::PI / 6.0;
+
+    let left_x = x1 as f64 - arrow_len * (ux * angle.cos() + uy * angle.sin());
+    let left_y = y1 as f64 - arrow_len * (uy * angle.cos() - ux * angle.sin());
+    let right_x = x1 as f64 - arrow_len * (ux * angle.cos() - uy * angle.sin());
+    let right_y = y1 as f64 - arrow_len * (uy * angle.cos() + ux * angle.sin());
+
+    draw_line(image, x1, y1, left_x.round() as i32, left_y.round() as i32, color);
+    draw_line(image, x1, y1, right_x.round() as i32, right_y.round() as i32, color);
+}
+
+fn draw_crosshair(image: &mut RgbaImage, x: i32, y: i32, radius: i32, color: Rgba<u8>) {
+    draw_line(image, x - radius, y, x + radius, y, color);
+    draw_line(image, x, y - radius, x, y + radius, color);
+}
+
+fn draw_border(image: &mut RgbaImage, color: Rgba<u8>) {
+    if image.width() == 0 || image.height() == 0 {
+        return;
+    }
+    let max_x = image.width() as i32 - 1;
+    let max_y = image.height() as i32 - 1;
+    draw_line(image, 0, 0, max_x, 0, color);
+    draw_line(image, 0, max_y, max_x, max_y, color);
+    draw_line(image, 0, 0, 0, max_y, color);
+    draw_line(image, max_x, 0, max_x, max_y, color);
 }
 
 fn extract_llm_message_content(response_json: &Value) -> CommandResult<String> {
@@ -2832,18 +3182,8 @@ async fn apply_gui_agent_action(
             match direction.as_str() {
                 "up" => mouse::wheel(-1)?,
                 "down" => mouse::wheel(1)?,
-                "right" => {
-                    return Err(CommandFlowError::Validation(
-                        "GUI Agent scroll direction=right 当前实现暂不支持（仅支持 up/down）"
-                            .to_string(),
-                    ));
-                }
-                "left" => {
-                    return Err(CommandFlowError::Validation(
-                        "GUI Agent scroll direction=left 当前实现暂不支持（仅支持 up/down）"
-                            .to_string(),
-                    ));
-                }
+                "right" => mouse::wheel_horizontal(1)?,
+                "left" => mouse::wheel_horizontal(-1)?,
                 _ => {
                     return Err(CommandFlowError::Validation(format!(
                         "GUI Agent scroll direction 非法: {}",
@@ -2869,18 +3209,14 @@ async fn apply_gui_agent_action(
         }
         GuiAgentAction::Wait => {
             interruptible_sleep(Duration::from_secs(5), should_cancel).await?;
-            let (_rgba, width, height) = screenshot::capture_fullscreen_rgba()?;
             on_log(
                 "info",
-                format!(
-                    "GUI Agent 执行 wait: 已等待 5s，并重新截取屏幕（{}x{}）用于后续判断。",
-                    width, height
-                ),
+                "GUI Agent 执行 wait: 已等待 5s。".to_string(),
             );
             serde_json::json!({
                 "action": "wait",
                 "waitSeconds": 5,
-                "image": { "width": width, "height": height }
+                "image": { "width": image_width, "height": image_height }
             })
         }
         GuiAgentAction::Finished { content } => {
