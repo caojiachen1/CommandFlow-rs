@@ -15,6 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Positio
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{POINT, RECT};
 #[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Diagnostics::Debug::Beep;
+#[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetSystemMetrics, SystemParametersInfoW,
     SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
@@ -580,9 +582,9 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
 pub async fn play_completion_beep() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", "[console]::Beep(880,180)"])
-            .status();
+        unsafe {
+            let _ = Beep(880, 180);
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
