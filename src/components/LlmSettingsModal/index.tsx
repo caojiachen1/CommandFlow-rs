@@ -60,7 +60,7 @@ export default function LlmSettingsModal({ open, onClose }: LlmSettingsModalProp
   )
 
   const modelSelectOptions = useMemo(() => {
-    const base = modelOptions.length > 0 ? modelOptions : [draft.model || 'gpt-5']
+    const base = modelOptions.length > 0 ? modelOptions : (draft.model.trim().length > 0 ? [draft.model] : [])
     return Array.from(new Set(base.filter((item) => item.trim().length > 0)))
   }, [draft.model, modelOptions])
 
@@ -214,7 +214,7 @@ export default function LlmSettingsModal({ open, onClose }: LlmSettingsModalProp
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">模型名称</label>
                   <SmartInputSelect
-                    value={draft.model || 'gpt-5'}
+                    value={draft.model}
                     options={modelSelectOptions}
                     onChange={(nextValue) => setDraft((state) => ({ ...state, model: nextValue }))}
                     placeholder="输入或筛选模型名称"

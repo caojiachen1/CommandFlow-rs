@@ -6,7 +6,7 @@ pub mod workflow;
 
 use tauri::Emitter;
 use tauri::Manager;
-use tauri_plugin_global_shortcut::ShortcutState;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 pub fn run() {
     tauri::Builder::default()
@@ -18,7 +18,6 @@ pub fn run() {
             {
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
-                        .with_shortcuts(["F8", "F10"])?
                         .with_handler(|app, shortcut, event| {
                             if event.state == ShortcutState::Released {
                                 let key = shortcut.to_string();
@@ -31,6 +30,20 @@ pub fn run() {
                         })
                         .build(),
                 )?;
+
+                for shortcut in ["F8", "F10"] {
+                    if let Err(error) = app.global_shortcut().register(shortcut) {
+                        let message = error.to_string();
+                        if message.to_lowercase().contains("already registered") {
+                            eprintln!(
+                                "[CommandFlow] 全局快捷键 '{}' 已被占用，已跳过注册（应用继续启动）。详细信息: {}",
+                                shortcut, message
+                            );
+                        } else {
+                            return Err(error.into());
+                        }
+                    }
+                }
             }
 
             if let Some(window) = app.get_webview_window("main") {

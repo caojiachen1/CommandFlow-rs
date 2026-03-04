@@ -24,6 +24,7 @@ const DEFAULT_POST_DELAY_MS: u64 = 50;
 const IMAGE_MATCH_DEBUG_SAVE_EVERY: u64 = 15;
 const GUI_AGENT_MAX_SCREENSHOTS: usize = 5;
 const GUI_AGENT_DEFAULT_MAX_STEPS: u64 = 20;
+const GUI_AGENT_ACTION_PARSE_RETRIES: u64 = 3;
 const PARAM_INPUT_PREFIX: &str = "param:";
 const PARAM_INPUT_SUFFIX: &str = ":in";
 
@@ -2190,6 +2191,11 @@ async fn execute_gui_agent_action(
     };
     let mut history = VecDeque::<GuiAgentHistoryTurn>::new();
     let mut last_metadata = serde_json::json!({});
+    let max_parse_attempts = if continuous_mode {
+        GUI_AGENT_ACTION_PARSE_RETRIES + 1
+    } else {
+        1
+    };
 
     for step in 1..=max_steps {
         if should_cancel() {
@@ -2217,75 +2223,123 @@ async fn execute_gui_agent_action(
             history.pop_front();
         }
 
-        let messages = build_gui_agent_messages(&system_prompt, &history, &data_url);
-        let payload = serde_json::json!({
-            "model": model,
-            "temperature": 0,
-            "top_p": 0.7,
-            "max_tokens": max_tokens,
-            "messages": messages,
-        });
+        let (action, thought, action_expr, normalized_content) = {
+            let mut parsed_result: Option<(GuiAgentAction, String, String, String)> = None;
+            let mut last_parse_error: Option<CommandFlowError> = None;
 
-        let response = client
-            .post(&endpoint)
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {}", api_key))
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 请求失败: {}", error)))?;
+            for parse_attempt in 1..=max_parse_attempts {
+                if should_cancel() {
+                    return Err(CommandFlowError::Canceled);
+                }
 
-        let status = response.status();
-        let raw_response = response
-            .text()
-            .await
-            .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应读取失败: {}", error)))?;
+                let messages = build_gui_agent_messages(&system_prompt, &history, &data_url);
+                let payload = serde_json::json!({
+                    "model": model,
+                    "temperature": 0,
+                    "top_p": 0.7,
+                    "max_tokens": max_tokens,
+                    "messages": messages,
+                });
 
-        if !status.is_success() {
-            return Err(CommandFlowError::Automation(format!(
-                "GUI Agent 请求返回非 2xx（{}）：{}",
-                status, raw_response
-            )));
-        }
+                let response = client
+                    .post(&endpoint)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, format!("Bearer {}", api_key))
+                    .json(&payload)
+                    .send()
+                    .await
+                    .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 请求失败: {}", error)))?;
 
-        let response_json: Value = serde_json::from_str(&raw_response)
-            .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应 JSON 解析失败: {}", error)))?;
+                let status = response.status();
+                let raw_response = response
+                    .text()
+                    .await
+                    .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应读取失败: {}", error)))?;
 
-        let content = extract_llm_message_content(&response_json)?;
-        let normalized_content = if strip_think {
-            strip_think_sections(&content)
-        } else {
-            content
-        };
-        let thought = extract_thought_expression(&normalized_content).unwrap_or_default();
+                if !status.is_success() {
+                    return Err(CommandFlowError::Automation(format!(
+                        "GUI Agent 请求返回非 2xx（{}）：{}",
+                        status, raw_response
+                    )));
+                }
 
-        let action_expr = match extract_action_expression(&normalized_content) {
-            Ok(expr) => expr,
-            Err(error) => {
-                on_log(
-                    "warn",
-                    format!(
-                        "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
-                        node.label,
-                        truncate_for_log(&normalized_content, 4000)
-                    ),
-                );
-                return Err(error);
+                let response_json: Value = serde_json::from_str(&raw_response)
+                    .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应 JSON 解析失败: {}", error)))?;
+
+                let content = extract_llm_message_content(&response_json)?;
+                let normalized_content = if strip_think {
+                    strip_think_sections(&content)
+                } else {
+                    content
+                };
+                let thought = extract_thought_expression(&normalized_content).unwrap_or_default();
+
+                let action_expr = match extract_action_expression(&normalized_content) {
+                    Ok(expr) => expr,
+                    Err(error) => {
+                        on_log(
+                            "warn",
+                            format!(
+                                "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
+                                node.label,
+                                truncate_for_log(&normalized_content, 4000)
+                            ),
+                        );
+
+                        if continuous_mode && parse_attempt < max_parse_attempts {
+                            on_log(
+                                "warn",
+                                format!(
+                                    "GUI Agent 节点 '{}' 第 {} 轮 Action 提取失败（尝试 {}/{}），将自动重试。",
+                                    node.label, step, parse_attempt, max_parse_attempts
+                                ),
+                            );
+                            last_parse_error = Some(error);
+                            continue;
+                        }
+
+                        return Err(error);
+                    }
+                };
+
+                let action = match parse_gui_agent_action(&action_expr) {
+                    Ok(action) => action,
+                    Err(error) => {
+                        on_log(
+                            "warn",
+                            format!(
+                                "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
+                                node.label,
+                                truncate_for_log(&normalized_content, 4000)
+                            ),
+                        );
+
+                        if continuous_mode && parse_attempt < max_parse_attempts {
+                            on_log(
+                                "warn",
+                                format!(
+                                    "GUI Agent 节点 '{}' 第 {} 轮 Action 语法解析失败（尝试 {}/{}），将自动重试。",
+                                    node.label, step, parse_attempt, max_parse_attempts
+                                ),
+                            );
+                            last_parse_error = Some(error);
+                            continue;
+                        }
+
+                        return Err(error);
+                    }
+                };
+
+                parsed_result = Some((action, thought, action_expr, normalized_content));
+                break;
             }
-        };
 
-        let action = match parse_gui_agent_action(&action_expr) {
-            Ok(action) => action,
-            Err(error) => {
-                on_log(
-                    "warn",
-                    format!(
-                        "GUI Agent 节点 '{}' 输出（解析失败回显）：{}",
-                        node.label,
-                        truncate_for_log(&normalized_content, 4000)
-                    ),
-                );
-                return Err(error);
+            if let Some(result) = parsed_result {
+                result
+            } else {
+                return Err(last_parse_error.unwrap_or_else(|| {
+                    CommandFlowError::Automation("GUI Agent Action 解析失败（未知错误）".to_string())
+                }));
             }
         };
 
@@ -2304,7 +2358,7 @@ async fn execute_gui_agent_action(
         on_log(
             "info",
             format!(
-                "GUI Agent 节点 '{}' 第 {} 轮 Thought 原文：{}",
+                "GUI Agent 节点 '{}' 第 {} 轮 思考内容：{}",
                 node.label,
                 step,
                 if thought.trim().is_empty() {
