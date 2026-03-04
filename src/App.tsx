@@ -17,6 +17,8 @@ import { pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, sto
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
+const RIGHT_PANE_RATIO_STORAGE_KEY = 'commandflow.layout.right-pane-top-ratio.v1'
+
 const menuGroups = {
   文件: ['新建', '打开', '保存', '另存为'],
   编辑: ['撤销', '重做', '复制', '粘贴'],
@@ -135,7 +137,20 @@ function App() {
   const [llmSettingsOpen, setLlmSettingsOpen] = useState(false)
   const [backgroundMode, setBackgroundModeState] = useState(false)
   const [coordinatePicking, setCoordinatePicking] = useState(false)
+  const [rightPaneTopRatio, setRightPaneTopRatio] = useState(() => {
+    try {
+      const raw = localStorage.getItem(RIGHT_PANE_RATIO_STORAGE_KEY)
+      if (!raw) return 0.34
+      const parsed = Number(raw)
+      if (!Number.isFinite(parsed)) return 0.34
+      return Math.min(0.8, Math.max(0.2, parsed))
+    } catch {
+      return 0.34
+    }
+  })
+  const [isResizingRightPane, setIsResizingRightPane] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const rightPaneRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const continuousStepRunningRef = useRef(false)
   const continuousStepStopRef = useRef(false)
@@ -180,6 +195,51 @@ function App() {
       window.removeEventListener('blur', handleWindowBlur)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isResizingRightPane) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const container = rightPaneRef.current
+      if (!container) return
+
+      const rect = container.getBoundingClientRect()
+      const raw = (event.clientY - rect.top) / rect.height
+      const clamped = Math.min(0.8, Math.max(0.2, raw))
+      setRightPaneTopRatio(clamped)
+    }
+
+    const stopResizing = () => {
+      setIsResizingRightPane(false)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'row-resize'
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResizing)
+    window.addEventListener('pointercancel', stopResizing)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResizing)
+      window.removeEventListener('pointercancel', stopResizing)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+  }, [isResizingRightPane])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RIGHT_PANE_RATIO_STORAGE_KEY, String(rightPaneTopRatio))
+    } catch {
+      // ignore storage failures
+    }
+  }, [rightPaneTopRatio])
 
   useEffect(() => {
     if (!('__TAURI_INTERNALS__' in window)) {
@@ -1298,11 +1358,30 @@ function App() {
           <main className="flex min-h-0 flex-1 grid-cols-[280px_1fr_320px] overflow-hidden lg:grid">
             <NodePanel />
             <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
-            <div className="flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
-              <div className="flex h-1/3 min-h-0 flex-col border-b border-slate-200 dark:border-neutral-800">
+            <div ref={rightPaneRef} className="flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40">
+              <div
+                className="flex min-h-[120px] flex-col border-b border-slate-200 dark:border-neutral-800"
+                style={{
+                  height: `calc(${Math.round(rightPaneTopRatio * 1000) / 10}% - 3px)`,
+                }}
+              >
                 <VariablePanel />
               </div>
-              <div className="flex h-2/3 min-h-0 flex-col">
+
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="调整变量面板和执行日志高度"
+                onPointerDown={(event) => {
+                  event.preventDefault()
+                  setIsResizingRightPane(true)
+                }}
+                className={`group relative h-[6px] shrink-0 cursor-row-resize touch-none bg-transparent ${isResizingRightPane ? 'bg-cyan-500/20' : ''}`}
+              >
+                <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 bg-slate-200 transition-colors group-hover:bg-cyan-400 dark:bg-neutral-700 dark:group-hover:bg-cyan-500" />
+              </div>
+
+              <div className="flex min-h-[120px] min-w-0 flex-1 flex-col">
                 <ExecutionLog />
               </div>
             </div>
