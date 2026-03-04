@@ -207,7 +207,13 @@ function App() {
 
       const rect = container.getBoundingClientRect()
       const raw = (event.clientY - rect.top) / rect.height
-      const clamped = Math.min(0.8, Math.max(0.2, raw))
+      let clamped = Math.min(0.8, Math.max(0.2, raw))
+
+      // 增加 50% 位置的磁力吸附 (磁力阈值 2%)
+      if (Math.abs(clamped - 0.5) < 0.02) {
+        clamped = 0.5
+      }
+
       setRightPaneTopRatio(clamped)
     }
 
@@ -1376,9 +1382,13 @@ function App() {
                   event.preventDefault()
                   setIsResizingRightPane(true)
                 }}
-                className={`group relative h-[6px] shrink-0 cursor-row-resize touch-none bg-transparent ${isResizingRightPane ? 'bg-cyan-500/20' : ''}`}
+                className="group relative z-10 h-[12px] -my-[6px] shrink-0 cursor-row-resize touch-none bg-transparent"
               >
-                <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 bg-slate-200 transition-colors group-hover:bg-cyan-400 dark:bg-neutral-700 dark:group-hover:bg-cyan-500" />
+                <div className={`absolute inset-x-0 top-1/2 h-[1px] -translate-y-1/2 transition-colors ${
+                  isResizingRightPane 
+                    ? 'bg-cyan-500 dark:bg-cyan-400' 
+                    : 'bg-slate-200 group-hover:bg-cyan-400 dark:bg-neutral-700 dark:group-hover:bg-cyan-500'
+                }`} />
               </div>
 
               <div className="flex min-h-[120px] min-w-0 flex-1 flex-col">
