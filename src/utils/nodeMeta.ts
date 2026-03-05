@@ -249,11 +249,6 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
         description: '在设置里维护 LLM 预设，这里仅选择预设。',
       },
       {
-        key: 'stripThink',
-        label: '剥离思考链(<think>)',
-        type: 'boolean',
-      },
-      {
         key: 'imageInput',
         label: '输入图片(base64)',
         type: 'string',

@@ -196,7 +196,7 @@ const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, param
     return false
   }
 
-  return field.type !== 'boolean'
+  return true
 }
 
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
@@ -507,6 +507,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
   const renderFieldInput = (field: ParamField, connectedToInput: boolean) => {
     const currentValue = params[field.key] ?? meta.defaultParams[field.key]
+    const isBoolean = field.type === 'boolean'
     const isNumber = field.type === 'number'
     const isSelect = field.type === 'select'
     const isJson = field.type === 'json'
@@ -523,6 +524,41 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       data.kind === 'guiAgent' && field.key === 'imageInput' && Boolean(params.continuousMode ?? true)
     const isInputDisabled =
       connectedToInput || isScreenshotSaveDirFieldDisabled || isScreenshotSizeFieldDisabled || isGuiAgentImageInputDisabled
+
+    if (isBoolean) {
+      const checked = Boolean(currentValue)
+      return (
+        <div className="relative">
+          <button
+            type="button"
+            disabled={isInputDisabled}
+            onClick={() => {
+              if (isInputDisabled) return
+              updateParam(field.key, !checked)
+            }}
+            className="nodrag flex h-9 w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
+            title={checked ? '点击切换为 false' : '点击切换为 true'}
+          >
+            <span className={`text-[11px] font-semibold ${isInputDisabled ? 'text-slate-500' : 'text-slate-100'}`}>
+              {checked ? 'true' : 'false'}
+            </span>
+            <span className={`ml-auto inline-flex h-5 w-9 items-center rounded-full border px-[2px] transition-colors ${checked ? 'border-cyan-300/80 bg-cyan-400/30' : 'border-white/25 bg-black/20'}`}>
+              <span
+                className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`}
+              />
+            </span>
+          </button>
+          <Handle
+            id={createParamInputHandleId(field.key)}
+            type="target"
+            position={Position.Left}
+            className="proximity-handle"
+            style={{ top: '50%', left: -6 }}
+          />
+        </div>
+      )
+    }
+
     const selectOptions = data.kind === 'guiAgent' && field.key === 'llmPresetId'
       ? llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))
       : (field.options ?? [])
