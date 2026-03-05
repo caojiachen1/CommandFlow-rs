@@ -470,6 +470,16 @@ pub async fn fetch_llm_models(base_url: String, api_key: String) -> Result<Vec<S
 }
 
 #[tauri::command]
+pub async fn load_llm_presets() -> Result<Vec<crate::secure_settings::LlmPreset>, String> {
+    crate::secure_settings::load_llm_presets()
+}
+
+#[tauri::command]
+pub async fn save_llm_presets(presets: Vec<crate::secure_settings::LlmPreset>) -> Result<(), String> {
+    crate::secure_settings::save_llm_presets(presets)
+}
+
+#[tauri::command]
 pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String, String> {
     let window = app
         .get_webview_window("main")

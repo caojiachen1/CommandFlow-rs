@@ -11,6 +11,7 @@ import CoordinatePicker from './components/CoordinatePicker'
 import LlmSettingsModal from './components/LlmSettingsModal'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useExecutionStore } from './stores/executionStore'
+import { useSettingsStore } from './stores/settingsStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
 import { pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
@@ -129,6 +130,7 @@ function App() {
     setSelectedNode,
   } = useWorkflowStore()
   const { running, setRunning, addLog, setVariables, clearVariables } = useExecutionStore()
+  const loadSecureLlmPresets = useSettingsStore((state) => state.loadLlmPresets)
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [lastFileName, setLastFileName] = useState<string>('workflow.json')
   const [lastFilePath, setLastFilePath] = useState<string | null>(null)
@@ -171,6 +173,10 @@ function App() {
   useShortcutBindings()
 
   const menu = useMemo(() => Object.entries(menuGroups), [])
+
+  useEffect(() => {
+    void loadSecureLlmPresets()
+  }, [loadSecureLlmPresets])
 
   useEffect(() => {
     const handleCloseMenuOutside = (event: Event) => {

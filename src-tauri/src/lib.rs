@@ -2,6 +2,7 @@ pub mod automation;
 pub mod commands;
 pub mod config;
 pub mod error;
+pub mod secure_settings;
 pub mod workflow;
 
 use tauri::Emitter;
@@ -63,7 +64,9 @@ pub fn run() {
             commands::cancel_coordinate_pick,
             commands::list_open_windows,
             commands::fetch_llm_models,
+            commands::load_llm_presets,
             commands::play_completion_beep,
+            commands::save_llm_presets,
             commands::health_check,
             commands::set_background_mode,
         ])

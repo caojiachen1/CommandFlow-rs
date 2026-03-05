@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { loadLlmPresets, saveLlmPresets } from '../utils/execution'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type CoordinateMode = 'virtualScreen' | 'activeWindow'
@@ -16,6 +17,7 @@ interface SettingsState {
   zoom: number
   coordinateMode: CoordinateMode
   llmPresets: LlmPreset[]
+  loadLlmPresets: () => Promise<void>
   setTheme: (theme: ThemeMode) => void
   setZoom: (zoom: number) => void
   setCoordinateMode: (mode: CoordinateMode) => void
@@ -26,6 +28,7 @@ interface SettingsState {
 
 const THEME_KEY = 'commandflow.theme'
 const LLM_PRESETS_KEY = 'commandflow.llmPresets'
+const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 const isDarkSystem = () => window.matchMedia('(prefers-color-scheme: dark)').matches
 
 const applyTheme = (theme: ThemeMode) => {
@@ -60,11 +63,13 @@ const sanitizePreset = (raw: unknown): LlmPreset | null => {
   return { id, name, baseUrl, apiKey, model }
 }
 
-const getSavedLlmPresets = (): LlmPreset[] => {
+const getSavedLlmPresets = (allowPersist = true): LlmPreset[] => {
   const raw = localStorage.getItem(LLM_PRESETS_KEY)
   if (!raw) {
     const defaults = [getDefaultPreset()]
-    localStorage.setItem(LLM_PRESETS_KEY, JSON.stringify(defaults))
+    if (allowPersist) {
+      localStorage.setItem(LLM_PRESETS_KEY, JSON.stringify(defaults))
+    }
     return defaults
   }
 
@@ -80,16 +85,25 @@ const getSavedLlmPresets = (): LlmPreset[] => {
   }
 
   const fallback = [getDefaultPreset()]
-  localStorage.setItem(LLM_PRESETS_KEY, JSON.stringify(fallback))
+  if (allowPersist) {
+    localStorage.setItem(LLM_PRESETS_KEY, JSON.stringify(fallback))
+  }
   return fallback
 }
 
 const persistLlmPresets = (presets: LlmPreset[]) => {
-  localStorage.setItem(LLM_PRESETS_KEY, JSON.stringify(presets))
+  if (!isTauriRuntime()) {
+    localStorage.setItem(LLM_PRESETS_KEY, JSON.stringify(presets))
+    return
+  }
+
+  void saveLlmPresets(presets).catch((error) => {
+    console.error('保存 LLM 预设到安全存储失败：', error)
+  })
 }
 
 const initialTheme = getSavedTheme()
-const initialLlmPresets = getSavedLlmPresets()
+const initialLlmPresets = getSavedLlmPresets(!isTauriRuntime())
 applyTheme(initialTheme)
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -104,6 +118,31 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   zoom: 1,
   coordinateMode: 'virtualScreen',
   llmPresets: initialLlmPresets,
+  loadLlmPresets: async () => {
+    if (!isTauriRuntime()) {
+      const fallback = getSavedLlmPresets()
+      set(() => ({ llmPresets: fallback }))
+      return
+    }
+
+    const fallback = getSavedLlmPresets(false)
+
+    try {
+      const securePresets = (await loadLlmPresets()).map(sanitizePreset).filter((item): item is LlmPreset => Boolean(item))
+      const llmPresets = securePresets.length > 0 ? securePresets : fallback
+
+      set(() => ({ llmPresets }))
+
+      if (securePresets.length === 0 && fallback.length > 0) {
+        await saveLlmPresets(fallback)
+      }
+
+      localStorage.removeItem(LLM_PRESETS_KEY)
+    } catch (error) {
+      console.error('加载安全 LLM 预设失败，回退到本地存储：', error)
+      set(() => ({ llmPresets: fallback }))
+    }
+  },
   setTheme: (theme) => {
     localStorage.setItem(THEME_KEY, theme)
     applyTheme(theme)

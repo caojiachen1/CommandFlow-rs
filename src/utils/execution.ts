@@ -2,6 +2,14 @@ import { invoke } from '@tauri-apps/api/core'
 import type { BackendWorkflowGraph } from './workflowBridge'
 import type { CoordinatePoint } from '../types/workflow'
 
+export interface LlmPresetPayload {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 
 export const runWorkflow = async (graph: BackendWorkflowGraph): Promise<string> => {
@@ -69,4 +77,18 @@ export const playCompletionBeep = async (): Promise<void> => {
     return
   }
   await invoke<string>('play_completion_beep')
+}
+
+export const loadLlmPresets = async (): Promise<LlmPresetPayload[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+  return invoke<LlmPresetPayload[]>('load_llm_presets')
+}
+
+export const saveLlmPresets = async (presets: LlmPresetPayload[]): Promise<void> => {
+  if (!isTauriRuntime()) {
+    return
+  }
+  await invoke('save_llm_presets', { presets })
 }
