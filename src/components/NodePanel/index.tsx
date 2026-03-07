@@ -1,75 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { NodeKind } from '../../types/workflow'
-
-interface NodeItem {
-  label: string
-  kind: NodeKind
-  color: string
-}
-
-interface NodeCategory {
-  title: '触发与流程' | '输入控制' | '系统与文件' | '变量与数据'
-  items: NodeItem[]
-}
+import { NODE_PALETTE_CATEGORIES } from '../../utils/nodeCatalog'
 
 const STORAGE_KEY = 'commandflow.nodepanel.collapsed.categories.v1'
 
-const categories: NodeCategory[] = [
-  {
-    title: '触发与流程',
-    items: [
-      { label: '热键触发', kind: 'hotkeyTrigger', color: 'bg-orange-500' },
-      { label: '定时触发', kind: 'timerTrigger', color: 'bg-amber-500' },
-      { label: '手动触发', kind: 'manualTrigger', color: 'bg-yellow-500' },
-      { label: '窗口触发', kind: 'windowTrigger', color: 'bg-lime-500' },
-      { label: '条件处理', kind: 'condition', color: 'bg-rose-500' },
-      { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500' },
-      { label: 'while 循环', kind: 'whileLoop', color: 'bg-purple-600' },
-      { label: '图像匹配', kind: 'imageMatch', color: 'bg-teal-500' },
-    ],
-  },
-  {
-    title: '输入控制',
-    items: [
-      { label: '鼠标操作', kind: 'mouseOperation', color: 'bg-cyan-500' },
-      { label: '键盘操作', kind: 'keyboardOperation', color: 'bg-sky-600' },
-    ],
-  },
-  {
-    title: '系统与文件',
-    items: [
-      { label: '系统操作', kind: 'systemOperation', color: 'bg-red-500' },
-      { label: '屏幕截图', kind: 'screenshot', color: 'bg-indigo-500' },
-      { label: '切换窗口', kind: 'windowActivate', color: 'bg-violet-500' },
-      { label: '复制文件/文件夹', kind: 'fileCopy', color: 'bg-fuchsia-500' },
-      { label: '移动文件/文件夹', kind: 'fileMove', color: 'bg-pink-500' },
-      { label: '删除文件/文件夹', kind: 'fileDelete', color: 'bg-rose-500' },
-      { label: '执行命令', kind: 'runCommand', color: 'bg-violet-500' },
-      { label: '执行 Python', kind: 'pythonCode', color: 'bg-blue-600' },
-      { label: '读取剪贴板', kind: 'clipboardRead', color: 'bg-emerald-500' },
-      { label: '写入剪贴板', kind: 'clipboardWrite', color: 'bg-teal-500' },
-      { label: '读取文本文件', kind: 'fileReadText', color: 'bg-fuchsia-600' },
-      { label: '写入文本文件', kind: 'fileWriteText', color: 'bg-pink-600' },
-      { label: '弹窗提示', kind: 'showMessage', color: 'bg-orange-500' },
-      { label: '等待延时', kind: 'delay', color: 'bg-purple-500' },
-      { label: 'GUI Agent', kind: 'guiAgent', color: 'bg-violet-600' },
-      { label: 'GUI Agent 元数据解析', kind: 'guiAgentActionParser', color: 'bg-violet-500' },
-    ],
-  },
-  {
-    title: '变量与数据',
-    items: [
-      { label: '变量定义', kind: 'varDefine', color: 'bg-pink-500' },
-      { label: '变量赋值', kind: 'varSet', color: 'bg-emerald-500' },
-      { label: '变量运算', kind: 'varMath', color: 'bg-teal-500' },
-      { label: '获取变量值', kind: 'varGet', color: 'bg-cyan-500' },
-      { label: '常量输出', kind: 'constValue', color: 'bg-slate-500' },
-    ],
-  },
-]
-
 export default function NodePanel() {
-  const allCategoryTitles = useMemo(() => categories.map((category) => category.title), [])
+  const allCategoryTitles = useMemo(() => NODE_PALETTE_CATEGORIES.map((category) => category.title), [])
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const defaults = allCategoryTitles.reduce<Record<string, boolean>>((acc, title) => {
@@ -145,7 +81,7 @@ export default function NodePanel() {
         </div>
       </div>
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
-        {categories.map((category) => (
+        {NODE_PALETTE_CATEGORIES.map((category) => (
           <section key={category.title} className="space-y-3">
             <div className="rounded-xl border border-slate-200/80 bg-white/60 dark:border-neutral-800 dark:bg-neutral-900/40">
               <button

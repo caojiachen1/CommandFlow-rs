@@ -11,12 +11,13 @@ import {
   type OnConnectStartParams,
   useReactFlow,
 } from '@xyflow/react'
+import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FinalConnectionState } from '@xyflow/system'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { NodeKind } from '../../types/workflow'
-import { getNodeMeta } from '../../utils/nodeMeta'
+import { getNodeFields, getNodeMeta } from '../../utils/nodeMeta'
 import {
   getInputHandleValueType,
   getNodePortSpec,
@@ -27,6 +28,7 @@ import {
   normalizeSourceHandleId,
   normalizeTargetHandleId,
 } from '../../utils/nodePorts'
+import { ALL_NODE_KINDS, getNodePaletteItem } from '../../utils/nodeCatalog'
 import ClickNode from '../../nodes/ClickNode'
 import ConditionNode from '../../nodes/ConditionNode'
 import ImageMatchNode from '../../nodes/ImageMatchNode'
@@ -36,39 +38,7 @@ import ScreenshotNode from '../../nodes/ScreenshotNode'
 import VariableNode from '../../nodes/VariableNode'
 import PropertyModal from '../PropertyModal'
 
-const allowedKinds: NodeKind[] = [
-  'hotkeyTrigger',
-  'timerTrigger',
-  'manualTrigger',
-  'windowTrigger',
-  'mouseOperation',
-  'keyboardOperation',
-  'screenshot',
-  'windowActivate',
-  'fileCopy',
-  'fileMove',
-  'fileDelete',
-  'runCommand',
-  'pythonCode',
-  'clipboardRead',
-  'clipboardWrite',
-  'fileReadText',
-  'fileWriteText',
-  'showMessage',
-  'delay',
-  'systemOperation',
-  'guiAgent',
-  'guiAgentActionParser',
-  'condition',
-  'loop',
-  'whileLoop',
-  'imageMatch',
-  'varDefine',
-  'varSet',
-  'varMath',
-  'varGet',
-  'constValue',
-]
+const allowedKinds: NodeKind[] = ALL_NODE_KINDS
 
 const isNodeKind = (value: string): value is NodeKind => allowedKinds.includes(value as NodeKind)
 
@@ -86,6 +56,60 @@ interface NodeQuickInsertState {
   flowY: number
   panelX: number
   panelY: number
+}
+
+interface GlobalNodeInsertState {
+  flowX: number
+  flowY: number
+}
+
+function NodeThumbnailPreview({ kind }: { kind: NodeKind }) {
+  const meta = getNodeMeta(kind)
+  const paletteItem = getNodePaletteItem(kind)
+  const visibleFields = getNodeFields(kind, meta.defaultParams, meta.defaultParams).slice(0, 3)
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/90">
+      <div className="flex items-start gap-3">
+        <div className={`mt-1 h-3 w-3 shrink-0 rounded-full ${paletteItem.color}`} />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{meta.label}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{meta.description}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3 dark:border-neutral-700 dark:bg-neutral-950/80">
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-[11px] font-semibold text-slate-700 dark:text-slate-200">{meta.label}</span>
+          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-neutral-800 dark:text-slate-300">
+            {paletteItem.category}
+          </span>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          {visibleFields.length > 0 ? (
+            visibleFields.map((field) => (
+              <div key={field.key} className="flex items-center gap-2">
+                <span className="w-20 shrink-0 text-[10px] font-medium text-slate-500 dark:text-slate-400">{field.label}</span>
+                <span className="h-7 flex-1 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-[10px] text-slate-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-500">
+                  {field.placeholder ?? '默认参数'}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-[10px] text-slate-400 dark:border-neutral-700 dark:text-slate-500">
+              该节点无需额外参数，添加即可使用。
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+        <span>{kind}</span>
+        <span>点击此预览可直接添加</span>
+      </div>
+    </div>
+  )
 }
 
 const resolveSourceHandleValueType = (
@@ -187,6 +211,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   const reactFlow = useReactFlow()
   const pendingConnectStartRef = useRef<PendingConnectStart | null>(null)
   const quickSearchInputRef = useRef<HTMLInputElement>(null)
+  const globalSearchInputRef = useRef<HTMLInputElement>(null)
 
   const nodeTypes = useMemo(
     () => ({
@@ -228,20 +253,42 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [quickInsert, setQuickInsert] = useState<NodeQuickInsertState | null>(null)
   const [quickInsertKeyword, setQuickInsertKeyword] = useState('')
+  const [globalInsert, setGlobalInsert] = useState<GlobalNodeInsertState | null>(null)
+  const [globalInsertKeyword, setGlobalInsertKeyword] = useState('')
+  const [globalHoveredKind, setGlobalHoveredKind] = useState<NodeKind | null>(null)
 
   const quickInsertItems = useMemo(
     () =>
       allowedKinds
         .map((kind) => {
           const meta = getNodeMeta(kind)
+          const paletteItem = getNodePaletteItem(kind)
           return {
             kind,
             label: meta.label,
-            searchText: `${meta.label} ${kind}`.toLowerCase(),
+            description: meta.description,
+            category: paletteItem.category,
+            color: paletteItem.color,
+            searchText: `${meta.label} ${meta.description} ${paletteItem.category} ${kind}`.toLowerCase(),
           }
         }),
     [],
   )
+
+  const filteredGlobalInsertItems = useMemo(() => {
+    if (!globalInsert) return []
+
+    const keyword = globalInsertKeyword.trim().toLowerCase()
+    if (!keyword) return quickInsertItems
+    return quickInsertItems.filter((item) => item.searchText.includes(keyword))
+  }, [globalInsert, globalInsertKeyword, quickInsertItems])
+
+  const hoveredGlobalInsertItem = useMemo(() => {
+    if (filteredGlobalInsertItems.length === 0) return null
+    return (
+      filteredGlobalInsertItems.find((item) => item.kind === globalHoveredKind) ?? filteredGlobalInsertItems[0]
+    )
+  }, [filteredGlobalInsertItems, globalHoveredKind])
 
   const filteredQuickInsertItems = useMemo(() => {
     if (!quickInsert) return []
@@ -284,6 +331,12 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     setQuickInsertKeyword('')
   }, [])
 
+  const closeGlobalInsert = useCallback(() => {
+    setGlobalInsert(null)
+    setGlobalInsertKeyword('')
+    setGlobalHoveredKind(null)
+  }, [])
+
   // Use native DOM event listeners for drag-and-drop to avoid issues with
   // React synthetic events not reaching through ReactFlow's internal DOM.
   useEffect(() => {
@@ -323,6 +376,64 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       el.removeEventListener('drop', handleDrop)
     }
   }, [reactFlow, addNode])
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    if (!wrapper) return
+
+    let frameId = 0
+    let paneEl: HTMLElement | null = null
+
+    const handlePaneDoubleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target) {
+        return
+      }
+
+      if (
+        target.closest('.react-flow__node') ||
+        target.closest('.react-flow__edge') ||
+        target.closest('.react-flow__handle') ||
+        target.closest('.react-flow__controls') ||
+        target.closest('.react-flow__selection')
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const flowPosition = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      setSelectedNode(null)
+      closeQuickInsert()
+      setGlobalInsert({
+        flowX: flowPosition.x,
+        flowY: flowPosition.y,
+      })
+      setGlobalInsertKeyword('')
+      setGlobalHoveredKind(quickInsertItems[0]?.kind ?? null)
+      onPaneClick?.()
+    }
+
+    const attachListener = () => {
+      paneEl = wrapper.querySelector('.react-flow__pane') as HTMLElement | null
+      if (!paneEl) {
+        frameId = window.requestAnimationFrame(attachListener)
+        return
+      }
+
+      paneEl.addEventListener('dblclick', handlePaneDoubleClick)
+    }
+
+    attachListener()
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId)
+      }
+      paneEl?.removeEventListener('dblclick', handlePaneDoubleClick)
+    }
+  }, [reactFlow, setSelectedNode, closeQuickInsert, quickInsertItems, onPaneClick])
 
   useEffect(() => {
     const handleZoomIn = () => {
@@ -369,6 +480,41 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     quickSearchInputRef.current?.focus()
   }, [quickInsert])
 
+  useEffect(() => {
+    if (!globalInsert) return
+    globalSearchInputRef.current?.focus()
+  }, [globalInsert])
+
+  useEffect(() => {
+    if (!globalInsert) return
+
+    const firstKind = filteredGlobalInsertItems[0]?.kind ?? null
+    if (!firstKind) {
+      setGlobalHoveredKind(null)
+      return
+    }
+
+    setGlobalHoveredKind((current) =>
+      current && filteredGlobalInsertItems.some((item) => item.kind === current) ? current : firstKind,
+    )
+  }, [filteredGlobalInsertItems, globalInsert])
+
+  useEffect(() => {
+    if (!globalInsert) return
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeGlobalInsert()
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [closeGlobalInsert, globalInsert])
+
   const onNodeDoubleClick: NodeMouseHandler = useCallback((_, node) => {
     setSelectedNode(node.id)
     setModalOpen(true)
@@ -377,15 +523,17 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null)
     closeQuickInsert()
+    closeGlobalInsert()
     onPaneClick?.()
-  }, [setSelectedNode, closeQuickInsert, onPaneClick])
+  }, [setSelectedNode, closeQuickInsert, closeGlobalInsert, onPaneClick])
 
   const handleConnect = useCallback(
     (connection: Connection) => {
       closeQuickInsert()
+      closeGlobalInsert()
       connectNodes(connection)
     },
-    [closeQuickInsert, connectNodes],
+    [closeQuickInsert, closeGlobalInsert, connectNodes],
   )
 
   const onPaneMouseMove = useCallback(
@@ -410,8 +558,9 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       }
 
       disconnectHandleConnections(params.nodeId, params.handleType, params.handleId ?? null)
+      closeGlobalInsert()
     },
-    [disconnectHandleConnections],
+    [disconnectHandleConnections, closeGlobalInsert],
   )
 
   const onConnectEnd = useCallback(
@@ -517,6 +666,17 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     [addNode, closeQuickInsert, connectNodes, nodes, quickInsert],
   )
 
+  const insertNodeFromGlobalSearch = useCallback(
+    (kind: NodeKind) => {
+      if (!globalInsert) return
+
+      const createdNodeId = addNode(kind, { x: globalInsert.flowX, y: globalInsert.flowY })
+      setSelectedNode(createdNodeId)
+      closeGlobalInsert()
+    },
+    [addNode, closeGlobalInsert, globalInsert, setSelectedNode],
+  )
+
   const onReconnectEdge = useCallback(
     (oldEdge: Edge, connection: Connection) => {
       onReconnect(oldEdge, connection)
@@ -590,6 +750,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"
         panOnDrag={[0, 1, 2]}
+        zoomOnDoubleClick={false}
         snapToGrid={false}
         snapGrid={[15, 15]}
         defaultEdgeOptions={{
@@ -663,6 +824,128 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
           </div>
         </>
       ) : null}
+
+      {globalInsert
+        ? createPortal(
+            <div className="fixed inset-0 z-[240] flex items-center justify-center">
+              <button
+                type="button"
+                aria-label="关闭全局节点搜索"
+                className="absolute inset-0 bg-slate-100/55 backdrop-blur-[3px] transition-colors dark:bg-black/60"
+                onClick={closeGlobalInsert}
+              />
+
+              <div
+                className="relative z-[241] mx-4 flex h-[560px] max-h-[78vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/96 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900/96"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="border-b border-slate-200 px-6 py-5 dark:border-neutral-800">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">添加节点</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">双击画板空白处即可呼出，点击预览或右侧列表即可添加节点。</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeGlobalInsert}
+                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:border-cyan-500 hover:text-cyan-600 dark:border-neutral-700 dark:text-slate-400 dark:hover:border-cyan-500 dark:hover:text-cyan-400"
+                    >
+                      Esc 关闭
+                    </button>
+                  </div>
+
+                  <input
+                    ref={globalSearchInputRef}
+                    value={globalInsertKeyword}
+                    onChange={(event) => setGlobalInsertKeyword(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && hoveredGlobalInsertItem) {
+                        event.preventDefault()
+                        insertNodeFromGlobalSearch(hoveredGlobalInsertItem.kind)
+                      }
+                    }}
+                    placeholder="搜索节点（例如：条件、点击、变量、截图、系统）"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-cyan-500 focus:bg-white dark:border-neutral-700 dark:bg-neutral-950 dark:text-slate-100"
+                  />
+                </div>
+
+                <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+                  <div className="border-b border-slate-200 bg-slate-50/70 p-5 dark:border-neutral-800 dark:bg-neutral-950/60 lg:border-b-0 lg:border-r">
+                    <div className="mb-3 flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">缩略图预览</span>
+                      {hoveredGlobalInsertItem ? (
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500">悬停右侧条目可切换</span>
+                      ) : null}
+                    </div>
+
+                    {hoveredGlobalInsertItem ? (
+                      <button
+                        type="button"
+                        onClick={() => insertNodeFromGlobalSearch(hoveredGlobalInsertItem.kind)}
+                        className="block w-full text-left transition-transform hover:scale-[1.01]"
+                      >
+                        <NodeThumbnailPreview kind={hoveredGlobalInsertItem.kind} />
+                      </button>
+                    ) : (
+                      <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-6 text-center text-sm text-slate-400 dark:border-neutral-700 dark:bg-neutral-900/60 dark:text-slate-500 lg:h-full">
+                        没有匹配的节点，试试换个关键词。
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex min-h-0 flex-col p-5">
+                    <div className="mb-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span>搜索结果</span>
+                      <span>{filteredGlobalInsertItems.length} 个节点</span>
+                    </div>
+
+                    <div className="h-[320px] overflow-y-auto pr-1 lg:h-full">
+                      {filteredGlobalInsertItems.length > 0 ? (
+                        <div className="space-y-2">
+                          {filteredGlobalInsertItems.map((item) => (
+                            <button
+                              key={item.kind}
+                              type="button"
+                              onMouseEnter={() => setGlobalHoveredKind(item.kind)}
+                              onFocus={() => setGlobalHoveredKind(item.kind)}
+                              onClick={() => insertNodeFromGlobalSearch(item.kind)}
+                              className={`block w-full rounded-2xl border px-4 py-3 text-left transition-all ${
+                                hoveredGlobalInsertItem?.kind === item.kind
+                                  ? 'border-cyan-500 bg-cyan-50 shadow-sm dark:bg-cyan-500/10'
+                                  : 'border-slate-200 bg-white hover:border-cyan-300 hover:bg-slate-50 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:border-cyan-500 dark:hover:bg-neutral-900'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${item.color}`} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{item.label}</span>
+                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-neutral-800 dark:text-slate-400">
+                                      {item.category}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                    {item.description}
+                                  </div>
+                                  <div className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">{item.kind}</div>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex h-full min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-sm text-slate-400 dark:border-neutral-700 dark:bg-neutral-950/60 dark:text-slate-500">
+                          没有找到匹配节点，换个关键词再试试～
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }
