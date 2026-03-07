@@ -1,5 +1,5 @@
 import type { NodeKind } from '../types/workflow'
-import { getNodeMeta } from './nodeMeta'
+import { getKeyboardOperationKind, getMouseOperationKind, getNodeFields, getNodeMeta } from './nodeMeta'
 
 export type HandleValueType = 'control' | 'string' | 'number' | 'json' | 'any'
 
@@ -85,6 +85,44 @@ const getGuiAgentParserDynamicOutputs = (params: Record<string, unknown> = {}): 
   return []
 }
 
+const getMouseOperationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
+  const operation = getMouseOperationKind(params)
+
+  if (operation === 'drag') {
+    return [
+      { id: 'toX', label: 'toX', maxConnections: MANY, valueType: 'number' },
+      { id: 'toY', label: 'toY', maxConnections: MANY, valueType: 'number' },
+    ]
+  }
+
+  if (operation === 'wheel') {
+    return [{ id: 'vertical', label: 'vertical', maxConnections: MANY, valueType: 'number' }]
+  }
+
+  if (operation === 'down' || operation === 'up') {
+    return [
+      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
+      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
+      { id: 'button', label: 'button', maxConnections: MANY, valueType: 'string' },
+    ]
+  }
+
+  return [
+    { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
+    { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
+  ]
+}
+
+const getKeyboardOperationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
+  const operation = getKeyboardOperationKind(params)
+
+  if (operation === 'input') {
+    return [{ id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' }]
+  }
+
+  return [{ id: 'key', label: 'key', maxConnections: MANY, valueType: 'string' }]
+}
+
 export const isHandleValueTypeCompatible = (
   sourceType: HandleValueType,
   targetType: HandleValueType,
@@ -138,74 +176,13 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
     ],
   },
-  mouseClick: {
+  mouseOperation: {
     inputs: singleIn(),
-    outputs: [
-      ...singleOut(),
-      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
-      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
-    ],
+    outputs: singleOut(),
   },
-  mouseMove: {
+  keyboardOperation: {
     inputs: singleIn(),
-    outputs: [
-      ...singleOut(),
-      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
-      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
-    ],
-  },
-  mouseDrag: {
-    inputs: singleIn(),
-    outputs: [
-      ...singleOut(),
-      { id: 'toX', label: 'toX', maxConnections: MANY, valueType: 'number' },
-      { id: 'toY', label: 'toY', maxConnections: MANY, valueType: 'number' },
-    ],
-  },
-  mouseWheel: {
-    inputs: singleIn(),
-    outputs: [
-      ...singleOut(),
-      { id: 'vertical', label: 'vertical', maxConnections: MANY, valueType: 'number' },
-    ],
-  },
-  mouseDown: {
-    inputs: singleIn(),
-    outputs: [
-      ...singleOut(),
-      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
-      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
-      { id: 'button', label: 'button', maxConnections: MANY, valueType: 'string' },
-    ],
-  },
-  mouseUp: {
-    inputs: singleIn(),
-    outputs: [
-      ...singleOut(),
-      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
-      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
-      { id: 'button', label: 'button', maxConnections: MANY, valueType: 'string' },
-    ],
-  },
-  keyboardKey: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'key', label: 'key', maxConnections: MANY, valueType: 'string' }],
-  },
-  keyboardInput: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' }],
-  },
-  keyboardDown: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'key', label: 'key', maxConnections: MANY, valueType: 'string' }],
-  },
-  keyboardUp: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'key', label: 'key', maxConnections: MANY, valueType: 'string' }],
-  },
-  shortcut: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'key', label: 'key', maxConnections: MANY, valueType: 'string' }],
+    outputs: singleOut(),
   },
   screenshot: {
     inputs: singleIn(),
@@ -337,7 +314,7 @@ const specs: Record<NodeKind, NodePortSpec> = {
 const mergedSpecCache = new Map<NodeKind, NodePortSpec>()
 
 export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> = {}): NodePortSpec => {
-  const canUseCache = kind !== 'guiAgentActionParser'
+  const canUseCache = kind !== 'guiAgentActionParser' && kind !== 'mouseOperation' && kind !== 'keyboardOperation'
   if (canUseCache) {
     const cached = mergedSpecCache.get(kind)
     if (cached) return cached
@@ -345,8 +322,15 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
 
   const base = specs[kind]
   const meta = getNodeMeta(kind)
-  const connectableFields = meta.fields.filter((field) => isConnectableFieldType(field.type))
-  const dynamicOutputs = kind === 'guiAgentActionParser' ? getGuiAgentParserDynamicOutputs(params) : []
+  const connectableFields = getNodeFields(kind, params, meta.defaultParams).filter((field) => isConnectableFieldType(field.type))
+  const dynamicOutputs =
+    kind === 'guiAgentActionParser'
+      ? getGuiAgentParserDynamicOutputs(params)
+      : kind === 'mouseOperation'
+        ? getMouseOperationDynamicOutputs(params)
+        : kind === 'keyboardOperation'
+          ? getKeyboardOperationDynamicOutputs(params)
+          : []
 
   const merged: NodePortSpec = {
     inputs: [

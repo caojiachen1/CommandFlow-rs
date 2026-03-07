@@ -126,12 +126,39 @@ const legacySystemKindToOperation = {
   systemOpenSettings: 'openSettings',
 } as const
 
+const legacyMouseKindToOperation = {
+  mouseClick: 'click',
+  mouseMove: 'move',
+  mouseDrag: 'drag',
+  mouseWheel: 'wheel',
+  mouseDown: 'down',
+  mouseUp: 'up',
+} as const
+
+const legacyKeyboardKindToOperation = {
+  keyboardKey: 'key',
+  keyboardInput: 'input',
+  keyboardDown: 'down',
+  keyboardUp: 'up',
+  shortcut: 'shortcut',
+} as const
+
 type LegacySystemKind = keyof typeof legacySystemKindToOperation
+type LegacyMouseKind = keyof typeof legacyMouseKindToOperation
+type LegacyKeyboardKind = keyof typeof legacyKeyboardKindToOperation
 
 const isLegacySystemKind = (kind: string): kind is LegacySystemKind => kind in legacySystemKindToOperation
+const isLegacyMouseKind = (kind: string): kind is LegacyMouseKind => kind in legacyMouseKindToOperation
+const isLegacyKeyboardKind = (kind: string): kind is LegacyKeyboardKind => kind in legacyKeyboardKindToOperation
 
 const normalizeImportedNodeKind = (kind: string): NodeKind =>
-  (isLegacySystemKind(kind) ? 'systemOperation' : kind) as NodeKind
+  (isLegacySystemKind(kind)
+    ? 'systemOperation'
+    : isLegacyMouseKind(kind)
+      ? 'mouseOperation'
+      : isLegacyKeyboardKind(kind)
+        ? 'keyboardOperation'
+        : kind) as NodeKind
 
 const normalizeImportedNodeParams = (kind: string, params: Record<string, unknown>) =>
   isLegacySystemKind(kind)
@@ -139,7 +166,17 @@ const normalizeImportedNodeParams = (kind: string, params: Record<string, unknow
         operation: legacySystemKindToOperation[kind],
         ...params,
       }
-    : params
+    : isLegacyMouseKind(kind)
+      ? {
+          operation: legacyMouseKindToOperation[kind],
+          ...params,
+        }
+      : isLegacyKeyboardKind(kind)
+        ? {
+            operation: legacyKeyboardKindToOperation[kind],
+            ...params,
+          }
+        : params
 
 const normalizeImportedNodes = (nodes: WorkflowNode[]): WorkflowNode[] =>
   nodes.map((node) => {

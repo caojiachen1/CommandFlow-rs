@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
+import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
 import { fetchLlmModels, listOpenWindows } from '../../utils/execution'
 import { resolveGuiAgentChatEndpointPreview } from '../../utils/llmEndpoint'
 import type { NodeKind } from '../../types/workflow'
@@ -218,11 +218,11 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
       }
       return []
     }
-    if ((kind === 'keyboardKey' || kind === 'keyboardDown' || kind === 'keyboardUp') && field.key === 'key') {
-      return COMMON_KEYS
-    }
-    if (kind === 'shortcut' && field.key === 'key') {
-      return COMMON_KEYS
+    if (kind === 'keyboardOperation' && field.key === 'key') {
+      const operation = getKeyboardOperationKind(selectedNode.data.params)
+      if (operation === 'key' || operation === 'down' || operation === 'up' || operation === 'shortcut') {
+        return COMMON_KEYS
+      }
     }
     if (kind === 'hotkeyTrigger' && field.key === 'hotkey') {
       return COMMON_HOTKEYS

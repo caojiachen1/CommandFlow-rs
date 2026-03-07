@@ -20,6 +20,10 @@ export type SystemOperationKind =
   | 'powerPlan'
   | 'openSettings'
 
+export type MouseOperationKind = 'click' | 'move' | 'drag' | 'wheel' | 'down' | 'up'
+
+export type KeyboardOperationKind = 'key' | 'input' | 'down' | 'up' | 'shortcut'
+
 export interface ParamField {
   key: string
   label: string
@@ -58,6 +62,23 @@ export const SYSTEM_OPERATION_OPTIONS: Array<{ label: string; value: SystemOpera
   { label: '打开系统设置页', value: 'openSettings' },
 ]
 
+export const MOUSE_OPERATION_OPTIONS: Array<{ label: string; value: MouseOperationKind }> = [
+  { label: '鼠标点击', value: 'click' },
+  { label: '鼠标移动', value: 'move' },
+  { label: '鼠标拖拽', value: 'drag' },
+  { label: '鼠标滚轮', value: 'wheel' },
+  { label: '鼠标按下', value: 'down' },
+  { label: '鼠标松开', value: 'up' },
+]
+
+export const KEYBOARD_OPERATION_OPTIONS: Array<{ label: string; value: KeyboardOperationKind }> = [
+  { label: '键盘按键', value: 'key' },
+  { label: '键盘输入', value: 'input' },
+  { label: '键盘按下', value: 'down' },
+  { label: '键盘松开', value: 'up' },
+  { label: '组合键', value: 'shortcut' },
+]
+
 const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
   shutdown: ['timeoutSec', 'force'],
   restart: ['timeoutSec', 'force'],
@@ -77,6 +98,23 @@ const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
   openSettings: ['page'],
 }
 
+const MOUSE_OPERATION_FIELD_KEYS: Record<MouseOperationKind, string[]> = {
+  click: ['x', 'y', 'times'],
+  move: ['x', 'y'],
+  drag: ['fromX', 'fromY', 'toX', 'toY'],
+  wheel: ['vertical'],
+  down: ['x', 'y', 'button'],
+  up: ['x', 'y', 'button'],
+}
+
+const KEYBOARD_OPERATION_FIELD_KEYS: Record<KeyboardOperationKind, string[]> = {
+  key: ['key'],
+  input: ['text'],
+  down: ['key', 'simulateRepeat', 'repeatCount', 'repeatIntervalMs'],
+  up: ['key'],
+  shortcut: ['modifiers', 'key'],
+}
+
 export const getSystemOperationKind = (
   params: Record<string, unknown>,
   defaultOperation: SystemOperationKind = 'shutdown',
@@ -84,6 +122,26 @@ export const getSystemOperationKind = (
   const operation = String(params.operation ?? defaultOperation)
   return SYSTEM_OPERATION_OPTIONS.some((item) => item.value === operation)
     ? (operation as SystemOperationKind)
+    : defaultOperation
+}
+
+export const getMouseOperationKind = (
+  params: Record<string, unknown>,
+  defaultOperation: MouseOperationKind = 'click',
+): MouseOperationKind => {
+  const operation = String(params.operation ?? defaultOperation)
+  return MOUSE_OPERATION_OPTIONS.some((item) => item.value === operation)
+    ? (operation as MouseOperationKind)
+    : defaultOperation
+}
+
+export const getKeyboardOperationKind = (
+  params: Record<string, unknown>,
+  defaultOperation: KeyboardOperationKind = 'key',
+): KeyboardOperationKind => {
+  const operation = String(params.operation ?? defaultOperation)
+  return KEYBOARD_OPERATION_OPTIONS.some((item) => item.value === operation)
+    ? (operation as KeyboardOperationKind)
     : defaultOperation
 }
 
@@ -95,6 +153,22 @@ export const getSystemOperationLabel = (
   return SYSTEM_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '系统操作'
 }
 
+export const getMouseOperationLabel = (
+  params: Record<string, unknown>,
+  defaultOperation: MouseOperationKind = 'click',
+): string => {
+  const operation = getMouseOperationKind(params, defaultOperation)
+  return MOUSE_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '鼠标操作'
+}
+
+export const getKeyboardOperationLabel = (
+  params: Record<string, unknown>,
+  defaultOperation: KeyboardOperationKind = 'key',
+): string => {
+  const operation = getKeyboardOperationKind(params, defaultOperation)
+  return KEYBOARD_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '键盘操作'
+}
+
 export const getNodeDisplayLabel = (
   kind: NodeKind,
   params: Record<string, unknown> = {},
@@ -102,6 +176,14 @@ export const getNodeDisplayLabel = (
 ): string => {
   if (kind === 'systemOperation') {
     return getSystemOperationLabel(params, getSystemOperationKind(getNodeMeta(kind).defaultParams))
+  }
+
+  if (kind === 'mouseOperation') {
+    return getMouseOperationLabel(params, getMouseOperationKind(getNodeMeta(kind).defaultParams))
+  }
+
+  if (kind === 'keyboardOperation') {
+    return getKeyboardOperationLabel(params, getKeyboardOperationKind(getNodeMeta(kind).defaultParams))
   }
 
   return fallbackLabel ?? getNodeMeta(kind).label
@@ -120,6 +202,30 @@ export const isNodeFieldVisible = (
       getSystemOperationKind(defaultParams, 'shutdown'),
     )
     return SYSTEM_OPERATION_FIELD_KEYS[operation].includes(field.key)
+  }
+
+  if (kind === 'mouseOperation') {
+    if (field.key === 'operation') return true
+    const operation = getMouseOperationKind(
+      params,
+      getMouseOperationKind(defaultParams, 'click'),
+    )
+    return MOUSE_OPERATION_FIELD_KEYS[operation].includes(field.key)
+  }
+
+  if (kind === 'keyboardOperation') {
+    if (field.key === 'operation') return true
+    const operation = getKeyboardOperationKind(
+      params,
+      getKeyboardOperationKind(defaultParams, 'key'),
+    )
+    if (!KEYBOARD_OPERATION_FIELD_KEYS[operation].includes(field.key)) {
+      return false
+    }
+    if ((field.key === 'repeatCount' || field.key === 'repeatIntervalMs') && operation === 'down') {
+      return Boolean(params.simulateRepeat ?? defaultParams.simulateRepeat ?? false)
+    }
+    return true
   }
 
   if (kind === 'guiAgent') {
@@ -289,6 +395,58 @@ const resolveSystemOperationField = (
   return field
 }
 
+const resolveMouseOperationField = (
+  field: ParamField,
+  operation: MouseOperationKind,
+): ParamField => {
+  if ((field.key === 'x' || field.key === 'y') && (operation === 'down' || operation === 'up')) {
+    return {
+      ...field,
+      label: field.key === 'x' ? 'X 坐标' : 'Y 坐标',
+    }
+  }
+
+  if (field.key === 'vertical' && operation === 'wheel') {
+    return {
+      ...field,
+      label: '滚动值',
+    }
+  }
+
+  return field
+}
+
+const resolveKeyboardOperationField = (
+  field: ParamField,
+  operation: KeyboardOperationKind,
+): ParamField => {
+  if (field.key === 'key') {
+    return {
+      ...field,
+      label: operation === 'shortcut' ? '主键' : '按键',
+      placeholder: operation === 'shortcut' ? 'S' : 'Enter',
+    }
+  }
+
+  if (field.key === 'text') {
+    return {
+      ...field,
+      label: '文本',
+      placeholder: '请输入文本',
+    }
+  }
+
+  if (field.key === 'modifiers') {
+    return {
+      ...field,
+      label: '修饰键(JSON数组)',
+      description: '例如 ["Ctrl", "Shift"]',
+    }
+  }
+
+  return field
+}
+
 export const getNodeFields = (
   kind: NodeKind,
   params: Record<string, unknown> = {},
@@ -297,6 +455,16 @@ export const getNodeFields = (
   const fields = metas[kind].fields.filter((field) => isNodeFieldVisible(kind, field, params, defaultParams))
 
   if (kind !== 'systemOperation') {
+    if (kind === 'mouseOperation') {
+      const operation = getMouseOperationKind(params, getMouseOperationKind(defaultParams, 'click'))
+      return fields.map((field) => resolveMouseOperationField(field, operation))
+    }
+
+    if (kind === 'keyboardOperation') {
+      const operation = getKeyboardOperationKind(params, getKeyboardOperationKind(defaultParams, 'key'))
+      return fields.map((field) => resolveKeyboardOperationField(field, operation))
+    }
+
     return fields
   }
 
@@ -340,49 +508,31 @@ const metas: Record<NodeKind, NodeMeta> = {
       },
     ],
   },
-  mouseClick: {
-    label: '鼠标点击',
-    description: '将鼠标移动到坐标并点击。',
-    defaultParams: { x: 0, y: 0, times: 1 },
+  mouseOperation: {
+    label: '鼠标操作',
+    description: '统一的鼠标操作节点；选择操作类型后动态显示对应参数与输出。',
+    defaultParams: {
+      operation: 'click',
+      x: 0,
+      y: 0,
+      times: 1,
+      fromX: 0,
+      fromY: 0,
+      toX: 200,
+      toY: 200,
+      vertical: -1,
+      button: 'left',
+    },
     fields: [
+      { key: 'operation', label: '操作类型', type: 'select', options: MOUSE_OPERATION_OPTIONS },
       { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
       { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
       { key: 'times', label: '点击次数', type: 'number', min: 1, step: 1 },
-    ],
-  },
-  mouseMove: {
-    label: '鼠标移动',
-    description: '移动鼠标到指定位置。',
-    defaultParams: { x: 0, y: 0 },
-    fields: [
-      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
-      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
-    ],
-  },
-  mouseDrag: {
-    label: '鼠标拖拽',
-    description: '按住鼠标左键从起点拖到终点。',
-    defaultParams: { fromX: 0, fromY: 0, toX: 200, toY: 200 },
-    fields: [
       { key: 'fromX', label: '起点 X', type: 'number', step: 1 },
       { key: 'fromY', label: '起点 Y', type: 'number', step: 1 },
       { key: 'toX', label: '终点 X', type: 'number', step: 1 },
       { key: 'toY', label: '终点 Y', type: 'number', step: 1 },
-    ],
-  },
-  mouseWheel: {
-    label: '鼠标滚轮',
-    description: '按步长滚动鼠标滚轮。',
-    defaultParams: { vertical: -1 },
-    fields: [{ key: 'vertical', label: '滚动值', type: 'number', step: 1 }],
-  },
-  mouseDown: {
-    label: '鼠标按下',
-    description: '将鼠标移动到坐标并按下（不松开）鼠标按键。',
-    defaultParams: { x: 0, y: 0, button: 'left' },
-    fields: [
-      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
-      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
+      { key: 'vertical', label: '滚动值', type: 'number', step: 1 },
       {
         key: 'button',
         label: '按键',
@@ -395,43 +545,22 @@ const metas: Record<NodeKind, NodeMeta> = {
       },
     ],
   },
-  mouseUp: {
-    label: '鼠标松开',
-    description: '将鼠标移动到坐标并松开鼠标按键。',
-    defaultParams: { x: 0, y: 0, button: 'left' },
+  keyboardOperation: {
+    label: '键盘操作',
+    description: '统一的键盘操作节点；选择操作类型后动态显示对应参数与输出。',
+    defaultParams: {
+      operation: 'key',
+      key: 'Enter',
+      text: 'Hello CommandFlow',
+      simulateRepeat: false,
+      repeatCount: 8,
+      repeatIntervalMs: 35,
+      modifiers: ['Ctrl'],
+    },
     fields: [
-      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
-      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
-      {
-        key: 'button',
-        label: '按键',
-        type: 'select',
-        options: [
-          { label: '左键', value: 'left' },
-          { label: '右键', value: 'right' },
-          { label: '中键', value: 'middle' },
-        ],
-      },
-    ],
-  },
-  keyboardKey: {
-    label: '键盘按键',
-    description: '模拟单个按键点击。',
-    defaultParams: { key: 'Enter' },
-    fields: [{ key: 'key', label: '按键', type: 'string', placeholder: 'Enter' }],
-  },
-  keyboardInput: {
-    label: '键盘输入',
-    description: '输入一段文本。',
-    defaultParams: { text: 'Hello CommandFlow' },
-    fields: [{ key: 'text', label: '文本', type: 'string', placeholder: '请输入文本' }],
-  },
-  keyboardDown: {
-    label: '键盘按下',
-    description: '按下指定按键（不松开）。可选模拟“长按重复输入”。',
-    defaultParams: { key: 'Shift', simulateRepeat: false, repeatCount: 8, repeatIntervalMs: 35 },
-    fields: [
-      { key: 'key', label: '按键', type: 'string', placeholder: 'Shift' },
+      { key: 'operation', label: '操作类型', type: 'select', options: KEYBOARD_OPERATION_OPTIONS },
+      { key: 'key', label: '按键', type: 'string', placeholder: 'Enter' },
+      { key: 'text', label: '文本', type: 'string', placeholder: '请输入文本' },
       {
         key: 'simulateRepeat',
         label: '模拟长按重复输入',
@@ -440,26 +569,12 @@ const metas: Record<NodeKind, NodeMeta> = {
       },
       { key: 'repeatCount', label: '重复次数', type: 'number', min: 1, step: 1 },
       { key: 'repeatIntervalMs', label: '重复间隔(ms)', type: 'number', min: 1, step: 1 },
-    ],
-  },
-  keyboardUp: {
-    label: '键盘松开',
-    description: '松开指定按键。',
-    defaultParams: { key: 'Shift' },
-    fields: [{ key: 'key', label: '按键', type: 'string', placeholder: 'Shift' }],
-  },
-  shortcut: {
-    label: '组合键',
-    description: '按修饰键 + 主键执行快捷操作。',
-    defaultParams: { modifiers: ['Ctrl'], key: 'S' },
-    fields: [
       {
         key: 'modifiers',
         label: '修饰键(JSON数组)',
         type: 'json',
         description: '例如 ["Ctrl", "Shift"]',
       },
-      { key: 'key', label: '主键', type: 'string', placeholder: 'S' },
     ],
   },
   screenshot: {

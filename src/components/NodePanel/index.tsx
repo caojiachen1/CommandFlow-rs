@@ -31,17 +31,8 @@ const categories: NodeCategory[] = [
   {
     title: '输入控制',
     items: [
-      { label: '鼠标点击', kind: 'mouseClick', color: 'bg-cyan-500' },
-      { label: '鼠标移动', kind: 'mouseMove', color: 'bg-sky-500' },
-      { label: '鼠标拖拽', kind: 'mouseDrag', color: 'bg-blue-500' },
-      { label: '鼠标滚轮', kind: 'mouseWheel', color: 'bg-indigo-500' },
-      { label: '鼠标按下', kind: 'mouseDown', color: 'bg-blue-600' },
-      { label: '鼠标松开', kind: 'mouseUp', color: 'bg-indigo-600' },
-      { label: '键盘按键', kind: 'keyboardKey', color: 'bg-blue-500' },
-      { label: '键盘输入', kind: 'keyboardInput', color: 'bg-cyan-600' },
-      { label: '键盘按下', kind: 'keyboardDown', color: 'bg-sky-600' },
-      { label: '键盘松开', kind: 'keyboardUp', color: 'bg-indigo-500' },
-      { label: '组合键', kind: 'shortcut', color: 'bg-sky-600' },
+      { label: '鼠标操作', kind: 'mouseOperation', color: 'bg-cyan-500' },
+      { label: '键盘操作', kind: 'keyboardOperation', color: 'bg-sky-600' },
     ],
   },
   {

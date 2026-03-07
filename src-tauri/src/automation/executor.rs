@@ -413,110 +413,40 @@ impl WorkflowExecutor {
 
                 Ok(NextDirective::Default)
             }
+            NodeKind::MouseOperation => execute_mouse_operation(node, ctx, None),
             NodeKind::MouseClick => {
-                let x = get_i32(node, "x", 0);
-                let y = get_i32(node, "y", 0);
-                let times = get_u64(node, "times", 1) as usize;
-                mouse::click(x, y, times.max(1))?;
-                set_node_output(ctx, node, "x", value_from_i32(x));
-                set_node_output(ctx, node, "y", value_from_i32(y));
-                Ok(NextDirective::Default)
+                execute_mouse_operation(node, ctx, Some("click"))
             }
             NodeKind::MouseMove => {
-                let x = get_i32(node, "x", 0);
-                let y = get_i32(node, "y", 0);
-                mouse::move_to(x, y)?;
-                set_node_output(ctx, node, "x", value_from_i32(x));
-                set_node_output(ctx, node, "y", value_from_i32(y));
-                Ok(NextDirective::Default)
+                execute_mouse_operation(node, ctx, Some("move"))
             }
             NodeKind::MouseDrag => {
-                let from_x = get_i32(node, "fromX", 0);
-                let from_y = get_i32(node, "fromY", 0);
-                let to_x = get_i32(node, "toX", 0);
-                let to_y = get_i32(node, "toY", 0);
-                mouse::drag(from_x, from_y, to_x, to_y)?;
-                set_node_output(ctx, node, "toX", value_from_i32(to_x));
-                set_node_output(ctx, node, "toY", value_from_i32(to_y));
-                Ok(NextDirective::Default)
+                execute_mouse_operation(node, ctx, Some("drag"))
             }
             NodeKind::MouseWheel => {
-                let vertical = get_i32(node, "vertical", -1);
-                mouse::wheel(vertical)?;
-                set_node_output(ctx, node, "vertical", value_from_i32(vertical));
-                Ok(NextDirective::Default)
+                execute_mouse_operation(node, ctx, Some("wheel"))
             }
             NodeKind::MouseDown => {
-                let x = get_i32(node, "x", 0);
-                let y = get_i32(node, "y", 0);
-                let button = get_string(node, "button", "left");
-                mouse::button_down(x, y, &button)?;
-                set_node_output(ctx, node, "x", value_from_i32(x));
-                set_node_output(ctx, node, "y", value_from_i32(y));
-                set_node_output(ctx, node, "button", Value::String(button));
-                Ok(NextDirective::Default)
+                execute_mouse_operation(node, ctx, Some("down"))
             }
             NodeKind::MouseUp => {
-                let x = get_i32(node, "x", 0);
-                let y = get_i32(node, "y", 0);
-                let button = get_string(node, "button", "left");
-                mouse::button_up(x, y, &button)?;
-                set_node_output(ctx, node, "x", value_from_i32(x));
-                set_node_output(ctx, node, "y", value_from_i32(y));
-                set_node_output(ctx, node, "button", Value::String(button));
-                Ok(NextDirective::Default)
+                execute_mouse_operation(node, ctx, Some("up"))
             }
+            NodeKind::KeyboardOperation => execute_keyboard_operation(node, ctx, should_cancel, None).await,
             NodeKind::KeyboardKey => {
-                let key = get_string(node, "key", "Enter");
-                keyboard::key_tap_by_name(&key)?;
-                set_node_output(ctx, node, "key", Value::String(key));
-                Ok(NextDirective::Default)
+                execute_keyboard_operation(node, ctx, should_cancel, Some("key")).await
             }
             NodeKind::KeyboardInput => {
-                let text = get_string(node, "text", "");
-                keyboard::text_input(&text)?;
-                set_node_output(ctx, node, "text", Value::String(text));
-                Ok(NextDirective::Default)
+                execute_keyboard_operation(node, ctx, should_cancel, Some("input")).await
             }
             NodeKind::KeyboardDown => {
-                let key = get_string(node, "key", "Shift");
-                let simulate_repeat = get_bool(node, "simulateRepeat", false);
-
-                if simulate_repeat {
-                    let repeat_count = get_u64(node, "repeatCount", 8).max(1);
-                    let repeat_interval_ms = get_u64(node, "repeatIntervalMs", 35).max(1);
-
-                    for i in 0..repeat_count {
-                        if should_cancel() {
-                            return Err(CommandFlowError::Canceled);
-                        }
-
-                        keyboard::key_tap_by_name(&key)?;
-                        if i + 1 < repeat_count {
-                            interruptible_sleep(Duration::from_millis(repeat_interval_ms), should_cancel)
-                                .await?;
-                        }
-                    }
-                } else {
-                    keyboard::key_down_by_name(&key)?;
-                }
-
-                set_node_output(ctx, node, "key", Value::String(key));
-
-                Ok(NextDirective::Default)
+                execute_keyboard_operation(node, ctx, should_cancel, Some("down")).await
             }
             NodeKind::KeyboardUp => {
-                let key = get_string(node, "key", "Shift");
-                keyboard::key_up_by_name(&key)?;
-                set_node_output(ctx, node, "key", Value::String(key));
-                Ok(NextDirective::Default)
+                execute_keyboard_operation(node, ctx, should_cancel, Some("up")).await
             }
             NodeKind::Shortcut => {
-                let key = get_string(node, "key", "S");
-                let modifiers = get_string_array(node, "modifiers", vec!["Ctrl".to_string()]);
-                keyboard::shortcut(&modifiers, &key)?;
-                set_node_output(ctx, node, "key", Value::String(key));
-                Ok(NextDirective::Default)
+                execute_keyboard_operation(node, ctx, should_cancel, Some("shortcut")).await
             }
             NodeKind::Screenshot => {
                 let output_path = resolve_screenshot_output_path(node)?;
@@ -1709,6 +1639,148 @@ async fn execute_system_operation(
         _ => {
             return Err(CommandFlowError::Validation(format!(
                 "node '{}' has unsupported system operation '{}'",
+                node.id, requested
+            )));
+        }
+    }
+
+    Ok(NextDirective::Default)
+}
+
+fn execute_mouse_operation(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    operation_override: Option<&str>,
+) -> CommandResult<NextDirective> {
+    let requested = operation_override
+        .map(ToString::to_string)
+        .unwrap_or_else(|| get_string(node, "operation", "click"));
+    let operation = normalize_system_operation_name(&requested);
+
+    set_node_output(ctx, node, "operation", Value::String(requested.clone()));
+
+    match operation.as_str() {
+        "click" => {
+            let x = get_i32(node, "x", 0);
+            let y = get_i32(node, "y", 0);
+            let times = get_u64(node, "times", 1) as usize;
+            mouse::click(x, y, times.max(1))?;
+            set_node_output(ctx, node, "x", value_from_i32(x));
+            set_node_output(ctx, node, "y", value_from_i32(y));
+        }
+        "move" => {
+            let x = get_i32(node, "x", 0);
+            let y = get_i32(node, "y", 0);
+            mouse::move_to(x, y)?;
+            set_node_output(ctx, node, "x", value_from_i32(x));
+            set_node_output(ctx, node, "y", value_from_i32(y));
+        }
+        "drag" => {
+            let from_x = get_i32(node, "fromX", 0);
+            let from_y = get_i32(node, "fromY", 0);
+            let to_x = get_i32(node, "toX", 0);
+            let to_y = get_i32(node, "toY", 0);
+            mouse::drag(from_x, from_y, to_x, to_y)?;
+            set_node_output(ctx, node, "toX", value_from_i32(to_x));
+            set_node_output(ctx, node, "toY", value_from_i32(to_y));
+        }
+        "wheel" => {
+            let vertical = get_i32(node, "vertical", -1);
+            mouse::wheel(vertical)?;
+            set_node_output(ctx, node, "vertical", value_from_i32(vertical));
+        }
+        "down" => {
+            let x = get_i32(node, "x", 0);
+            let y = get_i32(node, "y", 0);
+            let button = get_string(node, "button", "left");
+            mouse::button_down(x, y, &button)?;
+            set_node_output(ctx, node, "x", value_from_i32(x));
+            set_node_output(ctx, node, "y", value_from_i32(y));
+            set_node_output(ctx, node, "button", Value::String(button));
+        }
+        "up" => {
+            let x = get_i32(node, "x", 0);
+            let y = get_i32(node, "y", 0);
+            let button = get_string(node, "button", "left");
+            mouse::button_up(x, y, &button)?;
+            set_node_output(ctx, node, "x", value_from_i32(x));
+            set_node_output(ctx, node, "y", value_from_i32(y));
+            set_node_output(ctx, node, "button", Value::String(button));
+        }
+        _ => {
+            return Err(CommandFlowError::Validation(format!(
+                "node '{}' has unsupported mouse operation '{}'",
+                node.id, requested
+            )));
+        }
+    }
+
+    Ok(NextDirective::Default)
+}
+
+async fn execute_keyboard_operation(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    should_cancel: &impl Fn() -> bool,
+    operation_override: Option<&str>,
+) -> CommandResult<NextDirective> {
+    let requested = operation_override
+        .map(ToString::to_string)
+        .unwrap_or_else(|| get_string(node, "operation", "key"));
+    let operation = normalize_system_operation_name(&requested);
+
+    set_node_output(ctx, node, "operation", Value::String(requested.clone()));
+
+    match operation.as_str() {
+        "key" => {
+            let key = get_string(node, "key", "Enter");
+            keyboard::key_tap_by_name(&key)?;
+            set_node_output(ctx, node, "key", Value::String(key));
+        }
+        "input" => {
+            let text = get_string(node, "text", "");
+            keyboard::text_input(&text)?;
+            set_node_output(ctx, node, "text", Value::String(text));
+        }
+        "down" => {
+            let key = get_string(node, "key", "Shift");
+            let simulate_repeat = get_bool(node, "simulateRepeat", false);
+
+            if simulate_repeat {
+                let repeat_count = get_u64(node, "repeatCount", 8).max(1);
+                let repeat_interval_ms = get_u64(node, "repeatIntervalMs", 35).max(1);
+
+                for i in 0..repeat_count {
+                    if should_cancel() {
+                        return Err(CommandFlowError::Canceled);
+                    }
+
+                    keyboard::key_tap_by_name(&key)?;
+                    if i + 1 < repeat_count {
+                        interruptible_sleep(Duration::from_millis(repeat_interval_ms), should_cancel)
+                            .await?;
+                    }
+                }
+            } else {
+                keyboard::key_down_by_name(&key)?;
+            }
+
+            set_node_output(ctx, node, "key", Value::String(key));
+        }
+        "up" => {
+            let key = get_string(node, "key", "Shift");
+            keyboard::key_up_by_name(&key)?;
+            set_node_output(ctx, node, "key", Value::String(key));
+        }
+        "shortcut" => {
+            let key = get_string(node, "key", "S");
+            let modifiers = get_string_array(node, "modifiers", vec!["Ctrl".to_string()]);
+            keyboard::shortcut(&modifiers, &key)?;
+            set_node_output(ctx, node, "key", Value::String(key));
+        }
+        _ => {
+            return Err(CommandFlowError::Validation(format!(
+                "node '{}' has unsupported keyboard operation '{}'",
                 node.id, requested
             )));
         }
