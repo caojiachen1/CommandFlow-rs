@@ -33,6 +33,7 @@ pub enum NodeKind {
     FileWriteText,
     ShowMessage,
     Delay,
+    SystemOperation,
     PowerShutdown,
     PowerRestart,
     PowerSleep,

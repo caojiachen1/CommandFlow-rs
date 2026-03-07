@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { getNodeMeta, type ParamField } from '../../utils/nodeMeta'
+import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
 import { listOpenWindows } from '../../utils/execution'
 import type { NodeKind } from '../../types/workflow'
 import SmartInputSelect from '../SmartInputSelect'
@@ -119,6 +119,10 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   )
 
   const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
+  const selectedFields = useMemo(
+    () => (selectedNode && selectedMeta ? getNodeFields(selectedNode.data.kind, selectedNode.data.params, selectedMeta.defaultParams) : []),
+    [selectedMeta, selectedNode],
+  )
   const llmPresets = useSettingsStore((state) => state.llmPresets)
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -140,9 +144,9 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       setErrors({})
       return
     }
-    setJsonDrafts(buildJsonDrafts(selectedNode.data.params, selectedMeta.fields))
+    setJsonDrafts(buildJsonDrafts(selectedNode.data.params, selectedFields))
     setErrors({})
-  }, [selectedMeta, selectedNode])
+  }, [selectedFields, selectedMeta, selectedNode])
 
   useEffect(() => {
     if (!selectedNode || !expanded) return
@@ -221,11 +225,24 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       [key]: value,
     }
 
+    if (selectedNode.data.kind === 'systemOperation' && key === 'percent') {
+      const operation = getSystemOperationKind(nextParams, getSystemOperationKind(selectedMeta?.defaultParams ?? {}))
+      if (operation === 'volumeSet' || operation === 'brightnessSet') {
+        const num = Number(nextParams.percent ?? 0)
+        if (!Number.isNaN(num)) {
+          nextParams.percent = Math.min(100, Math.max(0, num))
+        }
+      }
+    }
+
     // ensure brightness percent stays within 0-100 before any other handling
-    if (selectedNode.data.kind === 'systemBrightnessSet' && key === 'percent') {
-      const num = Number(nextParams.percent ?? 0)
-      if (!Number.isNaN(num)) {
-        nextParams.percent = Math.min(100, Math.max(0, num))
+    if (selectedNode.data.kind === 'systemOperation' && key === 'operation') {
+      const operation = getSystemOperationKind(nextParams, getSystemOperationKind(selectedMeta?.defaultParams ?? {}))
+      if (operation === 'volumeSet' || operation === 'brightnessSet') {
+        const num = Number(nextParams.percent ?? 50)
+        if (!Number.isNaN(num)) {
+          nextParams.percent = Math.min(100, Math.max(0, num))
+        }
       }
     }
 
@@ -276,126 +293,6 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       return currentValue
     }
     return getFieldDefaultValue(field)
-  }
-
-  const shouldShowField = (field: ParamField): boolean => {
-    if (!selectedNode) return true
-    if (selectedNode.data.kind === 'guiAgent') {
-      const continuousMode = Boolean(selectedNode.data.params.continuousMode ?? selectedMeta?.defaultParams.continuousMode ?? true)
-      if (field.key === 'imageInput') {
-        return !continuousMode
-      }
-      if (field.key === 'maxSteps') {
-        return continuousMode
-      }
-    }
-
-    if (selectedNode.data.kind === 'windowActivate') {
-      const mode = String(selectedNode.data.params.switchMode ?? selectedMeta?.defaultParams.switchMode ?? 'title')
-      if (mode === 'title') {
-        return !['shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
-      }
-      if (mode === 'shortcut') {
-        return field.key !== 'title'
-      }
-    }
-
-    if (selectedNode.data.kind === 'varMath' && field.key === 'operand') {
-      const unaryOperations = new Set([
-        'neg',
-        'abs',
-        'sign',
-        'square',
-        'cube',
-        'sqrt',
-        'cbrt',
-        'exp',
-        'ln',
-        'log2',
-        'log10',
-        'sin',
-        'cos',
-        'tan',
-        'asin',
-        'acos',
-        'atan',
-        'ceil',
-        'floor',
-        'round',
-        'trunc',
-        'frac',
-        'recip',
-        'lnot',
-        'bnot',
-      ])
-      const operation = String(selectedNode.data.params.operation ?? selectedMeta?.defaultParams.operation ?? 'add')
-      return !unaryOperations.has(operation)
-    }
-
-    if ((selectedNode.data.kind === 'varDefine' || selectedNode.data.kind === 'varSet' || selectedNode.data.kind === 'constValue') && field.key.startsWith('value')) {
-      const valueType = String(selectedNode.data.params.valueType ?? 'number')
-      if (field.key === 'valueType') return true
-      if (field.key === 'valueString') return valueType === 'string'
-      if (field.key === 'valueNumber') return valueType === 'number'
-      if (field.key === 'valueBoolean') return valueType === 'boolean'
-      if (field.key === 'valueJson') return valueType === 'json'
-    }
-
-    if (selectedNode.data.kind === 'varMath' && field.key.startsWith('operand')) {
-      const unaryOperations = new Set([
-        'neg',
-        'abs',
-        'sign',
-        'square',
-        'cube',
-        'sqrt',
-        'cbrt',
-        'exp',
-        'ln',
-        'log2',
-        'log10',
-        'sin',
-        'cos',
-        'tan',
-        'asin',
-        'acos',
-        'atan',
-        'ceil',
-        'floor',
-        'round',
-        'trunc',
-        'frac',
-        'recip',
-        'lnot',
-        'bnot',
-      ])
-      const operation = String(selectedNode.data.params.operation ?? selectedMeta?.defaultParams.operation ?? 'add')
-      if (unaryOperations.has(operation)) {
-        return field.key === 'operandType'
-      }
-
-      const operandType = String(selectedNode.data.params.operandType ?? 'number')
-      if (field.key === 'operandType') return true
-      if (field.key === 'operandNumber') return operandType === 'number'
-      if (field.key === 'operandString') return operandType === 'string'
-      if (field.key === 'operandBoolean') return operandType === 'boolean'
-      if (field.key === 'operandJson') return operandType === 'json'
-    }
-
-    if (
-      (selectedNode.data.kind === 'clipboardWrite' || selectedNode.data.kind === 'fileWriteText' || selectedNode.data.kind === 'showMessage') &&
-      (field.key === 'inputText' || field.key === 'inputVar')
-    ) {
-      const inputMode = String(selectedNode.data.params.inputMode ?? 'literal')
-      if (field.key === 'inputText') {
-        return inputMode === 'literal'
-      }
-      if (field.key === 'inputVar') {
-        return inputMode === 'var'
-      }
-    }
-
-    return true
   }
 
   const renderField = (field: ParamField) => {
@@ -648,9 +545,9 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 <p className="text-[11px] text-slate-400 dark:text-slate-500">每个节点执行完成后都会等待该时长再进入下个节点，默认 50ms。</p>
               </div>
 
-              {selectedMeta?.fields.length ? (
+              {selectedFields.length ? (
                 <div className="space-y-3">
-                  {selectedMeta.fields.filter(shouldShowField).map((field) => (
+                  {selectedFields.map((field) => (
                     <div key={field.key} className="space-y-1.5">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{field.label}</label>
                       {renderField(field)}

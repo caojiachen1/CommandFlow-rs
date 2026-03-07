@@ -2,7 +2,7 @@ import { Handle, Position } from '@xyflow/react'
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
-import { getNodeMeta, type ParamField } from '../utils/nodeMeta'
+import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../utils/nodeMeta'
 import { listOpenWindows } from '../utils/execution'
 import {
   createParamInputHandleId,
@@ -78,127 +78,6 @@ const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
 const isWindowTitleField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'title'
 
-const isFieldVisible = (kind: WorkflowNodeData['kind'], field: ParamField, params: Record<string, unknown>) => {
-  if (kind === 'guiAgent') {
-    const continuousMode = Boolean(params.continuousMode ?? true)
-    if (field.key === 'imageInput') {
-      return !continuousMode
-    }
-    if (field.key === 'maxSteps') {
-      return continuousMode
-    }
-  }
-
-  if (kind === 'windowActivate') {
-    const mode = String(params.switchMode ?? 'title')
-    if (mode === 'title') {
-      return !['shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
-    }
-    if (mode === 'shortcut') {
-      return field.key !== 'title'
-    }
-  }
-
-  if (kind === 'varMath' && field.key === 'operand') {
-    const unaryOperations = new Set([
-      'neg',
-      'abs',
-      'sign',
-      'square',
-      'cube',
-      'sqrt',
-      'cbrt',
-      'exp',
-      'ln',
-      'log2',
-      'log10',
-      'sin',
-      'cos',
-      'tan',
-      'asin',
-      'acos',
-      'atan',
-      'ceil',
-      'floor',
-      'round',
-      'trunc',
-      'frac',
-      'recip',
-      'lnot',
-      'bnot',
-    ])
-    const operation = String(params.operation ?? 'add')
-    return !unaryOperations.has(operation)
-  }
-
-  if ((kind === 'varDefine' || kind === 'varSet' || kind === 'constValue') && field.key.startsWith('value')) {
-    const valueType = String(params.valueType ?? 'number')
-    if (field.key === 'valueType') return true
-    if (field.key === 'valueString') return valueType === 'string'
-    if (field.key === 'valueNumber') return valueType === 'number'
-    if (field.key === 'valueBoolean') return valueType === 'boolean'
-    if (field.key === 'valueJson') return valueType === 'json'
-    return false
-  }
-
-  if (kind === 'varMath' && field.key.startsWith('operand')) {
-    const unaryOperations = new Set([
-      'neg',
-      'abs',
-      'sign',
-      'square',
-      'cube',
-      'sqrt',
-      'cbrt',
-      'exp',
-      'ln',
-      'log2',
-      'log10',
-      'sin',
-      'cos',
-      'tan',
-      'asin',
-      'acos',
-      'atan',
-      'ceil',
-      'floor',
-      'round',
-      'trunc',
-      'frac',
-      'recip',
-      'lnot',
-      'bnot',
-    ])
-    const operation = String(params.operation ?? 'add')
-    if (unaryOperations.has(operation)) {
-      return field.key === 'operandType'
-    }
-
-    const operandType = String(params.operandType ?? 'number')
-    if (field.key === 'operandType') return true
-    if (field.key === 'operandNumber') return operandType === 'number'
-    if (field.key === 'operandString') return operandType === 'string'
-    if (field.key === 'operandBoolean') return operandType === 'boolean'
-    if (field.key === 'operandJson') return operandType === 'json'
-    return false
-  }
-
-  if (
-    (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') &&
-    (field.key === 'inputText' || field.key === 'inputVar')
-  ) {
-    const inputMode = String(params.inputMode ?? 'literal')
-    if (field.key === 'inputText') return inputMode === 'literal'
-    if (field.key === 'inputVar') return inputMode === 'var'
-  }
-
-  if (kind === 'guiAgent' && field.key === 'systemPrompt') {
-    return false
-  }
-
-  return true
-}
-
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
   const isSelected = selected
   const portSpec = getNodePortSpec(data.kind, data.params)
@@ -210,7 +89,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   )
   const meta = getNodeMeta(data.kind)
   const params = data.params ?? {}
-  const visibleFields = meta.fields.filter((field) => isFieldVisible(data.kind, field, params))
+  const visibleFields = getNodeFields(data.kind, params, meta.defaultParams)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [openSelectFieldKey, setOpenSelectFieldKey] = useState<string | null>(null)
@@ -308,6 +187,16 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const nextParams: Record<string, unknown> = {
       ...params,
       [key]: value,
+    }
+
+    if (data.kind === 'systemOperation' && (key === 'percent' || key === 'operation')) {
+      const operation = getSystemOperationKind(nextParams, getSystemOperationKind(meta.defaultParams))
+      if (operation === 'volumeSet' || operation === 'brightnessSet') {
+        const num = Number(nextParams.percent ?? 50)
+        if (!Number.isNaN(num)) {
+          nextParams.percent = Math.min(100, Math.max(0, num))
+        }
+      }
     }
 
     if (data.kind === 'varDefine' || data.kind === 'varSet' || data.kind === 'constValue') {

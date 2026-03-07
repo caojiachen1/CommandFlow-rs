@@ -271,67 +271,7 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: [...singleOut(), { id: 'ms', label: 'ms', maxConnections: MANY, valueType: 'number' }],
   },
-  powerShutdown: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  powerRestart: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  powerSleep: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  powerHibernate: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  powerLock: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  powerSignOut: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemVolumeMute: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemVolumeSet: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemVolumeAdjust: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemBrightnessSet: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemWifiSwitch: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemBluetoothSwitch: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemNetworkAdapterSwitch: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemTheme: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemPowerPlan: {
-    inputs: singleIn(),
-    outputs: singleOut(),
-  },
-  systemOpenSettings: {
+  systemOperation: {
     inputs: singleIn(),
     outputs: singleOut(),
   },

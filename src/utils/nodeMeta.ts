@@ -2,6 +2,24 @@ import type { NodeKind } from '../types/workflow'
 
 export type ParamFieldType = 'string' | 'number' | 'boolean' | 'select' | 'json' | 'text'
 
+export type SystemOperationKind =
+  | 'shutdown'
+  | 'restart'
+  | 'sleep'
+  | 'hibernate'
+  | 'lock'
+  | 'signOut'
+  | 'volumeMute'
+  | 'volumeSet'
+  | 'volumeAdjust'
+  | 'brightnessSet'
+  | 'wifiSwitch'
+  | 'bluetoothSwitch'
+  | 'networkAdapterSwitch'
+  | 'theme'
+  | 'powerPlan'
+  | 'openSettings'
+
 export interface ParamField {
   key: string
   label: string
@@ -19,6 +37,271 @@ export interface NodeMeta {
   description: string
   fields: ParamField[]
   defaultParams: Record<string, unknown>
+}
+
+export const SYSTEM_OPERATION_OPTIONS: Array<{ label: string; value: SystemOperationKind }> = [
+  { label: '系统关机', value: 'shutdown' },
+  { label: '系统重启', value: 'restart' },
+  { label: '系统睡眠', value: 'sleep' },
+  { label: '系统休眠', value: 'hibernate' },
+  { label: '锁定系统', value: 'lock' },
+  { label: '注销登录', value: 'signOut' },
+  { label: '系统音量静音', value: 'volumeMute' },
+  { label: '系统音量设置', value: 'volumeSet' },
+  { label: '系统音量增减', value: 'volumeAdjust' },
+  { label: '系统亮度设置', value: 'brightnessSet' },
+  { label: 'WiFi 开关', value: 'wifiSwitch' },
+  { label: '蓝牙开关', value: 'bluetoothSwitch' },
+  { label: '网络适配器开关', value: 'networkAdapterSwitch' },
+  { label: '系统主题模式', value: 'theme' },
+  { label: '电源计划', value: 'powerPlan' },
+  { label: '打开系统设置页', value: 'openSettings' },
+]
+
+const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
+  shutdown: ['timeoutSec', 'force'],
+  restart: ['timeoutSec', 'force'],
+  sleep: [],
+  hibernate: [],
+  lock: [],
+  signOut: ['force'],
+  volumeMute: ['mode'],
+  volumeSet: ['percent'],
+  volumeAdjust: ['delta'],
+  brightnessSet: ['percent'],
+  wifiSwitch: ['state'],
+  bluetoothSwitch: ['state'],
+  networkAdapterSwitch: ['adapterName', 'state'],
+  theme: ['mode'],
+  powerPlan: ['plan'],
+  openSettings: ['page'],
+}
+
+export const getSystemOperationKind = (
+  params: Record<string, unknown>,
+  defaultOperation: SystemOperationKind = 'shutdown',
+): SystemOperationKind => {
+  const operation = String(params.operation ?? defaultOperation)
+  return SYSTEM_OPERATION_OPTIONS.some((item) => item.value === operation)
+    ? (operation as SystemOperationKind)
+    : defaultOperation
+}
+
+export const getSystemOperationLabel = (
+  params: Record<string, unknown>,
+  defaultOperation: SystemOperationKind = 'shutdown',
+): string => {
+  const operation = getSystemOperationKind(params, defaultOperation)
+  return SYSTEM_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '系统操作'
+}
+
+export const getNodeDisplayLabel = (
+  kind: NodeKind,
+  params: Record<string, unknown> = {},
+  fallbackLabel?: string,
+): string => {
+  if (kind === 'systemOperation') {
+    return getSystemOperationLabel(params, getSystemOperationKind(getNodeMeta(kind).defaultParams))
+  }
+
+  return fallbackLabel ?? getNodeMeta(kind).label
+}
+
+export const isNodeFieldVisible = (
+  kind: NodeKind,
+  field: ParamField,
+  params: Record<string, unknown>,
+  defaultParams: Record<string, unknown> = {},
+) => {
+  if (kind === 'systemOperation') {
+    if (field.key === 'operation') return true
+    const operation = getSystemOperationKind(
+      params,
+      getSystemOperationKind(defaultParams, 'shutdown'),
+    )
+    return SYSTEM_OPERATION_FIELD_KEYS[operation].includes(field.key)
+  }
+
+  if (kind === 'guiAgent') {
+    const continuousMode = Boolean(params.continuousMode ?? defaultParams.continuousMode ?? true)
+    if (field.key === 'imageInput') {
+      return !continuousMode
+    }
+    if (field.key === 'maxSteps') {
+      return continuousMode
+    }
+    if (field.key === 'systemPrompt') {
+      return false
+    }
+  }
+
+  if (kind === 'windowActivate') {
+    const mode = String(params.switchMode ?? defaultParams.switchMode ?? 'title')
+    if (mode === 'title') {
+      return !['shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
+    }
+    if (mode === 'shortcut') {
+      return field.key !== 'title'
+    }
+  }
+
+  if (kind === 'varMath' && field.key === 'operand') {
+    const unaryOperations = new Set([
+      'neg',
+      'abs',
+      'sign',
+      'square',
+      'cube',
+      'sqrt',
+      'cbrt',
+      'exp',
+      'ln',
+      'log2',
+      'log10',
+      'sin',
+      'cos',
+      'tan',
+      'asin',
+      'acos',
+      'atan',
+      'ceil',
+      'floor',
+      'round',
+      'trunc',
+      'frac',
+      'recip',
+      'lnot',
+      'bnot',
+    ])
+    const operation = String(params.operation ?? defaultParams.operation ?? 'add')
+    return !unaryOperations.has(operation)
+  }
+
+  if ((kind === 'varDefine' || kind === 'varSet' || kind === 'constValue') && field.key.startsWith('value')) {
+    const valueType = String(params.valueType ?? defaultParams.valueType ?? 'number')
+    if (field.key === 'valueType') return true
+    if (field.key === 'valueString') return valueType === 'string'
+    if (field.key === 'valueNumber') return valueType === 'number'
+    if (field.key === 'valueBoolean') return valueType === 'boolean'
+    if (field.key === 'valueJson') return valueType === 'json'
+    return false
+  }
+
+  if (kind === 'varMath' && field.key.startsWith('operand')) {
+    const unaryOperations = new Set([
+      'neg',
+      'abs',
+      'sign',
+      'square',
+      'cube',
+      'sqrt',
+      'cbrt',
+      'exp',
+      'ln',
+      'log2',
+      'log10',
+      'sin',
+      'cos',
+      'tan',
+      'asin',
+      'acos',
+      'atan',
+      'ceil',
+      'floor',
+      'round',
+      'trunc',
+      'frac',
+      'recip',
+      'lnot',
+      'bnot',
+    ])
+    const operation = String(params.operation ?? defaultParams.operation ?? 'add')
+    if (unaryOperations.has(operation)) {
+      return field.key === 'operandType'
+    }
+
+    const operandType = String(params.operandType ?? defaultParams.operandType ?? 'number')
+    if (field.key === 'operandType') return true
+    if (field.key === 'operandNumber') return operandType === 'number'
+    if (field.key === 'operandString') return operandType === 'string'
+    if (field.key === 'operandBoolean') return operandType === 'boolean'
+    if (field.key === 'operandJson') return operandType === 'json'
+    return false
+  }
+
+  if (
+    (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') &&
+    (field.key === 'inputText' || field.key === 'inputVar')
+  ) {
+    const inputMode = String(params.inputMode ?? defaultParams.inputMode ?? 'literal')
+    if (field.key === 'inputText') return inputMode === 'literal'
+    if (field.key === 'inputVar') return inputMode === 'var'
+  }
+
+  return true
+}
+
+const resolveSystemOperationField = (
+  field: ParamField,
+  operation: SystemOperationKind,
+): ParamField => {
+  if (field.key === 'mode') {
+    if (operation === 'theme') {
+      return {
+        ...field,
+        label: '主题模式',
+        options: [
+          { label: '深色', value: 'dark' },
+          { label: '浅色', value: 'light' },
+        ],
+      }
+    }
+
+    return {
+      ...field,
+      label: '静音模式',
+      options: [
+        { label: '切换', value: 'toggle' },
+        { label: '静音', value: 'mute' },
+        { label: '取消静音', value: 'unmute' },
+      ],
+    }
+  }
+
+  if (field.key === 'percent') {
+    return {
+      ...field,
+      label: operation === 'brightnessSet' ? '亮度(%)' : '音量(%)',
+    }
+  }
+
+  if (field.key === 'state' && operation === 'networkAdapterSwitch') {
+    return {
+      ...field,
+      options: [
+        { label: '切换', value: 'toggle' },
+        { label: '启用', value: 'on' },
+        { label: '禁用', value: 'off' },
+      ],
+    }
+  }
+
+  return field
+}
+
+export const getNodeFields = (
+  kind: NodeKind,
+  params: Record<string, unknown> = {},
+  defaultParams: Record<string, unknown> = {},
+): ParamField[] => {
+  const fields = metas[kind].fields.filter((field) => isNodeFieldVisible(kind, field, params, defaultParams))
+
+  if (kind !== 'systemOperation') {
+    return fields
+  }
+
+  const operation = getSystemOperationKind(params, getSystemOperationKind(defaultParams, 'shutdown'))
+  return fields.map((field) => resolveSystemOperationField(field, operation))
 }
 
 const metas: Record<NodeKind, NodeMeta> = {
@@ -542,191 +825,55 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
     defaultParams: { ms: 500 },
     fields: [{ key: 'ms', label: '毫秒', type: 'number', min: 0, step: 100 }],
   },
-  powerShutdown: {
-    label: '系统关机',
-    description: '执行系统关机。支持延时和强制关闭应用。',
+  systemOperation: {
+    label: '系统操作',
+    description: '统一的系统操作节点；先选择操作类型，再按需填写对应参数。',
     defaultParams: {
+      operation: 'shutdown',
       timeoutSec: 0,
       force: false,
-    },
-    fields: [
-      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
-      { key: 'force', label: '强制关闭应用', type: 'boolean' },
-    ],
-  },
-  powerRestart: {
-    label: '系统重启',
-    description: '执行系统重启。支持延时和强制关闭应用。',
-    defaultParams: {
-      timeoutSec: 0,
-      force: false,
-    },
-    fields: [
-      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
-      { key: 'force', label: '强制关闭应用', type: 'boolean' },
-    ],
-  },
-  powerSleep: {
-    label: '系统睡眠',
-    description: '让系统进入睡眠模式。',
-    defaultParams: {},
-    fields: [],
-  },
-  powerHibernate: {
-    label: '系统休眠',
-    description: '让系统进入休眠模式。',
-    defaultParams: {},
-    fields: [],
-  },
-  powerLock: {
-    label: '锁定系统',
-    description: '立即锁定当前会话（锁屏）。',
-    defaultParams: {},
-    fields: [],
-  },
-  powerSignOut: {
-    label: '注销登录',
-    description: '注销当前用户会话。',
-    defaultParams: {
-      force: false,
-    },
-    fields: [
-      { key: 'force', label: '强制关闭应用', type: 'boolean' },
-    ],
-  },
-  systemVolumeMute: {
-    label: '系统音量静音',
-    description: '控制系统主音量静音状态（静音/取消静音/切换）。',
-    defaultParams: {
       mode: 'toggle',
+      percent: 50,
+      delta: 10,
+      state: 'toggle',
+      adapterName: '',
+      plan: 'balanced',
+      page: 'sound',
     },
     fields: [
       {
+        key: 'operation',
+        label: '操作类型',
+        type: 'select',
+        options: SYSTEM_OPERATION_OPTIONS,
+      },
+      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
+      { key: 'force', label: '强制关闭应用', type: 'boolean' },
+      {
         key: 'mode',
-        label: '静音模式',
+        label: '模式',
         type: 'select',
         options: [
           { label: '切换', value: 'toggle' },
           { label: '静音', value: 'mute' },
           { label: '取消静音', value: 'unmute' },
-        ],
-      },
-    ],
-  },
-  systemVolumeSet: {
-    label: '系统音量设置',
-    description: '将系统主音量设置为指定百分比。',
-    defaultParams: {
-      percent: 50,
-    },
-    fields: [
-      { key: 'percent', label: '音量(%)', type: 'number', min: 0, max: 100, step: 1 },
-    ],
-  },
-  systemVolumeAdjust: {
-    label: '系统音量增减',
-    description: '按步长增大或减小系统主音量。',
-    defaultParams: {
-      delta: 10,
-    },
-    fields: [
-      { key: 'delta', label: '变化值(可负数)', type: 'number', min: -100, max: 100, step: 1 },
-    ],
-  },
-  systemBrightnessSet: {
-    label: '系统亮度设置',
-    description: '设置屏幕亮度百分比（不同系统支持度不同）。',
-    defaultParams: {
-      percent: 60,
-    },
-    fields: [
-      { key: 'percent', label: '亮度(%)', type: 'number', min: 0, max: 100, step: 1 },
-    ],
-  },
-  systemWifiSwitch: {
-    label: 'WiFi 开关',
-    description: '控制 WiFi 状态（开启/关闭/切换）。',
-    defaultParams: {
-      state: 'toggle',
-    },
-    fields: [
-      {
-        key: 'state',
-        label: '目标状态',
-        type: 'select',
-        options: [
-          { label: '切换', value: 'toggle' },
-          { label: '开启', value: 'on' },
-          { label: '关闭', value: 'off' },
-        ],
-      },
-    ],
-  },
-  systemBluetoothSwitch: {
-    label: '蓝牙开关',
-    description: '控制蓝牙设备状态（开启/关闭/切换，部分系统需管理员权限）。',
-    defaultParams: {
-      state: 'toggle',
-    },
-    fields: [
-      {
-        key: 'state',
-        label: '目标状态',
-        type: 'select',
-        options: [
-          { label: '切换', value: 'toggle' },
-          { label: '开启', value: 'on' },
-          { label: '关闭', value: 'off' },
-        ],
-      },
-    ],
-  },
-  systemNetworkAdapterSwitch: {
-    label: '网络适配器开关',
-    description: '按适配器名启用/禁用网络适配器（留空时自动选首个适配器）。',
-    defaultParams: {
-      adapterName: '',
-      state: 'toggle',
-    },
-    fields: [
-      { key: 'adapterName', label: '适配器名称', type: 'string', placeholder: 'Wi-Fi' },
-      {
-        key: 'state',
-        label: '目标状态',
-        type: 'select',
-        options: [
-          { label: '切换', value: 'toggle' },
-          { label: '启用', value: 'on' },
-          { label: '禁用', value: 'off' },
-        ],
-      },
-    ],
-  },
-  systemTheme: {
-    label: '系统主题模式',
-    description: '切换系统浅色/深色主题。',
-    defaultParams: {
-      mode: 'dark',
-    },
-    fields: [
-      {
-        key: 'mode',
-        label: '主题模式',
-        type: 'select',
-        options: [
           { label: '深色', value: 'dark' },
           { label: '浅色', value: 'light' },
         ],
       },
-    ],
-  },
-  systemPowerPlan: {
-    label: '电源计划',
-    description: '切换系统电源计划（节能/平衡/高性能）。',
-    defaultParams: {
-      plan: 'balanced',
-    },
-    fields: [
+      { key: 'percent', label: '百分比(%)', type: 'number', min: 0, max: 100, step: 1 },
+      { key: 'delta', label: '变化值(可负数)', type: 'number', min: -100, max: 100, step: 1 },
+      {
+        key: 'state',
+        label: '目标状态',
+        type: 'select',
+        options: [
+          { label: '切换', value: 'toggle' },
+          { label: '开启', value: 'on' },
+          { label: '关闭', value: 'off' },
+        ],
+      },
+      { key: 'adapterName', label: '适配器名称', type: 'string', placeholder: 'Wi-Fi' },
       {
         key: 'plan',
         label: '电源计划',
@@ -737,15 +884,6 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
           { label: '节能', value: 'powerSaver' },
         ],
       },
-    ],
-  },
-  systemOpenSettings: {
-    label: '打开系统设置页',
-    description: '打开系统设置页面（如声音、显示、网络、蓝牙等）。',
-    defaultParams: {
-      page: 'sound',
-    },
-    fields: [
       {
         key: 'page',
         label: '设置页面',

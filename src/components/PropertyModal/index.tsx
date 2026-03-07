@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { getNodeMeta, type ParamField } from '../../utils/nodeMeta'
+import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
 import { fetchLlmModels, listOpenWindows } from '../../utils/execution'
 import { resolveGuiAgentChatEndpointPreview } from '../../utils/llmEndpoint'
 import type { NodeKind } from '../../types/workflow'
@@ -112,6 +112,9 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
   const { selectedNodeId, nodes, updateNodeParams, setSelectedNode } = useWorkflowStore()
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
   const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
+  const selectedFields = selectedNode && selectedMeta
+    ? getNodeFields(selectedNode.data.kind, selectedNode.data.params, selectedMeta.defaultParams)
+    : []
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [windowTitles, setWindowTitles] = useState<string[]>([])
@@ -129,9 +132,9 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
       setErrors({})
       return
     }
-    setJsonDrafts(buildJsonDrafts(selectedNode.data.params, selectedMeta.fields))
+    setJsonDrafts(buildJsonDrafts(selectedNode.data.params, selectedFields))
     setErrors({})
-  }, [selectedMeta, selectedNode])
+  }, [selectedFields, selectedMeta, selectedNode])
 
   useEffect(() => {
     if (!selectedNode || !open) return
@@ -233,10 +236,22 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
 
   const updateParam = (key: string, value: unknown) => {
     if (!selectedNode) return
-    updateNodeParams(selectedNode.id, {
+    const nextParams: Record<string, unknown> = {
       ...selectedNode.data.params,
       [key]: value,
-    })
+    }
+
+    if (selectedNode.data.kind === 'systemOperation' && (key === 'percent' || key === 'operation')) {
+      const operation = getSystemOperationKind(nextParams, getSystemOperationKind(selectedMeta?.defaultParams ?? {}))
+      if (operation === 'volumeSet' || operation === 'brightnessSet') {
+        const num = Number(nextParams.percent ?? 50)
+        if (!Number.isNaN(num)) {
+          nextParams.percent = Math.min(100, Math.max(0, num))
+        }
+      }
+    }
+
+    updateNodeParams(selectedNode.id, nextParams)
   }
 
   const getFieldDefaultValue = (field: ParamField): unknown =>
@@ -249,71 +264,6 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
       return currentValue
     }
     return getFieldDefaultValue(field)
-  }
-
-  const shouldShowField = (field: ParamField): boolean => {
-    if (!selectedNode) return true
-
-    if (selectedNode.data.kind === 'guiAgent' && field.key === 'systemPrompt') {
-      return false
-    }
-
-    if (selectedNode.data.kind === 'windowActivate') {
-      const mode = String(selectedNode.data.params.switchMode ?? selectedMeta?.defaultParams.switchMode ?? 'title')
-      if (mode === 'title') {
-        return !['shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
-      }
-      if (mode === 'shortcut') {
-        return field.key !== 'title'
-      }
-    }
-
-    if (selectedNode.data.kind === 'varMath' && field.key === 'operand') {
-      const unaryOperations = new Set([
-        'neg',
-        'abs',
-        'sign',
-        'square',
-        'cube',
-        'sqrt',
-        'cbrt',
-        'exp',
-        'ln',
-        'log2',
-        'log10',
-        'sin',
-        'cos',
-        'tan',
-        'asin',
-        'acos',
-        'atan',
-        'ceil',
-        'floor',
-        'round',
-        'trunc',
-        'frac',
-        'recip',
-        'lnot',
-        'bnot',
-      ])
-      const operation = String(selectedNode.data.params.operation ?? selectedMeta?.defaultParams.operation ?? 'add')
-      return !unaryOperations.has(operation)
-    }
-
-    if (
-      (selectedNode.data.kind === 'clipboardWrite' || selectedNode.data.kind === 'fileWriteText' || selectedNode.data.kind === 'showMessage') &&
-      (field.key === 'inputText' || field.key === 'inputVar')
-    ) {
-      const inputMode = String(selectedNode.data.params.inputMode ?? 'literal')
-      if (field.key === 'inputText') {
-        return inputMode === 'literal'
-      }
-      if (field.key === 'inputVar') {
-        return inputMode === 'var'
-      }
-    }
-
-    return true
   }
 
   const handleClose = useCallback(() => {
@@ -572,9 +522,9 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
               <p className="text-[11px] text-slate-400 dark:text-slate-500">每个节点执行完成后都会等待该时长再进入下个节点，默认 50ms。</p>
             </div>
 
-            {selectedMeta.fields.length ? (
+            {selectedFields.length ? (
               <div className="space-y-3">
-                {selectedMeta.fields.filter(shouldShowField).map((field) => (
+                {selectedFields.map((field) => (
                   <div key={field.key} className="space-y-1.5">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{field.label}</label>
                     {renderField(field)}

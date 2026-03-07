@@ -784,108 +784,23 @@ impl WorkflowExecutor {
                 set_node_output(ctx, node, "ms", value_from_u64(duration));
                 Ok(NextDirective::Default)
             }
-            NodeKind::PowerShutdown => {
-                let timeout_sec = get_u64(node, "timeoutSec", 0);
-                let force = get_bool(node, "force", false);
-                power::shutdown(timeout_sec, force).await?;
-                set_node_output(ctx, node, "action", Value::String("shutdown".to_string()));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::PowerRestart => {
-                let timeout_sec = get_u64(node, "timeoutSec", 0);
-                let force = get_bool(node, "force", false);
-                power::restart(timeout_sec, force).await?;
-                set_node_output(ctx, node, "action", Value::String("restart".to_string()));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::PowerSleep => {
-                power::sleep().await?;
-                set_node_output(ctx, node, "action", Value::String("sleep".to_string()));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::PowerHibernate => {
-                power::hibernate().await?;
-                set_node_output(ctx, node, "action", Value::String("hibernate".to_string()));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::PowerLock => {
-                power::lock_screen().await?;
-                set_node_output(ctx, node, "action", Value::String("lock".to_string()));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::PowerSignOut => {
-                let force = get_bool(node, "force", false);
-                power::sign_out(force).await?;
-                set_node_output(ctx, node, "action", Value::String("signOut".to_string()));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemVolumeMute => {
-                let mode = get_string(node, "mode", "toggle");
-                system_settings::set_volume_mute(&mode).await?;
-                set_node_output(ctx, node, "mode", Value::String(mode));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemVolumeSet => {
-                let percent = get_u64(node, "percent", 50).min(100) as u8;
-                system_settings::set_volume_percent(percent).await?;
-                set_node_output(ctx, node, "percent", value_from_u64(percent as u64));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemVolumeAdjust => {
-                let delta = get_i32(node, "delta", 10);
-                system_settings::adjust_volume(delta).await?;
-                set_node_output(ctx, node, "delta", value_from_i32(delta));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemBrightnessSet => {
-                let percent = get_u64(node, "percent", 60).min(100) as u8;
-                system_settings::set_brightness_percent(percent).await?;
-                set_node_output(ctx, node, "percent", value_from_u64(percent as u64));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemWifiSwitch => {
-                let state = get_string(node, "state", "toggle");
-                system_settings::switch_wifi(&state).await?;
-                set_node_output(ctx, node, "state", Value::String(state));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemBluetoothSwitch => {
-                let state = get_string(node, "state", "toggle");
-                system_settings::switch_bluetooth(&state).await?;
-                set_node_output(ctx, node, "state", Value::String(state));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemNetworkAdapterSwitch => {
-                let adapter_name = get_string(node, "adapterName", "");
-                let state = get_string(node, "state", "toggle");
-                let adapter_name_opt = if adapter_name.trim().is_empty() {
-                    None
-                } else {
-                    Some(adapter_name.as_str())
-                };
-                system_settings::switch_network_adapter(adapter_name_opt, &state).await?;
-                set_node_output(ctx, node, "adapterName", Value::String(adapter_name));
-                set_node_output(ctx, node, "state", Value::String(state));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemTheme => {
-                let mode = get_string(node, "mode", "dark");
-                system_settings::set_theme(&mode).await?;
-                set_node_output(ctx, node, "mode", Value::String(mode));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemPowerPlan => {
-                let plan = get_string(node, "plan", "balanced");
-                system_settings::set_power_plan(&plan).await?;
-                set_node_output(ctx, node, "plan", Value::String(plan));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::SystemOpenSettings => {
-                let page = get_string(node, "page", "system");
-                system_settings::open_settings_page(&page).await?;
-                set_node_output(ctx, node, "page", Value::String(page));
-                Ok(NextDirective::Default)
-            }
+            NodeKind::SystemOperation => execute_system_operation(node, ctx, None).await,
+            NodeKind::PowerShutdown => execute_system_operation(node, ctx, Some("shutdown")).await,
+            NodeKind::PowerRestart => execute_system_operation(node, ctx, Some("restart")).await,
+            NodeKind::PowerSleep => execute_system_operation(node, ctx, Some("sleep")).await,
+            NodeKind::PowerHibernate => execute_system_operation(node, ctx, Some("hibernate")).await,
+            NodeKind::PowerLock => execute_system_operation(node, ctx, Some("lock")).await,
+            NodeKind::PowerSignOut => execute_system_operation(node, ctx, Some("signOut")).await,
+            NodeKind::SystemVolumeMute => execute_system_operation(node, ctx, Some("volumeMute")).await,
+            NodeKind::SystemVolumeSet => execute_system_operation(node, ctx, Some("volumeSet")).await,
+            NodeKind::SystemVolumeAdjust => execute_system_operation(node, ctx, Some("volumeAdjust")).await,
+            NodeKind::SystemBrightnessSet => execute_system_operation(node, ctx, Some("brightnessSet")).await,
+            NodeKind::SystemWifiSwitch => execute_system_operation(node, ctx, Some("wifiSwitch")).await,
+            NodeKind::SystemBluetoothSwitch => execute_system_operation(node, ctx, Some("bluetoothSwitch")).await,
+            NodeKind::SystemNetworkAdapterSwitch => execute_system_operation(node, ctx, Some("networkAdapterSwitch")).await,
+            NodeKind::SystemTheme => execute_system_operation(node, ctx, Some("theme")).await,
+            NodeKind::SystemPowerPlan => execute_system_operation(node, ctx, Some("powerPlan")).await,
+            NodeKind::SystemOpenSettings => execute_system_operation(node, ctx, Some("openSettings")).await,
             NodeKind::Condition => {
                 let condition_true = evaluate_condition(node, &ctx.variables);
                 Ok(if condition_true {
@@ -1682,6 +1597,124 @@ fn emit_process_output(
 
 fn is_manual_trigger(kind: &NodeKind) -> bool {
     matches!(kind, NodeKind::ManualTrigger)
+}
+
+fn normalize_system_operation_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| *ch != '-' && *ch != '_' && !ch.is_whitespace())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+async fn execute_system_operation(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    operation_override: Option<&str>,
+) -> CommandResult<NextDirective> {
+    let requested = operation_override
+        .map(ToString::to_string)
+        .unwrap_or_else(|| get_string(node, "operation", "shutdown"));
+    let operation = normalize_system_operation_name(&requested);
+
+    set_node_output(ctx, node, "operation", Value::String(requested.clone()));
+
+    match operation.as_str() {
+        "shutdown" => {
+            let timeout_sec = get_u64(node, "timeoutSec", 0);
+            let force = get_bool(node, "force", false);
+            power::shutdown(timeout_sec, force).await?;
+            set_node_output(ctx, node, "action", Value::String("shutdown".to_string()));
+        }
+        "restart" => {
+            let timeout_sec = get_u64(node, "timeoutSec", 0);
+            let force = get_bool(node, "force", false);
+            power::restart(timeout_sec, force).await?;
+            set_node_output(ctx, node, "action", Value::String("restart".to_string()));
+        }
+        "sleep" => {
+            power::sleep().await?;
+            set_node_output(ctx, node, "action", Value::String("sleep".to_string()));
+        }
+        "hibernate" => {
+            power::hibernate().await?;
+            set_node_output(ctx, node, "action", Value::String("hibernate".to_string()));
+        }
+        "lock" => {
+            power::lock_screen().await?;
+            set_node_output(ctx, node, "action", Value::String("lock".to_string()));
+        }
+        "signout" => {
+            let force = get_bool(node, "force", false);
+            power::sign_out(force).await?;
+            set_node_output(ctx, node, "action", Value::String("signOut".to_string()));
+        }
+        "volumemute" => {
+            let mode = get_string(node, "mode", "toggle");
+            system_settings::set_volume_mute(&mode).await?;
+            set_node_output(ctx, node, "mode", Value::String(mode));
+        }
+        "volumeset" => {
+            let percent = get_u64(node, "percent", 50).min(100) as u8;
+            system_settings::set_volume_percent(percent).await?;
+            set_node_output(ctx, node, "percent", value_from_u64(percent as u64));
+        }
+        "volumeadjust" => {
+            let delta = get_i32(node, "delta", 10);
+            system_settings::adjust_volume(delta).await?;
+            set_node_output(ctx, node, "delta", value_from_i32(delta));
+        }
+        "brightnessset" => {
+            let percent = get_u64(node, "percent", 60).min(100) as u8;
+            system_settings::set_brightness_percent(percent).await?;
+            set_node_output(ctx, node, "percent", value_from_u64(percent as u64));
+        }
+        "wifiswitch" => {
+            let state = get_string(node, "state", "toggle");
+            system_settings::switch_wifi(&state).await?;
+            set_node_output(ctx, node, "state", Value::String(state));
+        }
+        "bluetoothswitch" => {
+            let state = get_string(node, "state", "toggle");
+            system_settings::switch_bluetooth(&state).await?;
+            set_node_output(ctx, node, "state", Value::String(state));
+        }
+        "networkadapterswitch" => {
+            let adapter_name = get_string(node, "adapterName", "");
+            let state = get_string(node, "state", "toggle");
+            let adapter_name_opt = if adapter_name.trim().is_empty() {
+                None
+            } else {
+                Some(adapter_name.as_str())
+            };
+            system_settings::switch_network_adapter(adapter_name_opt, &state).await?;
+            set_node_output(ctx, node, "adapterName", Value::String(adapter_name));
+            set_node_output(ctx, node, "state", Value::String(state));
+        }
+        "theme" => {
+            let mode = get_string(node, "mode", "dark");
+            system_settings::set_theme(&mode).await?;
+            set_node_output(ctx, node, "mode", Value::String(mode));
+        }
+        "powerplan" => {
+            let plan = get_string(node, "plan", "balanced");
+            system_settings::set_power_plan(&plan).await?;
+            set_node_output(ctx, node, "plan", Value::String(plan));
+        }
+        "opensettings" => {
+            let page = get_string(node, "page", "system");
+            system_settings::open_settings_page(&page).await?;
+            set_node_output(ctx, node, "page", Value::String(page));
+        }
+        _ => {
+            return Err(CommandFlowError::Validation(format!(
+                "node '{}' has unsupported system operation '{}'",
+                node.id, requested
+            )));
+        }
+    }
+
+    Ok(NextDirective::Default)
 }
 
 async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<()> {

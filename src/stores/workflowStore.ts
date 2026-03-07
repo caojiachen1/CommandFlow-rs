@@ -8,7 +8,7 @@ import {
 } from '@xyflow/react'
 import { create } from 'zustand'
 import type { CoordinatePoint, NodeKind, WorkflowEdge, WorkflowFile, WorkflowNode } from '../types/workflow'
-import { getNodeMeta } from '../utils/nodeMeta'
+import { getNodeDisplayLabel, getNodeMeta } from '../utils/nodeMeta'
 import {
   getInputHandleValueType,
   getInputHandleMaxConnections,
@@ -107,24 +107,65 @@ const initialNodes: WorkflowNode[] = [
 
 const makeInitialNodes = (): WorkflowNode[] => structuredClone(initialNodes)
 
+const legacySystemKindToOperation = {
+  powerShutdown: 'shutdown',
+  powerRestart: 'restart',
+  powerSleep: 'sleep',
+  powerHibernate: 'hibernate',
+  powerLock: 'lock',
+  powerSignOut: 'signOut',
+  systemVolumeMute: 'volumeMute',
+  systemVolumeSet: 'volumeSet',
+  systemVolumeAdjust: 'volumeAdjust',
+  systemBrightnessSet: 'brightnessSet',
+  systemWifiSwitch: 'wifiSwitch',
+  systemBluetoothSwitch: 'bluetoothSwitch',
+  systemNetworkAdapterSwitch: 'networkAdapterSwitch',
+  systemTheme: 'theme',
+  systemPowerPlan: 'powerPlan',
+  systemOpenSettings: 'openSettings',
+} as const
+
+type LegacySystemKind = keyof typeof legacySystemKindToOperation
+
+const isLegacySystemKind = (kind: string): kind is LegacySystemKind => kind in legacySystemKindToOperation
+
+const normalizeImportedNodeKind = (kind: string): NodeKind =>
+  (isLegacySystemKind(kind) ? 'systemOperation' : kind) as NodeKind
+
+const normalizeImportedNodeParams = (kind: string, params: Record<string, unknown>) =>
+  isLegacySystemKind(kind)
+    ? {
+        operation: legacySystemKindToOperation[kind],
+        ...params,
+      }
+    : params
+
 const normalizeImportedNodes = (nodes: WorkflowNode[]): WorkflowNode[] =>
   nodes.map((node) => {
-    const meta = getNodeMeta(node.data.kind)
+    const rawKind = String(node.data.kind ?? node.type ?? '')
+    const normalizedKind = normalizeImportedNodeKind(rawKind)
+    const meta = getNodeMeta(normalizedKind)
     const rawParams =
       node.data.params && typeof node.data.params === 'object'
         ? (node.data.params as Record<string, unknown>)
         : {}
+    const normalizedParams = normalizeImportedNodeParams(rawKind, rawParams)
 
     return {
       ...node,
-      type: node.type ?? node.data.kind,
+      type: normalizedKind,
       data: {
         ...node.data,
-        label: node.data.label || meta.label,
+        kind: normalizedKind,
+        label: getNodeDisplayLabel(normalizedKind, {
+          ...structuredClone(meta.defaultParams),
+          ...normalizedParams,
+        }, meta.label),
         description: node.data.description || meta.description,
         params: {
           ...structuredClone(meta.defaultParams),
-          ...rawParams,
+          ...normalizedParams,
         },
       },
     }
@@ -341,6 +382,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   addNode: (kind, position) => {
     const id = crypto.randomUUID()
     const meta = getNodeMeta(kind)
+    const initialParams = structuredClone(meta.defaultParams)
     set((state) => ({
       past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
       future: [],
@@ -352,9 +394,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           position,
           data: {
             kind,
-            label: meta.label,
+            label: getNodeDisplayLabel(kind, initialParams, meta.label),
             description: meta.description,
-            params: structuredClone(meta.defaultParams),
+            params: initialParams,
           },
         },
       ],
@@ -432,13 +474,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set((state) => ({
       nodes: state.nodes.map((node) =>
         node.id === id
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                params,
-              },
-            }
+          ? (() => {
+              const meta = getNodeMeta(node.data.kind)
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  label: getNodeDisplayLabel(node.data.kind, params, meta.label),
+                  params,
+                },
+              }
+            })()
           : node,
       ),
     })),
