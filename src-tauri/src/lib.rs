@@ -60,6 +60,7 @@ pub fn run() {
             commands::save_workflow,
             commands::load_workflow,
             commands::pick_coordinate,
+            commands::get_cursor_position,
             commands::confirm_coordinate_pick,
             commands::cancel_coordinate_pick,
             commands::list_open_windows,

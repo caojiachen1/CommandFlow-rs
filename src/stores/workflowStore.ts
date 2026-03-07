@@ -50,7 +50,7 @@ interface WorkflowState {
   ) => void
   setSelectedNode: (id: string | null) => void
   setSelectedNodes: (ids: string[]) => void
-  setCursor: (x: number, y: number) => void
+  setCursor: (cursor: CoordinatePoint) => void
   addNode: (kind: NodeKind, position: { x: number; y: number }) => string
   deleteSelectedNodes: () => void
   duplicateSelectedNode: () => void
@@ -425,14 +425,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         selectedNodeId: nextPrimaryId,
       }
     }),
-  setCursor: (x, y) =>
-    set((state) => ({
-      cursor: {
-        ...state.cursor,
-        x,
-        y,
-      },
-    })),
+  setCursor: (cursor) =>
+    set((state) => {
+      if (
+        state.cursor.x === cursor.x &&
+        state.cursor.y === cursor.y &&
+        state.cursor.isPhysicalPixel === cursor.isPhysicalPixel &&
+        state.cursor.mode === cursor.mode
+      ) {
+        return state
+      }
+
+      return { cursor }
+    }),
   addNode: (kind, position) => {
     const id = crypto.randomUUID()
     const meta = getNodeMeta(kind)

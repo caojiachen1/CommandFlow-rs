@@ -65,6 +65,31 @@ export const pickCoordinate = async (): Promise<CoordinatePoint> => {
   }
 }
 
+export const getCursorPosition = async (): Promise<CoordinatePoint> => {
+  if (!isTauriRuntime()) {
+    return {
+      x: 0,
+      y: 0,
+      isPhysicalPixel: false,
+      mode: 'virtualScreen',
+    }
+  }
+
+  const payload = await invoke<{
+    x: number
+    y: number
+    is_physical_pixel: boolean
+    mode: 'virtualScreen' | 'activeWindow'
+  }>('get_cursor_position')
+
+  return {
+    x: payload.x,
+    y: payload.y,
+    isPhysicalPixel: payload.is_physical_pixel,
+    mode: payload.mode,
+  }
+}
+
 export const fetchLlmModels = async (baseUrl: string, apiKey: string): Promise<string[]> => {
   if (!isTauriRuntime()) {
     return []

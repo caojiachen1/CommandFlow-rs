@@ -351,6 +351,25 @@ pub async fn pick_coordinate(app: AppHandle) -> Result<CoordinateInfo, String> {
 }
 
 #[tauri::command]
+pub async fn get_cursor_position() -> Result<CoordinateInfo, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let (x, y) = read_cursor_virtual_screen_point()?;
+        return Ok(CoordinateInfo {
+            x,
+            y,
+            is_physical_pixel: true,
+            mode: "virtualScreen".to_string(),
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("当前平台尚未支持系统级鼠标坐标读取。".to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn confirm_coordinate_pick(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {

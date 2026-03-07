@@ -14,7 +14,7 @@ import { useExecutionStore } from './stores/executionStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
-import { pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
+import { getCursorPosition, pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
@@ -128,6 +128,7 @@ function App() {
     nodes,
     edges,
     setSelectedNode,
+    setCursor,
   } = useWorkflowStore()
   const { running, setRunning, addLog, setVariables, clearVariables } = useExecutionStore()
   const loadSecureLlmPresets = useSettingsStore((state) => state.loadLlmPresets)
@@ -173,10 +174,58 @@ function App() {
   useShortcutBindings()
 
   const menu = useMemo(() => Object.entries(menuGroups), [])
+  const isTauriRuntime = '__TAURI_INTERNALS__' in window
 
   useEffect(() => {
     void loadSecureLlmPresets()
   }, [loadSecureLlmPresets])
+
+  useEffect(() => {
+    if (isTauriRuntime) {
+      let disposed = false
+      let timer: number | null = null
+
+      const pollCursor = async () => {
+        try {
+          const point = await getCursorPosition()
+          if (!disposed) {
+            setCursor(point)
+          }
+        } catch {
+          // ignore transient cursor polling failures
+        } finally {
+          if (!disposed) {
+            timer = window.setTimeout(() => {
+              void pollCursor()
+            }, 80)
+          }
+        }
+      }
+
+      void pollCursor()
+
+      return () => {
+        disposed = true
+        if (timer !== null) {
+          window.clearTimeout(timer)
+        }
+      }
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      setCursor({
+        x: Math.round(event.screenX),
+        y: Math.round(event.screenY),
+        isPhysicalPixel: false,
+        mode: 'virtualScreen',
+      })
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+    }
+  }, [isTauriRuntime, setCursor])
 
   useEffect(() => {
     const handleCloseMenuOutside = (event: Event) => {
@@ -363,8 +412,6 @@ function App() {
       Array.isArray(file.graph.edges)
     )
   }
-
-  const isTauriRuntime = '__TAURI_INTERNALS__' in window
 
   const applyBackgroundMode = useCallback(
     async (enabled: boolean) => {
@@ -1317,7 +1364,7 @@ function App() {
               type="button"
               disabled={running}
               onClick={() => void handleMenuAction('运行')}
-              className="rounded-md bg-cyan-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               启动
             </button>
@@ -1325,7 +1372,7 @@ function App() {
               type="button"
               disabled={running}
               onClick={() => void handleMenuAction('单步')}
-              className="rounded-md bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               单步
             </button>
@@ -1345,7 +1392,7 @@ function App() {
             <button
               type="button"
               onClick={() => void handleMenuAction('后台模式')}
-              className="ml-auto rounded-md bg-slate-700 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-600 dark:bg-slate-600 dark:hover:bg-slate-500"
+              className="ml-auto rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500"
             >
               退出后台模式
             </button>

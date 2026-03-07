@@ -50,13 +50,14 @@ export default function Toolbar({ backgroundMode, onToggleBackgroundMode, onPick
   }
 
   const buttonClass = "flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/60 px-3.5 py-1.5 text-xs font-medium transition-all duration-150 hover:bg-white hover:shadow-sm active:translate-y-[1px] disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-slate-800"
+  const mutedActionButtonClass = 'flex items-center gap-2 rounded-lg bg-slate-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-slate-700/20 transition-all hover:bg-slate-500 hover:shadow-slate-600/30 active:scale-95 disabled:bg-slate-400 dark:bg-slate-600 dark:hover:bg-slate-500'
 
   return (
     <div className="relative z-50 flex h-12 items-center gap-2 border-b border-slate-200 bg-slate-50/50 px-4 backdrop-blur-xl dark:border-neutral-800 dark:bg-black/50">
       <button 
         type="button" 
         onClick={run} 
-        className="flex items-center gap-2 rounded-lg bg-cyan-600 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-cyan-600/20 transition-all hover:bg-cyan-500 hover:shadow-cyan-500/30 active:scale-95 disabled:bg-slate-400"
+        className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-500 hover:shadow-blue-500/30 active:scale-95 disabled:bg-slate-400"
         disabled={running}
       >
         <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
@@ -65,7 +66,7 @@ export default function Toolbar({ backgroundMode, onToggleBackgroundMode, onPick
       <button
         type="button"
         onClick={() => window.dispatchEvent(new Event('commandflow:run-step'))}
-        className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 hover:shadow-indigo-500/30 active:scale-95 disabled:bg-slate-400"
+        className={mutedActionButtonClass}
         disabled={running}
       >
         <span className="h-2 w-2 rounded-full bg-white" />
@@ -74,7 +75,7 @@ export default function Toolbar({ backgroundMode, onToggleBackgroundMode, onPick
       <button
         type="button"
         onClick={onToggleBackgroundMode}
-        className="flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-slate-700/20 transition-all hover:bg-slate-600 hover:shadow-slate-600/30 active:scale-95 dark:bg-slate-600 dark:hover:bg-slate-500"
+        className={mutedActionButtonClass}
       >
         <span className="h-2 w-2 rounded-full bg-white" />
         {backgroundMode ? '退出后台' : 'F8 后台模式'}

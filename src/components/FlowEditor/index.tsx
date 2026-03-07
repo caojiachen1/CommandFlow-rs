@@ -205,7 +205,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     disconnectHandleConnections,
     setSelectedNode,
     addNode,
-    setCursor,
   } = useWorkflowStore()
   const setZoom = useSettingsStore((state) => state.setZoom)
   const reactFlow = useReactFlow()
@@ -532,14 +531,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     [closeQuickInsert, closeGlobalInsert, connectNodes],
   )
 
-  const onPaneMouseMove = useCallback(
-    (event: React.MouseEvent<Element>) => {
-      const point = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
-      setCursor(Math.round(point.x), Math.round(point.y))
-    },
-    [reactFlow, setCursor],
-  )
-
   const onConnectStart = useCallback(
     (_event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
       if (!params.nodeId || !params.handleType) {
@@ -738,7 +729,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={handlePaneClick}
-        onPaneMouseMove={onPaneMouseMove}
         edgesReconnectable
         reconnectRadius={28}
         connectionRadius={24}
@@ -827,12 +817,12 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
               <button
                 type="button"
                 aria-label="关闭全局节点搜索"
-                className="absolute inset-0 bg-slate-100/55 backdrop-blur-[3px] transition-colors dark:bg-black/60"
+                className="absolute inset-0 bg-black/38 transition-colors dark:bg-black/55"
                 onClick={closeGlobalInsert}
               />
 
               <div
-                className="relative z-[241] mx-4 flex h-[560px] max-h-[78vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/96 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900/96"
+                className="relative z-[241] mx-4 flex h-[560px] max-h-[78vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="border-b border-slate-200 px-6 py-5 dark:border-neutral-800">
