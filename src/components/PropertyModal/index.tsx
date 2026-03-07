@@ -80,29 +80,26 @@ const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath') && fieldKey === 'name'
 
 const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') && fieldKey === 'inputVar'
+  (kind === 'clipboardWrite' || kind === 'fileOperation' || kind === 'showMessage') && fieldKey === 'inputVar'
 
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
-  if ((kind === 'fileCopy' || kind === 'fileMove') && (fieldKey === 'sourcePath' || fieldKey === 'targetPath')) {
+  if (kind === 'fileOperation' && (fieldKey === 'sourcePath' || fieldKey === 'targetPath' || fieldKey === 'path')) {
     return true
   }
   if (kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')) {
     return true
   }
-  if ((kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path') {
-    return true
-  }
   if (kind === 'screenshot' && fieldKey === 'saveDir') {
     return true
   }
-  return kind === 'fileDelete' && fieldKey === 'path'
+  return false
 }
 
 const isImageMatchImageField = (kind: NodeKind, fieldKey: string) =>
   kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')
 
-const isTextFilePathField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path'
+const isTextFilePathField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
+  kind === 'fileOperation' && fieldKey === 'path' && (params.operation === 'readText' || params.operation === 'writeText')
 
 const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
@@ -412,7 +409,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
                     selectedNode.data.kind === 'screenshot' && field.key === 'saveDir'
                       ? 'directory'
                       : (
-                    isImageMatchImageField(selectedNode.data.kind, field.key) || isTextFilePathField(selectedNode.data.kind, field.key)
+                    isImageMatchImageField(selectedNode.data.kind, field.key) || isTextFilePathField(selectedNode.data.kind, field.key, selectedNode.data.params)
                       ? 'file'
                       : 'menu'
                       )

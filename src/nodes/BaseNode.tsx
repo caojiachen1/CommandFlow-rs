@@ -32,30 +32,27 @@ const selectedStyles = {
 }
 
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
-  if ((kind === 'fileCopy' || kind === 'fileMove') && (fieldKey === 'sourcePath' || fieldKey === 'targetPath')) {
+  if (kind === 'fileOperation' && (fieldKey === 'sourcePath' || fieldKey === 'targetPath' || fieldKey === 'path')) {
     return true
   }
   if (kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')) {
-    return true
-  }
-  if ((kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path') {
     return true
   }
   if (kind === 'screenshot' && fieldKey === 'saveDir') {
     return true
   }
 
-  return kind === 'fileDelete' && fieldKey === 'path'
+  return false
 }
 
 const isImageMatchImageField = (kind: NodeKind, fieldKey: string) =>
   kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')
 
-const isTextFilePathField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path'
+const isTextFilePathField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
+  kind === 'fileOperation' && fieldKey === 'path' && (params.operation === 'readText' || params.operation === 'writeText')
 
-const isStrictFilePathField = (kind: NodeKind, fieldKey: string) =>
-  isImageMatchImageField(kind, fieldKey) || isTextFilePathField(kind, fieldKey)
+const isStrictFilePathField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
+  isImageMatchImageField(kind, fieldKey) || isTextFilePathField(kind, fieldKey, params)
 
 const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
@@ -70,10 +67,10 @@ const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath' || kind === 'varGet') && fieldKey === 'name'
 
 const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') && fieldKey === 'inputVar'
+  (kind === 'clipboardWrite' || kind === 'fileOperation' || kind === 'showMessage') && fieldKey === 'inputVar'
 
 const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'clipboardRead' || kind === 'fileReadText') && fieldKey === 'outputVar'
+  (kind === 'clipboardRead' || kind === 'fileOperation') && fieldKey === 'outputVar'
 
 const isWindowTitleField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'title'
@@ -865,7 +862,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   pickerMode={
                     data.kind === 'screenshot' && field.key === 'saveDir'
                       ? 'directory'
-                      : (isStrictFilePathField(data.kind, field.key) ? 'file' : 'menu')
+                      : (isStrictFilePathField(data.kind, field.key, params) ? 'file' : 'menu')
                   }
                   filters={isImageMatchImageField(data.kind, field.key) ? IMAGE_FILE_FILTERS : undefined}
                   onSelect={(value) => {

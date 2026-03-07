@@ -143,19 +143,31 @@ const legacyKeyboardKindToOperation = {
   shortcut: 'shortcut',
 } as const
 
+const legacyFileKindToOperation = {
+  fileCopy: 'copy',
+  fileMove: 'move',
+  fileDelete: 'delete',
+  fileReadText: 'readText',
+  fileWriteText: 'writeText',
+} as const
+
 type LegacySystemKind = keyof typeof legacySystemKindToOperation
 type LegacyMouseKind = keyof typeof legacyMouseKindToOperation
 type LegacyKeyboardKind = keyof typeof legacyKeyboardKindToOperation
+type LegacyFileKind = keyof typeof legacyFileKindToOperation
 
 const isLegacySystemKind = (kind: string): kind is LegacySystemKind => kind in legacySystemKindToOperation
 const isLegacyMouseKind = (kind: string): kind is LegacyMouseKind => kind in legacyMouseKindToOperation
 const isLegacyKeyboardKind = (kind: string): kind is LegacyKeyboardKind => kind in legacyKeyboardKindToOperation
+const isLegacyFileKind = (kind: string): kind is LegacyFileKind => kind in legacyFileKindToOperation
 
 const normalizeImportedNodeKind = (kind: string): NodeKind =>
   (isLegacySystemKind(kind)
     ? 'systemOperation'
     : isLegacyMouseKind(kind)
       ? 'mouseOperation'
+      : isLegacyFileKind(kind)
+        ? 'fileOperation'
       : isLegacyKeyboardKind(kind)
         ? 'keyboardOperation'
         : kind) as NodeKind
@@ -171,6 +183,11 @@ const normalizeImportedNodeParams = (kind: string, params: Record<string, unknow
           operation: legacyMouseKindToOperation[kind],
           ...params,
         }
+      : isLegacyFileKind(kind)
+        ? {
+            operation: legacyFileKindToOperation[kind],
+            ...params,
+          }
       : isLegacyKeyboardKind(kind)
         ? {
             operation: legacyKeyboardKindToOperation[kind],

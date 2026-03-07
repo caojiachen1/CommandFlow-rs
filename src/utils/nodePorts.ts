@@ -1,5 +1,11 @@
 import type { NodeKind } from '../types/workflow'
-import { getKeyboardOperationKind, getMouseOperationKind, getNodeFields, getNodeMeta } from './nodeMeta'
+import {
+  getFileOperationKind,
+  getKeyboardOperationKind,
+  getMouseOperationKind,
+  getNodeFields,
+  getNodeMeta,
+} from './nodeMeta'
 
 export type HandleValueType = 'control' | 'string' | 'number' | 'json' | 'any'
 
@@ -123,6 +129,24 @@ const getKeyboardOperationDynamicOutputs = (params: Record<string, unknown> = {}
   return [{ id: 'key', label: 'key', maxConnections: MANY, valueType: 'string' }]
 }
 
+const getFileOperationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
+  const operation = getFileOperationKind(params)
+
+  if (operation === 'delete') {
+    return [{ id: 'path', label: 'path', maxConnections: MANY, valueType: 'string' }]
+  }
+
+  if (operation === 'readText') {
+    return [{ id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' }]
+  }
+
+  if (operation === 'writeText') {
+    return [{ id: 'path', label: 'path', maxConnections: MANY, valueType: 'string' }]
+  }
+
+  return [{ id: 'targetPath', label: 'targetPath', maxConnections: MANY, valueType: 'string' }]
+}
+
 export const isHandleValueTypeCompatible = (
   sourceType: HandleValueType,
   targetType: HandleValueType,
@@ -204,17 +228,9 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: [...singleOut(), { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' }],
   },
-  fileCopy: {
+  fileOperation: {
     inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'targetPath', label: 'targetPath', maxConnections: MANY, valueType: 'string' }],
-  },
-  fileMove: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'targetPath', label: 'targetPath', maxConnections: MANY, valueType: 'string' }],
-  },
-  fileDelete: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'path', label: 'path', maxConnections: MANY, valueType: 'string' }],
+    outputs: singleOut(),
   },
   runCommand: {
     inputs: singleIn(),
@@ -231,14 +247,6 @@ const specs: Record<NodeKind, NodePortSpec> = {
   clipboardWrite: {
     inputs: singleIn(),
     outputs: singleOut(),
-  },
-  fileReadText: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' }],
-  },
-  fileWriteText: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'path', label: 'path', maxConnections: MANY, valueType: 'string' }],
   },
   showMessage: {
     inputs: singleIn(),
@@ -314,7 +322,11 @@ const specs: Record<NodeKind, NodePortSpec> = {
 const mergedSpecCache = new Map<NodeKind, NodePortSpec>()
 
 export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> = {}): NodePortSpec => {
-  const canUseCache = kind !== 'guiAgentActionParser' && kind !== 'mouseOperation' && kind !== 'keyboardOperation'
+  const canUseCache =
+    kind !== 'guiAgentActionParser' &&
+    kind !== 'mouseOperation' &&
+    kind !== 'keyboardOperation' &&
+    kind !== 'fileOperation'
   if (canUseCache) {
     const cached = mergedSpecCache.get(kind)
     if (cached) return cached
@@ -330,6 +342,8 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
         ? getMouseOperationDynamicOutputs(params)
         : kind === 'keyboardOperation'
           ? getKeyboardOperationDynamicOutputs(params)
+          : kind === 'fileOperation'
+            ? getFileOperationDynamicOutputs(params)
           : []
 
   const merged: NodePortSpec = {

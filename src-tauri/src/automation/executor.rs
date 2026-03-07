@@ -507,54 +507,10 @@ impl WorkflowExecutor {
                 }
                 Ok(NextDirective::Default)
             }
-            NodeKind::FileCopy => {
-                let source_path = get_string(node, "sourcePath", "");
-                let target_path = get_string(node, "targetPath", "");
-                let overwrite = get_bool(node, "overwrite", false);
-                let recursive = get_bool(node, "recursive", true);
-
-                if source_path.trim().is_empty() || target_path.trim().is_empty() {
-                    return Err(CommandFlowError::Validation(format!(
-                        "node '{}' sourcePath/targetPath cannot be empty",
-                        node.id
-                    )));
-                }
-
-                file_ops::copy_path(&source_path, &target_path, overwrite, recursive)?;
-                set_node_output(ctx, node, "targetPath", Value::String(target_path));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::FileMove => {
-                let source_path = get_string(node, "sourcePath", "");
-                let target_path = get_string(node, "targetPath", "");
-                let overwrite = get_bool(node, "overwrite", false);
-
-                if source_path.trim().is_empty() || target_path.trim().is_empty() {
-                    return Err(CommandFlowError::Validation(format!(
-                        "node '{}' sourcePath/targetPath cannot be empty",
-                        node.id
-                    )));
-                }
-
-                file_ops::move_path(&source_path, &target_path, overwrite)?;
-                set_node_output(ctx, node, "targetPath", Value::String(target_path));
-                Ok(NextDirective::Default)
-            }
-            NodeKind::FileDelete => {
-                let path = get_string(node, "path", "");
-                let recursive = get_bool(node, "recursive", true);
-
-                if path.trim().is_empty() {
-                    return Err(CommandFlowError::Validation(format!(
-                        "node '{}' path cannot be empty",
-                        node.id
-                    )));
-                }
-
-                file_ops::delete_path(&path, recursive)?;
-                set_node_output(ctx, node, "path", Value::String(path));
-                Ok(NextDirective::Default)
-            }
+            NodeKind::FileOperation => execute_file_operation(node, ctx, None, on_log),
+            NodeKind::FileCopy => execute_file_operation(node, ctx, Some("copy"), on_log),
+            NodeKind::FileMove => execute_file_operation(node, ctx, Some("move"), on_log),
+            NodeKind::FileDelete => execute_file_operation(node, ctx, Some("delete"), on_log),
             NodeKind::RunCommand => {
                 let command = get_string(node, "command", "");
                 if command.trim().is_empty() {
@@ -622,73 +578,8 @@ impl WorkflowExecutor {
                 );
                 Ok(NextDirective::Default)
             }
-            NodeKind::FileReadText => {
-                let path_raw = get_string(node, "path", "");
-                let path = resolve_text_template(&path_raw, &ctx.variables);
-                if path.trim().is_empty() {
-                    return Err(CommandFlowError::Validation(format!(
-                        "node '{}' path cannot be empty",
-                        node.id
-                    )));
-                }
-
-                let content = fs::read_to_string(&path)
-                    .map_err(|error| CommandFlowError::Io(format!("读取文本文件失败 '{}': {}", path, error)))?;
-                set_node_output(ctx, node, "text", Value::String(content.clone()));
-                let output_var = get_string(node, "outputVar", "fileText").trim().to_string();
-
-                if !output_var.is_empty() {
-                    ctx.variables.insert(output_var.clone(), Value::String(content.clone()));
-                    on_log(
-                        "info",
-                        format!(
-                            "文本读取节点 '{}' 已读取 {} 字符到变量 '{}'。",
-                            node.label,
-                            content.chars().count(),
-                            output_var
-                        ),
-                    );
-                } else {
-                    on_log(
-                        "info",
-                        format!(
-                            "文本读取节点 '{}' 已读取 {} 字符（未配置输出变量）。",
-                            node.label,
-                            content.chars().count()
-                        ),
-                    );
-                }
-
-                Ok(NextDirective::Default)
-            }
-            NodeKind::FileWriteText => {
-                let path_raw = get_string(node, "path", "");
-                let path = resolve_text_template(&path_raw, &ctx.variables);
-                if path.trim().is_empty() {
-                    return Err(CommandFlowError::Validation(format!(
-                        "node '{}' path cannot be empty",
-                        node.id
-                    )));
-                }
-
-                let text = resolve_text_input(node, &ctx.variables);
-                let append = get_bool(node, "append", false);
-                let create_parent_dir = get_bool(node, "createParentDir", true);
-                write_text_file(&path, &text, append, create_parent_dir)?;
-                set_node_output(ctx, node, "path", Value::String(path.clone()));
-
-                on_log(
-                    "info",
-                    format!(
-                        "文本写入节点 '{}' 已{} {} 字符到 '{}'。",
-                        node.label,
-                        if append { "追加" } else { "写入" },
-                        text.chars().count(),
-                        path
-                    ),
-                );
-                Ok(NextDirective::Default)
-            }
+            NodeKind::FileReadText => execute_file_operation(node, ctx, Some("readText"), on_log),
+            NodeKind::FileWriteText => execute_file_operation(node, ctx, Some("writeText"), on_log),
             NodeKind::ShowMessage => {
                 let title_raw = get_string(node, "title", "CommandFlow");
                 let title = resolve_text_template(&title_raw, &ctx.variables);
@@ -1535,6 +1426,145 @@ fn normalize_system_operation_name(value: &str) -> String {
         .filter(|ch| *ch != '-' && *ch != '_' && !ch.is_whitespace())
         .flat_map(|ch| ch.to_lowercase())
         .collect()
+}
+
+fn execute_file_operation(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    operation_override: Option<&str>,
+    on_log: &mut impl FnMut(&str, String),
+) -> CommandResult<NextDirective> {
+    let requested = operation_override
+        .map(ToString::to_string)
+        .unwrap_or_else(|| get_string(node, "operation", "copy"));
+    let operation = normalize_system_operation_name(&requested);
+
+    set_node_output(ctx, node, "operation", Value::String(requested.clone()));
+
+    match operation.as_str() {
+        "copy" => {
+            let source_path = get_string(node, "sourcePath", "");
+            let target_path = get_string(node, "targetPath", "");
+            let overwrite = get_bool(node, "overwrite", false);
+            let recursive = get_bool(node, "recursive", true);
+
+            if source_path.trim().is_empty() || target_path.trim().is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' sourcePath/targetPath cannot be empty",
+                    node.id
+                )));
+            }
+
+            file_ops::copy_path(&source_path, &target_path, overwrite, recursive)?;
+            set_node_output(ctx, node, "targetPath", Value::String(target_path));
+            set_node_output(ctx, node, "action", Value::String("copy".to_string()));
+        }
+        "move" => {
+            let source_path = get_string(node, "sourcePath", "");
+            let target_path = get_string(node, "targetPath", "");
+            let overwrite = get_bool(node, "overwrite", false);
+
+            if source_path.trim().is_empty() || target_path.trim().is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' sourcePath/targetPath cannot be empty",
+                    node.id
+                )));
+            }
+
+            file_ops::move_path(&source_path, &target_path, overwrite)?;
+            set_node_output(ctx, node, "targetPath", Value::String(target_path));
+            set_node_output(ctx, node, "action", Value::String("move".to_string()));
+        }
+        "delete" => {
+            let path = get_string(node, "path", "");
+            let recursive = get_bool(node, "recursive", true);
+
+            if path.trim().is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' path cannot be empty",
+                    node.id
+                )));
+            }
+
+            file_ops::delete_path(&path, recursive)?;
+            set_node_output(ctx, node, "path", Value::String(path));
+            set_node_output(ctx, node, "action", Value::String("delete".to_string()));
+        }
+        "readtext" => {
+            let path_raw = get_string(node, "path", "");
+            let path = resolve_text_template(&path_raw, &ctx.variables);
+            if path.trim().is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' path cannot be empty",
+                    node.id
+                )));
+            }
+
+            let content = fs::read_to_string(&path)
+                .map_err(|error| CommandFlowError::Io(format!("读取文本文件失败 '{}': {}", path, error)))?;
+            set_node_output(ctx, node, "text", Value::String(content.clone()));
+            set_node_output(ctx, node, "action", Value::String("readText".to_string()));
+            let output_var = get_string(node, "outputVar", "fileText").trim().to_string();
+
+            if !output_var.is_empty() {
+                ctx.variables.insert(output_var.clone(), Value::String(content.clone()));
+                on_log(
+                    "info",
+                    format!(
+                        "文本读取节点 '{}' 已读取 {} 字符到变量 '{}'。",
+                        node.label,
+                        content.chars().count(),
+                        output_var
+                    ),
+                );
+            } else {
+                on_log(
+                    "info",
+                    format!(
+                        "文本读取节点 '{}' 已读取 {} 字符（未配置输出变量）。",
+                        node.label,
+                        content.chars().count()
+                    ),
+                );
+            }
+        }
+        "writetext" => {
+            let path_raw = get_string(node, "path", "");
+            let path = resolve_text_template(&path_raw, &ctx.variables);
+            if path.trim().is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' path cannot be empty",
+                    node.id
+                )));
+            }
+
+            let text = resolve_text_input(node, &ctx.variables);
+            let append = get_bool(node, "append", false);
+            let create_parent_dir = get_bool(node, "createParentDir", true);
+            write_text_file(&path, &text, append, create_parent_dir)?;
+            set_node_output(ctx, node, "path", Value::String(path.clone()));
+            set_node_output(ctx, node, "action", Value::String("writeText".to_string()));
+
+            on_log(
+                "info",
+                format!(
+                    "文本写入节点 '{}' 已{} {} 字符到 '{}'。",
+                    node.label,
+                    if append { "追加" } else { "写入" },
+                    text.chars().count(),
+                    path
+                ),
+            );
+        }
+        _ => {
+            return Err(CommandFlowError::Validation(format!(
+                "node '{}' has unsupported file operation '{}'",
+                node.id, requested
+            )));
+        }
+    }
+
+    Ok(NextDirective::Default)
 }
 
 async fn execute_system_operation(

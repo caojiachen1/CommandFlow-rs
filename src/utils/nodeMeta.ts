@@ -20,6 +20,8 @@ export type SystemOperationKind =
   | 'powerPlan'
   | 'openSettings'
 
+export type FileOperationKind = 'copy' | 'move' | 'delete' | 'readText' | 'writeText'
+
 export type MouseOperationKind = 'click' | 'move' | 'drag' | 'wheel' | 'down' | 'up'
 
 export type KeyboardOperationKind = 'key' | 'input' | 'down' | 'up' | 'shortcut'
@@ -62,6 +64,14 @@ export const SYSTEM_OPERATION_OPTIONS: Array<{ label: string; value: SystemOpera
   { label: '打开系统设置页', value: 'openSettings' },
 ]
 
+export const FILE_OPERATION_OPTIONS: Array<{ label: string; value: FileOperationKind }> = [
+  { label: '复制文件/文件夹', value: 'copy' },
+  { label: '移动文件/文件夹', value: 'move' },
+  { label: '删除文件/文件夹', value: 'delete' },
+  { label: '读取文本文件', value: 'readText' },
+  { label: '写入文本文件', value: 'writeText' },
+]
+
 export const MOUSE_OPERATION_OPTIONS: Array<{ label: string; value: MouseOperationKind }> = [
   { label: '鼠标点击', value: 'click' },
   { label: '鼠标移动', value: 'move' },
@@ -98,6 +108,14 @@ const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
   openSettings: ['page'],
 }
 
+const FILE_OPERATION_FIELD_KEYS: Record<FileOperationKind, string[]> = {
+  copy: ['sourcePath', 'targetPath', 'overwrite', 'recursive'],
+  move: ['sourcePath', 'targetPath', 'overwrite'],
+  delete: ['path', 'recursive'],
+  readText: ['path', 'outputVar'],
+  writeText: ['path', 'inputMode', 'inputText', 'inputVar', 'append', 'createParentDir'],
+}
+
 const MOUSE_OPERATION_FIELD_KEYS: Record<MouseOperationKind, string[]> = {
   click: ['x', 'y', 'times'],
   move: ['x', 'y'],
@@ -122,6 +140,16 @@ export const getSystemOperationKind = (
   const operation = String(params.operation ?? defaultOperation)
   return SYSTEM_OPERATION_OPTIONS.some((item) => item.value === operation)
     ? (operation as SystemOperationKind)
+    : defaultOperation
+}
+
+export const getFileOperationKind = (
+  params: Record<string, unknown>,
+  defaultOperation: FileOperationKind = 'copy',
+): FileOperationKind => {
+  const operation = String(params.operation ?? defaultOperation)
+  return FILE_OPERATION_OPTIONS.some((item) => item.value === operation)
+    ? (operation as FileOperationKind)
     : defaultOperation
 }
 
@@ -153,6 +181,14 @@ export const getSystemOperationLabel = (
   return SYSTEM_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '系统操作'
 }
 
+export const getFileOperationLabel = (
+  params: Record<string, unknown>,
+  defaultOperation: FileOperationKind = 'copy',
+): string => {
+  const operation = getFileOperationKind(params, defaultOperation)
+  return FILE_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '文件操作'
+}
+
 export const getMouseOperationLabel = (
   params: Record<string, unknown>,
   defaultOperation: MouseOperationKind = 'click',
@@ -176,6 +212,10 @@ export const getNodeDisplayLabel = (
 ): string => {
   if (kind === 'systemOperation') {
     return getSystemOperationLabel(params, getSystemOperationKind(getNodeMeta(kind).defaultParams))
+  }
+
+  if (kind === 'fileOperation') {
+    return getFileOperationLabel(params, getFileOperationKind(getNodeMeta(kind).defaultParams))
   }
 
   if (kind === 'mouseOperation') {
@@ -202,6 +242,25 @@ export const isNodeFieldVisible = (
       getSystemOperationKind(defaultParams, 'shutdown'),
     )
     return SYSTEM_OPERATION_FIELD_KEYS[operation].includes(field.key)
+  }
+
+  if (kind === 'fileOperation') {
+    if (field.key === 'operation') return true
+    const operation = getFileOperationKind(
+      params,
+      getFileOperationKind(defaultParams, 'copy'),
+    )
+    if (!FILE_OPERATION_FIELD_KEYS[operation].includes(field.key)) {
+      return false
+    }
+
+    if ((field.key === 'inputText' || field.key === 'inputVar') && operation === 'writeText') {
+      const inputMode = String(params.inputMode ?? defaultParams.inputMode ?? 'literal')
+      if (field.key === 'inputText') return inputMode === 'literal'
+      if (field.key === 'inputVar') return inputMode === 'var'
+    }
+
+    return true
   }
 
   if (kind === 'mouseOperation') {
@@ -336,7 +395,7 @@ export const isNodeFieldVisible = (
   }
 
   if (
-    (kind === 'clipboardWrite' || kind === 'fileWriteText' || kind === 'showMessage') &&
+    (kind === 'clipboardWrite' || kind === 'showMessage') &&
     (field.key === 'inputText' || field.key === 'inputVar')
   ) {
     const inputMode = String(params.inputMode ?? defaultParams.inputMode ?? 'literal')
@@ -389,6 +448,81 @@ const resolveSystemOperationField = (
         { label: '启用', value: 'on' },
         { label: '禁用', value: 'off' },
       ],
+    }
+  }
+
+  return field
+}
+
+const resolveFileOperationField = (
+  field: ParamField,
+  operation: FileOperationKind,
+): ParamField => {
+  if (field.key === 'sourcePath') {
+    return {
+      ...field,
+      label: '源路径',
+      placeholder: operation === 'move' ? 'C:\\input\\folder-a' : 'C:\\input\\a.txt',
+    }
+  }
+
+  if (field.key === 'targetPath') {
+    return {
+      ...field,
+      label: '目标路径',
+      placeholder: operation === 'move' ? 'D:\\output\\folder-a' : 'D:\\output\\a.txt',
+    }
+  }
+
+  if (field.key === 'path') {
+    return {
+      ...field,
+      label:
+        operation === 'delete'
+          ? '路径'
+          : operation === 'readText' || operation === 'writeText'
+            ? '文件路径'
+            : '路径',
+      placeholder:
+        operation === 'delete'
+          ? 'D:\\temp\\old-folder'
+          : operation === 'readText'
+            ? 'C:\\temp\\note.txt'
+            : operation === 'writeText'
+              ? 'D:\\output\\result.txt'
+              : 'D:\\temp\\path',
+    }
+  }
+
+  if (field.key === 'recursive') {
+    return {
+      ...field,
+      label: operation === 'delete' ? '目录递归删除' : '目录递归复制',
+    }
+  }
+
+  if (field.key === 'inputText') {
+    return {
+      ...field,
+      label: '文本内容',
+      placeholder: '支持多行文本，也支持 {{变量名}} 模板占位。',
+    }
+  }
+
+  if (field.key === 'inputVar') {
+    return {
+      ...field,
+      label: '变量名',
+      placeholder: 'fileText',
+    }
+  }
+
+  if (field.key === 'outputVar') {
+    return {
+      ...field,
+      label: '输出变量名',
+      placeholder: 'fileText',
+      description: '读取到的文本将写入该变量；留空则仅记录日志。',
     }
   }
 
@@ -454,7 +588,7 @@ export const getNodeFields = (
 ): ParamField[] => {
   const fields = metas[kind].fields.filter((field) => isNodeFieldVisible(kind, field, params, defaultParams))
 
-  if (kind !== 'systemOperation') {
+  if (kind !== 'systemOperation' && kind !== 'fileOperation') {
     if (kind === 'mouseOperation') {
       const operation = getMouseOperationKind(params, getMouseOperationKind(defaultParams, 'click'))
       return fields.map((field) => resolveMouseOperationField(field, operation))
@@ -466,6 +600,11 @@ export const getNodeFields = (
     }
 
     return fields
+  }
+
+  if (kind === 'fileOperation') {
+    const operation = getFileOperationKind(params, getFileOperationKind(defaultParams, 'copy'))
+    return fields.map((field) => resolveFileOperationField(field, operation))
   }
 
   const operation = getSystemOperationKind(params, getSystemOperationKind(defaultParams, 'shutdown'))
@@ -747,34 +886,54 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       { key: 'shortcutIntervalMs', label: '快捷键间隔(ms)', type: 'number', min: 1, step: 1 },
     ],
   },
-  fileCopy: {
-    label: '复制文件/文件夹',
-    description: '复制文件或目录到目标路径。',
-    defaultParams: { sourcePath: '', targetPath: '', overwrite: false, recursive: true },
+  fileOperation: {
+    label: '文件操作',
+    description: '统一的文件操作节点；先选择复制、移动、删除、读取文本或写入文本，再按需填写对应参数。',
+    defaultParams: {
+      operation: 'copy',
+      sourcePath: '',
+      targetPath: '',
+      path: '',
+      overwrite: false,
+      recursive: true,
+      inputMode: 'literal',
+      inputText: 'Hello File',
+      inputVar: 'fileText',
+      outputVar: 'fileText',
+      append: false,
+      createParentDir: true,
+    },
     fields: [
+      {
+        key: 'operation',
+        label: '操作类型',
+        type: 'select',
+        options: FILE_OPERATION_OPTIONS,
+      },
       { key: 'sourcePath', label: '源路径', type: 'string', placeholder: 'C:\\input\\a.txt' },
       { key: 'targetPath', label: '目标路径', type: 'string', placeholder: 'D:\\output\\a.txt' },
+      { key: 'path', label: '路径', type: 'string', placeholder: 'D:\\temp\\old-folder' },
       { key: 'overwrite', label: '覆盖已存在目标', type: 'boolean' },
       { key: 'recursive', label: '目录递归复制', type: 'boolean' },
-    ],
-  },
-  fileMove: {
-    label: '移动文件/文件夹',
-    description: '移动文件或目录到目标路径。',
-    defaultParams: { sourcePath: '', targetPath: '', overwrite: false },
-    fields: [
-      { key: 'sourcePath', label: '源路径', type: 'string', placeholder: 'C:\\input\\a.txt' },
-      { key: 'targetPath', label: '目标路径', type: 'string', placeholder: 'D:\\output\\a.txt' },
-      { key: 'overwrite', label: '覆盖已存在目标', type: 'boolean' },
-    ],
-  },
-  fileDelete: {
-    label: '删除文件/文件夹',
-    description: '删除目标文件或目录。',
-    defaultParams: { path: '', recursive: true },
-    fields: [
-      { key: 'path', label: '路径', type: 'string', placeholder: 'D:\\temp\\old-folder' },
-      { key: 'recursive', label: '目录递归删除', type: 'boolean' },
+      {
+        key: 'inputMode',
+        label: '输入来源',
+        type: 'select',
+        options: [
+          { label: '文本', value: 'literal' },
+          { label: '变量', value: 'var' },
+        ],
+      },
+      {
+        key: 'inputText',
+        label: '文本内容',
+        type: 'text',
+        placeholder: '支持多行文本，也支持 {{变量名}} 模板占位。',
+      },
+      { key: 'inputVar', label: '变量名', type: 'string', placeholder: 'fileText' },
+      { key: 'outputVar', label: '输出变量名', type: 'string', placeholder: 'fileText' },
+      { key: 'append', label: '追加写入', type: 'boolean' },
+      { key: 'createParentDir', label: '自动创建父目录', type: 'boolean' },
     ],
   },
   runCommand: {
@@ -844,54 +1003,6 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
         type: 'string',
         placeholder: 'clipboardText',
       },
-    ],
-  },
-  fileReadText: {
-    label: '读取文本文件',
-    description: '读取 UTF-8 文本文件并输出到变量。',
-    defaultParams: { path: '', outputVar: 'fileText' },
-    fields: [
-      { key: 'path', label: '文件路径', type: 'string', placeholder: 'C:\\temp\\note.txt' },
-      {
-        key: 'outputVar',
-        label: '输出变量名',
-        type: 'string',
-        placeholder: 'fileText',
-        description: '读取到的文本将写入该变量；留空则仅记录日志。',
-      },
-    ],
-  },
-  fileWriteText: {
-    label: '写入文本文件',
-    description: '将文本写入 UTF-8 文件（可追加）。',
-    defaultParams: {
-      path: '',
-      inputMode: 'literal',
-      inputText: 'Hello File',
-      inputVar: 'fileText',
-      append: false,
-      createParentDir: true,
-    },
-    fields: [
-      { key: 'path', label: '文件路径', type: 'string', placeholder: 'D:\\output\\result.txt' },
-      {
-        key: 'inputMode',
-        label: '输入来源',
-        type: 'select',
-        options: [
-          { label: '文本', value: 'literal' },
-          { label: '变量', value: 'var' },
-        ],
-      },
-      {
-        key: 'inputText',
-        label: '文本内容',
-        type: 'text',
-        placeholder: '支持多行文本，也支持 {{变量名}} 模板占位。',
-      },
-      { key: 'inputVar', label: '变量名', type: 'string', placeholder: 'fileText' },
-      { key: 'append', label: '追加写入', type: 'boolean' },
-      { key: 'createParentDir', label: '自动创建父目录', type: 'boolean' },
     ],
   },
   showMessage: {
