@@ -20,15 +20,15 @@ interface BaseNodeProps {
 }
 
 const tones = {
-  trigger: 'border-emerald-500/70 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100',
-  action: 'border-cyan-500/70 bg-cyan-50 text-cyan-900 dark:bg-cyan-900/30 dark:text-cyan-100',
-  control: 'border-amber-500/70 bg-amber-50 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100',
+  trigger: 'border-[rgb(53,53,53)] bg-[rgb(53,53,53)] text-gray-100',
+  action: 'border-[rgb(53,53,53)] bg-[rgb(53,53,53)] text-gray-100',
+  control: 'border-[rgb(53,53,53)] bg-[rgb(53,53,53)] text-gray-100',
 }
 
 const selectedStyles = {
-  trigger: 'border-emerald-500 ring-1 ring-emerald-400 ring-offset-1 ring-offset-emerald-50 dark:ring-offset-emerald-900/30',
-  action: 'border-cyan-500 ring-1 ring-cyan-400 ring-offset-1 ring-offset-cyan-50 dark:ring-offset-cyan-900/30',
-  control: 'border-amber-500 ring-1 ring-amber-400 ring-offset-1 ring-offset-amber-50 dark:ring-offset-amber-900/30',
+  trigger: 'border-gray-400 ring-1 ring-gray-400',
+  action: 'border-gray-400 ring-1 ring-gray-400',
+  control: 'border-gray-400 ring-1 ring-gray-400',
 }
 
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
