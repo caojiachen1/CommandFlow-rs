@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
 import { fetchLlmModels, listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../../utils/execution'
@@ -109,21 +109,33 @@ const IMAGE_FILE_FILTERS = [
 
 export default function PropertyModal({ open, onClose }: PropertyModalProps) {
   const { selectedNodeId, nodes, updateNodeParams, setSelectedNode } = useWorkflowStore()
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
-  const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
-  const selectedFields = selectedNode && selectedMeta
-    ? getNodeFields(selectedNode.data.kind, selectedNode.data.params, selectedMeta.defaultParams)
-    : []
+  const selectedNode = useMemo(
+    () => nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [nodes, selectedNodeId],
+  )
+  const selectedMeta = useMemo(
+    () => (selectedNode ? getNodeMeta(selectedNode.data.kind) : null),
+    [selectedNode],
+  )
+  const selectedFields = useMemo(
+    () => (selectedNode && selectedMeta
+      ? getNodeFields(selectedNode.data.kind, selectedNode.data.params, selectedMeta.defaultParams)
+      : []),
+    [selectedMeta, selectedNode],
+  )
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [windowTitles, setWindowTitles] = useState<string[]>([])
   const [guiModelNames, setGuiModelNames] = useState<string[]>([])
   const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
 
-  const variableNames = dedupe(
-    nodes
-      .filter((node) => node.data.kind === 'varDefine')
-      .map((node) => (typeof node.data.params.name === 'string' ? node.data.params.name.trim() : '')),
+  const variableNames = useMemo(
+    () => dedupe(
+      nodes
+        .filter((node) => node.data.kind === 'varDefine')
+        .map((node) => (typeof node.data.params.name === 'string' ? node.data.params.name.trim() : '')),
+    ),
+    [nodes],
   )
 
   useEffect(() => {
