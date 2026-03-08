@@ -24,12 +24,16 @@ use windows_sys::Win32::Graphics::Gdi::{
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Shell::{ExtractIconExW, SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, HICON, DI_NORMAL};
+use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, PrivateExtractIconsW, HICON, DI_NORMAL};
 
 const EXECUTABLE_EXTENSIONS: &[&str] = &["exe", "com", "bat", "cmd"];
 const DIRECT_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "webp", "ico"];
 const ICON_RESOURCE_EXTENSIONS: &[&str] = &["exe", "dll", "ico", "icl", "cpl", "scr"];
-const EXTRACTED_ICON_SIZE: i32 = 64;
+const EXTRACTED_ICON_SIZE: i32 = 256;
+
+fn icon_debug(message: impl AsRef<str>) {
+    eprintln!("[start-menu-icon] {}", message.as_ref());
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -166,11 +170,27 @@ pub fn resolve_app_icon_data_url(
 ) -> CommandResult<Option<String>> {
     #[cfg(target_os = "windows")]
     {
+        icon_debug(format!(
+            "resolve start: icon_path={:?}, target_path={:?}, source_path={:?}",
+            icon_path, target_path, source_path
+        ));
         for location in icon_candidates(icon_path, target_path, source_path) {
+            icon_debug(format!(
+                "trying candidate path='{}', index={}",
+                location.path, location.index
+            ));
             if let Some(data_url) = load_icon_location_data_url(&location)? {
+                icon_debug(format!(
+                    "resolved icon for path='{}', index={} (data url length={})",
+                    location.path,
+                    location.index,
+                    data_url.len()
+                ));
                 return Ok(Some(data_url));
             }
         }
+
+        icon_debug("all icon resolution attempts failed; returning None");
 
         Ok(None)
     }
@@ -462,20 +482,33 @@ fn rgba_to_png_data_url(rgba: &[u8], width: u32, height: u32) -> CommandResult<O
 
 fn load_image_file_data_url(path: &Path) -> CommandResult<Option<String>> {
     if !path.exists() || !path.is_file() {
+        icon_debug(format!("image file missing: {}", path.display()));
         return Ok(None);
     }
 
     let reader = match ImageReader::open(path) {
         Ok(reader) => reader,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            icon_debug(format!("failed to open image file '{}': {}", path.display(), error));
+            return Ok(None);
+        }
     };
 
     let decoded = match reader.decode() {
         Ok(image) => image,
-        Err(_) => return Ok(None),
+        Err(error) => {
+            icon_debug(format!("failed to decode image file '{}': {}", path.display(), error));
+            return Ok(None);
+        }
     };
 
     let rgba = decoded.to_rgba8();
+    icon_debug(format!(
+        "loaded direct image icon '{}' at {}x{}",
+        path.display(),
+        rgba.width(),
+        rgba.height()
+    ));
     rgba_to_png_data_url(rgba.as_raw(), rgba.width(), rgba.height())
 }
 
@@ -488,9 +521,62 @@ fn to_wide_null(value: &str) -> Vec<u16> {
 }
 
 #[cfg(target_os = "windows")]
+fn extract_high_resolution_icon_data_url(path: &Path, index: i32) -> CommandResult<Option<String>> {
+    if !path.exists() || !path.is_file() {
+        icon_debug(format!("high-resolution extract skipped; file missing: {}", path.display()));
+        return Ok(None);
+    }
+
+    let wide_path = to_wide_null(&path.to_string_lossy());
+    let mut icon_handle: HICON = ptr::null_mut();
+    let mut icon_id = 0u32;
+    let extracted = unsafe {
+        PrivateExtractIconsW(
+            wide_path.as_ptr(),
+            index,
+            EXTRACTED_ICON_SIZE,
+            EXTRACTED_ICON_SIZE,
+            &mut icon_handle,
+            &mut icon_id,
+            1,
+            0,
+        )
+    };
+
+    if extracted == 0 || icon_handle.is_null() {
+        icon_debug(format!(
+            "PrivateExtractIconsW failed for '{}' index={} (count={}, icon_id={})",
+            path.display(),
+            index,
+            extracted,
+            icon_id
+        ));
+        return Ok(None);
+    }
+
+    icon_debug(format!(
+        "PrivateExtractIconsW succeeded for '{}' index={} at requested {}px",
+        path.display(),
+        index,
+        EXTRACTED_ICON_SIZE
+    ));
+
+    let result = hicon_to_png_data_url(icon_handle, EXTRACTED_ICON_SIZE);
+    unsafe {
+        DestroyIcon(icon_handle);
+    }
+    result
+}
+
+#[cfg(target_os = "windows")]
 fn extract_icon_resource_data_url(path: &Path, index: i32) -> CommandResult<Option<String>> {
     if !path.exists() || !path.is_file() {
+        icon_debug(format!("resource extract skipped; file missing: {}", path.display()));
         return Ok(None);
+    }
+
+    if let Some(data_url) = extract_high_resolution_icon_data_url(path, index)? {
+        return Ok(Some(data_url));
     }
 
     let wide_path = to_wide_null(&path.to_string_lossy());
@@ -506,8 +592,20 @@ fn extract_icon_resource_data_url(path: &Path, index: i32) -> CommandResult<Opti
     };
 
     if extracted == 0 || large_icons[0].is_null() {
+        icon_debug(format!(
+            "ExtractIconExW failed for '{}' index={} (count={})",
+            path.display(),
+            index,
+            extracted
+        ));
         return Ok(None);
     }
+
+    icon_debug(format!(
+        "ExtractIconExW succeeded for '{}' index={} (fallback path)",
+        path.display(),
+        index
+    ));
 
     let icon_handle = large_icons[0];
     let result = hicon_to_png_data_url(icon_handle, EXTRACTED_ICON_SIZE);
@@ -520,7 +618,16 @@ fn extract_icon_resource_data_url(path: &Path, index: i32) -> CommandResult<Opti
 #[cfg(target_os = "windows")]
 fn extract_associated_icon_data_url(path: &Path) -> CommandResult<Option<String>> {
     if !path.exists() {
+        icon_debug(format!("associated icon extract skipped; file missing: {}", path.display()));
         return Ok(None);
+    }
+
+    if let Some(data_url) = extract_high_resolution_icon_data_url(path, 0)? {
+        icon_debug(format!(
+            "associated high-resolution icon resolved from '{}' via PrivateExtractIconsW",
+            path.display()
+        ));
+        return Ok(Some(data_url));
     }
 
     let wide_path = to_wide_null(&path.to_string_lossy());
@@ -536,8 +643,11 @@ fn extract_associated_icon_data_url(path: &Path) -> CommandResult<Option<String>
     };
 
     if result == 0 || file_info.hIcon.is_null() {
+        icon_debug(format!("SHGetFileInfoW failed for '{}'", path.display()));
         return Ok(None);
     }
+
+    icon_debug(format!("SHGetFileInfoW succeeded for '{}'", path.display()));
 
     let icon_handle = file_info.hIcon;
     let data_url = hicon_to_png_data_url(icon_handle, EXTRACTED_ICON_SIZE);
@@ -550,11 +660,13 @@ fn extract_associated_icon_data_url(path: &Path) -> CommandResult<Option<String>
 #[cfg(target_os = "windows")]
 fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<String>> {
     if icon_handle.is_null() || size <= 0 {
+        icon_debug(format!("hicon_to_png_data_url received invalid input (size={})", size));
         return Ok(None);
     }
 
     let dc = unsafe { CreateCompatibleDC(ptr::null_mut()) };
     if dc.is_null() {
+        icon_debug("CreateCompatibleDC failed");
         return Ok(None);
     }
 
@@ -592,6 +704,7 @@ fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<
         )
     };
     if bitmap.is_null() || bits.is_null() {
+        icon_debug("CreateDIBSection failed");
         unsafe {
             DeleteDC(dc);
         }
@@ -599,6 +712,7 @@ fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<
     }
 
     let previous = unsafe { SelectObject(dc, bitmap as _) };
+        icon_debug(format!("DrawIconEx failed or produced empty bitmap at size {}", size));
     let byte_len = (size as usize) * (size as usize) * 4;
     unsafe {
         slice::from_raw_parts_mut(bits as *mut u8, byte_len).fill(0);
@@ -633,6 +747,7 @@ fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<
     let path = Path::new(&location.path);
 
     if is_direct_image_extension(path) {
+        icon_debug(format!("attempting direct image load for '{}'", path.display()));
         if let Some(data_url) = load_image_file_data_url(path)? {
             return Ok(Some(data_url));
         }
@@ -641,16 +756,23 @@ fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<
     #[cfg(target_os = "windows")]
     {
         if is_icon_resource_extension(path) {
+            icon_debug(format!(
+                "attempting icon resource extraction for '{}' index={}",
+                path.display(),
+                location.index
+            ));
             if let Some(data_url) = extract_icon_resource_data_url(path, location.index)? {
                 return Ok(Some(data_url));
             }
         }
 
+        icon_debug(format!("attempting associated icon fallback for '{}'", path.display()));
         if let Some(data_url) = extract_associated_icon_data_url(path)? {
             return Ok(Some(data_url));
         }
     }
 
+    icon_debug(format!("no icon data resolved for '{}'", path.display()));
     Ok(None)
 }
 
