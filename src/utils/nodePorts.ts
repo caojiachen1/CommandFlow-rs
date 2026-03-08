@@ -228,6 +228,17 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: [...singleOut(), { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' }],
   },
+  launchApplication: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'appName', label: 'appName', maxConnections: MANY, valueType: 'string' },
+      { id: 'targetPath', label: 'targetPath', maxConnections: MANY, valueType: 'string' },
+      { id: 'sourcePath', label: 'sourcePath', maxConnections: MANY, valueType: 'string' },
+      { id: 'iconPath', label: 'iconPath', maxConnections: MANY, valueType: 'string' },
+      { id: 'pid', label: 'pid', maxConnections: MANY, valueType: 'number' },
+    ],
+  },
   fileOperation: {
     inputs: singleIn(),
     outputs: singleOut(),

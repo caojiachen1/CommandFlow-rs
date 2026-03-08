@@ -5,5 +5,6 @@ pub mod keyboard;
 pub mod mouse;
 pub mod power;
 pub mod screenshot;
+pub mod start_menu;
 pub mod system_settings;
 pub mod window;

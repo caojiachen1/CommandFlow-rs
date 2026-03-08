@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
-import { fetchLlmModels, listOpenWindows } from '../../utils/execution'
+import { fetchLlmModels, listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../../utils/execution'
 import { resolveGuiAgentChatEndpointPreview } from '../../utils/llmEndpoint'
 import type { NodeKind } from '../../types/workflow'
 import SmartInputSelect from '../SmartInputSelect'
@@ -116,6 +116,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [windowTitles, setWindowTitles] = useState<string[]>([])
   const [guiModelNames, setGuiModelNames] = useState<string[]>([])
+  const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
 
   const variableNames = dedupe(
     nodes
@@ -148,6 +149,28 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
       .catch(() => {
         if (cancelled) return
         setWindowTitles([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, selectedNode])
+
+  useEffect(() => {
+    if (!selectedNode || !open || selectedNode.data.kind !== 'launchApplication') {
+      setStartMenuApps([])
+      return
+    }
+
+    let cancelled = false
+    void listStartMenuApps()
+      .then((apps) => {
+        if (cancelled) return
+        setStartMenuApps(apps)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setStartMenuApps([])
       })
 
     return () => {
@@ -320,6 +343,33 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     }
 
     if (field.type === 'select') {
+      if (selectedNode.data.kind === 'launchApplication' && field.key === 'selectedApp') {
+        return (
+          <StyledSelect
+            value={String(currentValue ?? '')}
+            options={startMenuApps.map((app) => ({ label: app.appName, value: app.sourcePath }))}
+            onChange={(nextValue) => {
+              const selectedApp = startMenuApps.find((app) => app.sourcePath === nextValue)
+              if (!selectedApp) {
+                updateParam(field.key, nextValue)
+                return
+              }
+
+              updateNodeParams(selectedNode.id, {
+                ...selectedNode.data.params,
+                selectedApp: selectedApp.sourcePath,
+                appName: selectedApp.appName,
+                targetPath: selectedApp.targetPath,
+                iconPath: selectedApp.iconPath,
+                sourcePath: selectedApp.sourcePath,
+              })
+            }}
+            onEnter={handleClose}
+            placeholder={startMenuApps.length > 0 ? '请选择开始菜单应用' : '未扫描到可用应用'}
+          />
+        )
+      }
+
       return (
         <StyledSelect
           value={String(currentValue ?? field.options?.[0]?.value ?? '')}

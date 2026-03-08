@@ -1,4 +1,4 @@
-use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, system_settings, window};
+use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, start_menu, system_settings, window};
 use arboard::Clipboard;
 use base64::Engine as _;
 use regex::Regex;
@@ -507,6 +507,7 @@ impl WorkflowExecutor {
                 }
                 Ok(NextDirective::Default)
             }
+            NodeKind::LaunchApplication => execute_launch_application(node, ctx, on_log),
             NodeKind::FileOperation => execute_file_operation(node, ctx, None, on_log),
             NodeKind::FileCopy => execute_file_operation(node, ctx, Some("copy"), on_log),
             NodeKind::FileMove => execute_file_operation(node, ctx, Some("move"), on_log),
@@ -1426,6 +1427,55 @@ fn normalize_system_operation_name(value: &str) -> String {
         .filter(|ch| *ch != '-' && *ch != '_' && !ch.is_whitespace())
         .flat_map(|ch| ch.to_lowercase())
         .collect()
+}
+
+fn execute_launch_application(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    on_log: &mut impl FnMut(&str, String),
+) -> CommandResult<NextDirective> {
+    let selected_app = get_string(node, "selectedApp", "");
+    let app_name = get_string(node, "appName", "");
+    let target_path = get_string(node, "targetPath", "");
+    let source_path = get_string(node, "sourcePath", "");
+    let icon_path = get_string(node, "iconPath", "");
+
+    if selected_app.trim().is_empty() && target_path.trim().is_empty() && source_path.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' 尚未选择要启动的应用",
+            node.id
+        )));
+    }
+
+    let entry = start_menu::resolve_launch_application_entry(
+        &target_path,
+        Some(&source_path),
+        Some(&app_name),
+        Some(&icon_path),
+    )?;
+
+    let pid = start_menu::launch_application(&entry)?;
+
+    set_node_output(ctx, node, "appName", Value::String(entry.app_name.clone()));
+    set_node_output(ctx, node, "targetPath", Value::String(entry.target_path.clone()));
+    set_node_output(ctx, node, "sourcePath", Value::String(entry.source_path.clone()));
+    set_node_output(ctx, node, "iconPath", Value::String(entry.icon_path.clone()));
+    if let Some(pid) = pid {
+        set_node_output(ctx, node, "pid", value_from_u64(pid as u64));
+    }
+
+    on_log(
+        "info",
+        format!(
+            "启动应用节点 '{}' 已启动 '{}'（target='{}'{}）。",
+            node.label,
+            entry.app_name,
+            entry.target_path,
+            pid.map(|value| format!(", pid={}", value)).unwrap_or_default()
+        ),
+    );
+
+    Ok(NextDirective::Default)
 }
 
 fn execute_file_operation(

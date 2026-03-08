@@ -1,5 +1,6 @@
 use crate::automation::executor::WorkflowExecutor;
 use crate::automation::screenshot;
+use crate::automation::start_menu;
 use crate::automation::window;
 use crate::workflow::graph::WorkflowGraph;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -411,6 +412,11 @@ pub async fn cancel_coordinate_pick(app: AppHandle, reason: Option<String>) -> R
 #[tauri::command]
 pub async fn list_open_windows() -> Result<Vec<String>, String> {
     window::list_open_window_titles().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_start_menu_apps() -> Result<Vec<start_menu::StartMenuAppEntry>, String> {
+    start_menu::scan_start_menu_apps().map_err(|error| error.to_string())
 }
 
 fn ends_with_version_segment(url: &str) -> bool {

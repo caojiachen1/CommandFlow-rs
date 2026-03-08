@@ -210,6 +210,11 @@ export const getNodeDisplayLabel = (
   params: Record<string, unknown> = {},
   fallbackLabel?: string,
 ): string => {
+  if (kind === 'launchApplication') {
+    const appName = String(params.appName ?? '').trim()
+    return appName ? `启动应用 · ${appName}` : (fallbackLabel ?? getNodeMeta(kind).label)
+  }
+
   if (kind === 'systemOperation') {
     return getSystemOperationLabel(params, getSystemOperationKind(getNodeMeta(kind).defaultParams))
   }
@@ -884,6 +889,26 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       },
       { key: 'shortcutTimes', label: '快捷键次数', type: 'number', min: 1, step: 1 },
       { key: 'shortcutIntervalMs', label: '快捷键间隔(ms)', type: 'number', min: 1, step: 1 },
+    ],
+  },
+  launchApplication: {
+    label: '启动应用',
+    description: '扫描 Windows 开始菜单中的快捷方式，选择一个有效应用并启动。',
+    defaultParams: {
+      selectedApp: '',
+      appName: '',
+      targetPath: '',
+      iconPath: '',
+      sourcePath: '',
+    },
+    fields: [
+      {
+        key: 'selectedApp',
+        label: '开始菜单应用',
+        type: 'select',
+        options: [],
+        description: '下拉列表来自系统级与当前用户开始菜单中扫描到的有效快捷方式。',
+      },
     ],
   },
   fileOperation: {

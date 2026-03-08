@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
-import { listOpenWindows } from '../../utils/execution'
+import { listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../../utils/execution'
 import type { NodeKind } from '../../types/workflow'
 import SmartInputSelect from '../SmartInputSelect'
 import StyledSelect from '../StyledSelect'
@@ -124,6 +124,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [windowTitles, setWindowTitles] = useState<string[]>([])
+  const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
 
   const variableNames = useMemo(
     () =>
@@ -160,6 +161,28 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       .catch(() => {
         if (cancelled) return
         setWindowTitles([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [expanded, selectedNode])
+
+  useEffect(() => {
+    if (!selectedNode || !expanded || selectedNode.data.kind !== 'launchApplication') {
+      setStartMenuApps([])
+      return
+    }
+
+    let cancelled = false
+    void listStartMenuApps()
+      .then((apps) => {
+        if (cancelled) return
+        setStartMenuApps(apps)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setStartMenuApps([])
       })
 
     return () => {
@@ -330,6 +353,32 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
             options={llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))}
             onChange={(nextValue) => updateParam(field.key, nextValue)}
             placeholder={llmPresets.length > 0 ? '请选择 LLM 预设' : '请先在设置中新增预设'}
+          />
+        )
+      }
+
+      if (selectedNode.data.kind === 'launchApplication' && field.key === 'selectedApp') {
+        return (
+          <StyledSelect
+            value={String(currentValue ?? '')}
+            options={startMenuApps.map((app) => ({ label: app.appName, value: app.sourcePath }))}
+            onChange={(nextValue) => {
+              const selectedApp = startMenuApps.find((app) => app.sourcePath === nextValue)
+              if (!selectedApp) {
+                updateParam(field.key, nextValue)
+                return
+              }
+
+              updateNodeParams(selectedNode.id, {
+                ...selectedNode.data.params,
+                selectedApp: selectedApp.sourcePath,
+                appName: selectedApp.appName,
+                targetPath: selectedApp.targetPath,
+                iconPath: selectedApp.iconPath,
+                sourcePath: selectedApp.sourcePath,
+              })
+            }}
+            placeholder={startMenuApps.length > 0 ? '请选择开始菜单应用' : '未扫描到可用应用'}
           />
         )
       }

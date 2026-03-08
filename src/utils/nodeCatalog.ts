@@ -39,6 +39,7 @@ const categories: NodePaletteCategory[] = [
       { label: '系统操作', kind: 'systemOperation', color: 'bg-red-500', category: '系统与文件' },
       { label: '屏幕截图', kind: 'screenshot', color: 'bg-indigo-500', category: '系统与文件' },
       { label: '切换窗口', kind: 'windowActivate', color: 'bg-violet-500', category: '系统与文件' },
+      { label: '启动应用', kind: 'launchApplication', color: 'bg-emerald-600', category: '系统与文件' },
       { label: '文件操作', kind: 'fileOperation', color: 'bg-fuchsia-500', category: '系统与文件' },
       { label: '执行命令', kind: 'runCommand', color: 'bg-violet-500', category: '系统与文件' },
       { label: '执行 Python', kind: 'pythonCode', color: 'bg-blue-600', category: '系统与文件' },

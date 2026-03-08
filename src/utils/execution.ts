@@ -10,7 +10,16 @@ export interface LlmPresetPayload {
   model: string
 }
 
+export interface StartMenuAppPayload {
+  appName: string
+  targetPath: string
+  iconPath: string
+  sourcePath: string
+}
+
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
+let startMenuAppsCache: StartMenuAppPayload[] | null = null
+let startMenuAppsPromise: Promise<StartMenuAppPayload[]> | null = null
 
 export const runWorkflow = async (graph: BackendWorkflowGraph): Promise<string> => {
   if (!isTauriRuntime()) {
@@ -31,6 +40,31 @@ export const listOpenWindows = async (): Promise<string[]> => {
     return []
   }
   return invoke<string[]>('list_open_windows')
+}
+
+export const listStartMenuApps = async (forceRefresh = false): Promise<StartMenuAppPayload[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+
+  if (!forceRefresh && startMenuAppsCache) {
+    return startMenuAppsCache
+  }
+
+  if (!forceRefresh && startMenuAppsPromise) {
+    return startMenuAppsPromise
+  }
+
+  startMenuAppsPromise = invoke<StartMenuAppPayload[]>('list_start_menu_apps')
+    .then((apps) => {
+      startMenuAppsCache = apps
+      return apps
+    })
+    .finally(() => {
+      startMenuAppsPromise = null
+    })
+
+  return startMenuAppsPromise
 }
 
 export const setBackgroundMode = async (enabled: boolean): Promise<string> => {

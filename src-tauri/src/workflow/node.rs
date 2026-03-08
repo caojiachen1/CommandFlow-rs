@@ -24,6 +24,7 @@ pub enum NodeKind {
     Shortcut,
     Screenshot,
     WindowActivate,
+    LaunchApplication,
     FileOperation,
     FileCopy,
     FileMove,

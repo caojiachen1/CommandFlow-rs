@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../utils/nodeMeta'
-import { listOpenWindows } from '../utils/execution'
+import { listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../utils/execution'
 import {
   createParamInputHandleId,
   getNodePortSpec,
@@ -93,6 +93,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [openSuggestFieldKey, setOpenSuggestFieldKey] = useState<string | null>(null)
   const [activeSuggestIndex, setActiveSuggestIndex] = useState(0)
   const [windowTitles, setWindowTitles] = useState<string[]>([])
+  const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
   const llmPresets = useSettingsStore((state) => state.llmPresets)
   const [pathEditor, setPathEditor] = useState<{
     fieldKey: string
@@ -150,6 +151,28 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       .catch(() => {
         if (cancelled) return
         setWindowTitles([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [data.kind])
+
+  useEffect(() => {
+    if (data.kind !== 'launchApplication') {
+      setStartMenuApps([])
+      return
+    }
+
+    let cancelled = false
+    void listStartMenuApps()
+      .then((apps) => {
+        if (cancelled) return
+        setStartMenuApps(apps)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setStartMenuApps([])
       })
 
     return () => {
@@ -447,7 +470,9 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
     const selectOptions = data.kind === 'guiAgent' && field.key === 'llmPresetId'
       ? llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))
-      : (field.options ?? [])
+      : data.kind === 'launchApplication' && field.key === 'selectedApp'
+        ? startMenuApps.map((app) => ({ label: app.appName, value: app.sourcePath }))
+        : (field.options ?? [])
     const selectedOption = selectOptions.find((option) => option.value === String(currentValue ?? ''))
 
     if (isSelect) {
@@ -492,7 +517,23 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   key={option.value}
                   type="button"
                   onClick={() => {
-                    updateParam(field.key, option.value)
+                    if (data.kind === 'launchApplication' && field.key === 'selectedApp') {
+                      const selectedApp = startMenuApps.find((app) => app.sourcePath === option.value)
+                      if (selectedApp) {
+                        updateNodeParams(id, {
+                          ...params,
+                          selectedApp: selectedApp.sourcePath,
+                          appName: selectedApp.appName,
+                          targetPath: selectedApp.targetPath,
+                          iconPath: selectedApp.iconPath,
+                          sourcePath: selectedApp.sourcePath,
+                        })
+                      } else {
+                        updateParam(field.key, option.value)
+                      }
+                    } else {
+                      updateParam(field.key, option.value)
+                    }
                     setDrafts((state) => ({ ...state, [field.key]: option.label }))
                     setErrors((state) => {
                       const nextState = { ...state }

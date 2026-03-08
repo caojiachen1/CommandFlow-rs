@@ -6,6 +6,7 @@ export type ActionNodeKind =
   | 'keyboardOperation'
   | 'screenshot'
   | 'windowActivate'
+  | 'launchApplication'
   | 'fileOperation'
   | 'runCommand'
   | 'pythonCode'
