@@ -20,6 +20,8 @@ export interface StartMenuAppPayload {
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 let startMenuAppsCache: StartMenuAppPayload[] | null = null
 let startMenuAppsPromise: Promise<StartMenuAppPayload[]> | null = null
+const startMenuIconCache = new Map<string, string | null>()
+const startMenuIconPromises = new Map<string, Promise<string | null>>()
 
 export const runWorkflow = async (graph: BackendWorkflowGraph): Promise<string> => {
   if (!isTauriRuntime()) {
@@ -65,6 +67,47 @@ export const listStartMenuApps = async (forceRefresh = false): Promise<StartMenu
     })
 
   return startMenuAppsPromise
+}
+
+export const resolveStartMenuAppIcon = async (
+  iconPath: string,
+  targetPath: string,
+  sourcePath?: string,
+): Promise<string | null> => {
+  const cacheKey = [iconPath, targetPath, sourcePath ?? ''].join('||')
+
+  if (startMenuIconCache.has(cacheKey)) {
+    return startMenuIconCache.get(cacheKey) ?? null
+  }
+
+  if (startMenuIconPromises.has(cacheKey)) {
+    return startMenuIconPromises.get(cacheKey) ?? Promise.resolve(null)
+  }
+
+  if (!isTauriRuntime()) {
+    return null
+  }
+
+  const promise = invoke<string | null>('resolve_start_menu_app_icon', {
+    iconPath,
+    targetPath,
+    sourcePath: sourcePath ?? null,
+  })
+    .then((result) => {
+      const normalized = result?.trim() ? result : null
+      startMenuIconCache.set(cacheKey, normalized)
+      return normalized
+    })
+    .catch(() => {
+      startMenuIconCache.set(cacheKey, null)
+      return null
+    })
+    .finally(() => {
+      startMenuIconPromises.delete(cacheKey)
+    })
+
+  startMenuIconPromises.set(cacheKey, promise)
+  return promise
 }
 
 export const setBackgroundMode = async (enabled: boolean): Promise<string> => {

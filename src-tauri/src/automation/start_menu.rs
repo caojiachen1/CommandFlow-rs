@@ -1,12 +1,35 @@
+use crate::automation::screenshot::encode_rgba_to_png_base64;
 use crate::error::{CommandFlowError, CommandResult};
+use image::ImageReader;
 use lnk_parser::LNKParser;
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+#[cfg(target_os = "windows")]
+use std::ffi::OsStr;
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(target_os = "windows")]
+use std::ptr;
+#[cfg(target_os = "windows")]
+use std::slice;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Graphics::Gdi::{
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, RGBQUAD,
+};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Shell::{ExtractIconExW, SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, HICON, DI_NORMAL};
 
 const EXECUTABLE_EXTENSIONS: &[&str] = &["exe", "com", "bat", "cmd"];
+const DIRECT_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "webp", "ico"];
+const ICON_RESOURCE_EXTENSIONS: &[&str] = &["exe", "dll", "ico", "icl", "cpl", "scr"];
+const EXTRACTED_ICON_SIZE: i32 = 64;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +38,12 @@ pub struct StartMenuAppEntry {
     pub target_path: String,
     pub icon_path: String,
     pub source_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IconLocation {
+    path: String,
+    index: i32,
 }
 
 pub fn scan_start_menu_apps() -> CommandResult<Vec<StartMenuAppEntry>> {
@@ -76,10 +105,7 @@ pub fn resolve_launch_application_entry(
         if source.is_file() {
             if let Some(mut parsed) = parse_shortcut_entry(&source) {
                 if parsed.app_name.trim().is_empty() {
-                    if let Some(name) = app_name
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                    {
+                    if let Some(name) = app_name.map(str::trim).filter(|value| !value.is_empty()) {
                         parsed.app_name = name.to_string();
                     }
                 }
@@ -131,6 +157,29 @@ pub fn launch_application(entry: &StartMenuAppEntry) -> CommandResult<Option<u32
     })?;
 
     Ok(Some(child.id()))
+}
+
+pub fn resolve_app_icon_data_url(
+    icon_path: Option<&str>,
+    target_path: Option<&str>,
+    source_path: Option<&str>,
+) -> CommandResult<Option<String>> {
+    #[cfg(target_os = "windows")]
+    {
+        for location in icon_candidates(icon_path, target_path, source_path) {
+            if let Some(data_url) = load_icon_location_data_url(&location)? {
+                return Ok(Some(data_url));
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (icon_path, target_path, source_path);
+        Ok(None)
+    }
 }
 
 fn start_menu_roots() -> Vec<PathBuf> {
@@ -269,7 +318,11 @@ fn compare_entries(left: &StartMenuAppEntry, right: &StartMenuAppEntry) -> Order
         .to_ascii_lowercase()
         .cmp(&right.app_name.to_ascii_lowercase())
         .then_with(|| source_depth(&right.source_path).cmp(&source_depth(&left.source_path)))
-        .then_with(|| left.source_path.to_ascii_lowercase().cmp(&right.source_path.to_ascii_lowercase()))
+        .then_with(|| {
+            left.source_path
+                .to_ascii_lowercase()
+                .cmp(&right.source_path.to_ascii_lowercase())
+        })
 }
 
 fn source_depth(path: &str) -> usize {
@@ -294,9 +347,319 @@ fn derive_name_from_source_or_target(source_path: &str, target_path: &str) -> Op
     })
 }
 
+fn normalize_icon_path(raw: &str) -> String {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let normalized = trimmed.trim_start_matches(r"\\?\");
+    let mut result = String::with_capacity(normalized.len());
+    let mut previous_is_separator = false;
+
+    for component in Path::new(normalized).components() {
+        match component {
+            Component::Prefix(prefix) => {
+                result.push_str(&prefix.as_os_str().to_string_lossy());
+                previous_is_separator = false;
+            }
+            Component::RootDir => {
+                if !result.ends_with('\\') {
+                    result.push('\\');
+                }
+                previous_is_separator = true;
+            }
+            _ => {
+                if !result.is_empty() && !previous_is_separator {
+                    result.push('\\');
+                }
+                result.push_str(&component.as_os_str().to_string_lossy());
+                previous_is_separator = false;
+            }
+        }
+    }
+
+    if result.is_empty() {
+        normalized.to_string()
+    } else {
+        result
+    }
+}
+
+fn parse_icon_location(raw: &str) -> Option<IconLocation> {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((path, index)) = trimmed.rsplit_once(',') {
+        if let Ok(icon_index) = index.trim().parse::<i32>() {
+            let normalized_path = normalize_icon_path(path);
+            if !normalized_path.is_empty() {
+                return Some(IconLocation {
+                    path: normalized_path,
+                    index: icon_index,
+                });
+            }
+        }
+    }
+
+    let normalized_path = normalize_icon_path(trimmed);
+    if normalized_path.is_empty() {
+        None
+    } else {
+        Some(IconLocation {
+            path: normalized_path,
+            index: 0,
+        })
+    }
+}
+
+fn push_icon_candidate(candidates: &mut Vec<IconLocation>, raw: Option<&str>) {
+    let Some(raw) = raw else {
+        return;
+    };
+
+    let Some(location) = parse_icon_location(raw) else {
+        return;
+    };
+
+    if !candidates.iter().any(|item| item == &location) {
+        candidates.push(location);
+    }
+}
+
+fn icon_candidates(
+    icon_path: Option<&str>,
+    target_path: Option<&str>,
+    source_path: Option<&str>,
+) -> Vec<IconLocation> {
+    let mut candidates = Vec::new();
+    push_icon_candidate(&mut candidates, icon_path);
+    push_icon_candidate(&mut candidates, target_path);
+    push_icon_candidate(&mut candidates, source_path);
+    candidates
+}
+
+fn is_direct_image_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| DIRECT_IMAGE_EXTENSIONS.iter().any(|ext| value.eq_ignore_ascii_case(ext)))
+        .unwrap_or(false)
+}
+
+fn is_icon_resource_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| ICON_RESOURCE_EXTENSIONS.iter().any(|ext| value.eq_ignore_ascii_case(ext)))
+        .unwrap_or(false)
+}
+
+fn rgba_to_png_data_url(rgba: &[u8], width: u32, height: u32) -> CommandResult<Option<String>> {
+    let base64 = encode_rgba_to_png_base64(rgba, width, height)?;
+    Ok(Some(format!("data:image/png;base64,{}", base64)))
+}
+
+fn load_image_file_data_url(path: &Path) -> CommandResult<Option<String>> {
+    if !path.exists() || !path.is_file() {
+        return Ok(None);
+    }
+
+    let reader = match ImageReader::open(path) {
+        Ok(reader) => reader,
+        Err(_) => return Ok(None),
+    };
+
+    let decoded = match reader.decode() {
+        Ok(image) => image,
+        Err(_) => return Ok(None),
+    };
+
+    let rgba = decoded.to_rgba8();
+    rgba_to_png_data_url(rgba.as_raw(), rgba.width(), rgba.height())
+}
+
+#[cfg(target_os = "windows")]
+fn to_wide_null(value: &str) -> Vec<u16> {
+    OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn extract_icon_resource_data_url(path: &Path, index: i32) -> CommandResult<Option<String>> {
+    if !path.exists() || !path.is_file() {
+        return Ok(None);
+    }
+
+    let wide_path = to_wide_null(&path.to_string_lossy());
+    let mut large_icons: [HICON; 1] = [ptr::null_mut(); 1];
+    let extracted = unsafe {
+        ExtractIconExW(
+            wide_path.as_ptr(),
+            index,
+            large_icons.as_mut_ptr(),
+            ptr::null_mut(),
+            1,
+        )
+    };
+
+    if extracted == 0 || large_icons[0].is_null() {
+        return Ok(None);
+    }
+
+    let icon_handle = large_icons[0];
+    let result = hicon_to_png_data_url(icon_handle, EXTRACTED_ICON_SIZE);
+    unsafe {
+        DestroyIcon(icon_handle);
+    }
+    result
+}
+
+#[cfg(target_os = "windows")]
+fn extract_associated_icon_data_url(path: &Path) -> CommandResult<Option<String>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let wide_path = to_wide_null(&path.to_string_lossy());
+    let mut file_info = unsafe { std::mem::zeroed::<SHFILEINFOW>() };
+    let result = unsafe {
+        SHGetFileInfoW(
+            wide_path.as_ptr(),
+            0,
+            &mut file_info,
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_ICON | SHGFI_LARGEICON,
+        )
+    };
+
+    if result == 0 || file_info.hIcon.is_null() {
+        return Ok(None);
+    }
+
+    let icon_handle = file_info.hIcon;
+    let data_url = hicon_to_png_data_url(icon_handle, EXTRACTED_ICON_SIZE);
+    unsafe {
+        DestroyIcon(icon_handle);
+    }
+    data_url
+}
+
+#[cfg(target_os = "windows")]
+fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<String>> {
+    if icon_handle.is_null() || size <= 0 {
+        return Ok(None);
+    }
+
+    let dc = unsafe { CreateCompatibleDC(ptr::null_mut()) };
+    if dc.is_null() {
+        return Ok(None);
+    }
+
+    let mut bits = ptr::null_mut();
+    let mut bitmap_info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: size,
+            biHeight: -size,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        },
+        bmiColors: [RGBQUAD {
+            rgbBlue: 0,
+            rgbGreen: 0,
+            rgbRed: 0,
+            rgbReserved: 0,
+        }],
+    };
+
+    let bitmap = unsafe {
+        CreateDIBSection(
+            dc,
+            &mut bitmap_info,
+            DIB_RGB_COLORS,
+            &mut bits,
+            ptr::null_mut(),
+            0,
+        )
+    };
+    if bitmap.is_null() || bits.is_null() {
+        unsafe {
+            DeleteDC(dc);
+        }
+        return Ok(None);
+    }
+
+    let previous = unsafe { SelectObject(dc, bitmap as _) };
+    let byte_len = (size as usize) * (size as usize) * 4;
+    unsafe {
+        slice::from_raw_parts_mut(bits as *mut u8, byte_len).fill(0);
+    }
+
+    let drawn = unsafe { DrawIconEx(dc, 0, 0, icon_handle, size, size, 0, ptr::null_mut(), DI_NORMAL) };
+    let bgra = if drawn != 0 {
+        unsafe { slice::from_raw_parts(bits as *const u8, byte_len).to_vec() }
+    } else {
+        Vec::new()
+    };
+
+    unsafe {
+        SelectObject(dc, previous);
+        DeleteObject(bitmap as _);
+        DeleteDC(dc);
+    }
+
+    if drawn == 0 || bgra.is_empty() {
+        return Ok(None);
+    }
+
+    let mut rgba = bgra;
+    for chunk in rgba.chunks_exact_mut(4) {
+        chunk.swap(0, 2);
+    }
+
+    rgba_to_png_data_url(&rgba, size as u32, size as u32)
+}
+
+fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<String>> {
+    let path = Path::new(&location.path);
+
+    if is_direct_image_extension(path) {
+        if let Some(data_url) = load_image_file_data_url(path)? {
+            return Ok(Some(data_url));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if is_icon_resource_extension(path) {
+            if let Some(data_url) = extract_icon_resource_data_url(path, location.index)? {
+                return Ok(Some(data_url));
+            }
+        }
+
+        if let Some(data_url) = extract_associated_icon_data_url(path)? {
+            return Ok(Some(data_url));
+        }
+    }
+
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{compare_entries, is_valid_launch_target, normalize_path_key, StartMenuAppEntry};
+    use super::{
+        compare_entries, is_valid_launch_target, normalize_path_key, parse_icon_location,
+        StartMenuAppEntry,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -348,5 +711,19 @@ mod tests {
         };
 
         assert_eq!(compare_entries(&deep, &shallow), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn parses_icon_location_with_index() {
+        let parsed = parse_icon_location(r#"C:\Program Files\App\app.exe,3"#).expect("icon location");
+        assert_eq!(parsed.path, r#"C:\Program Files\App\app.exe"#);
+        assert_eq!(parsed.index, 3);
+    }
+
+    #[test]
+    fn parses_icon_location_without_index() {
+        let parsed = parse_icon_location(r#"\\?\C:\Icons\app.ico"#).expect("icon location");
+        assert!(parsed.path.ends_with(r#"C:\Icons\app.ico"#));
+        assert_eq!(parsed.index, 0);
     }
 }

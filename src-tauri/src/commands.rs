@@ -419,6 +419,20 @@ pub async fn list_start_menu_apps() -> Result<Vec<start_menu::StartMenuAppEntry>
     start_menu::scan_start_menu_apps().map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn resolve_start_menu_app_icon(
+    icon_path: String,
+    target_path: String,
+    source_path: Option<String>,
+) -> Result<Option<String>, String> {
+    start_menu::resolve_app_icon_data_url(
+        Some(icon_path.as_str()),
+        Some(target_path.as_str()),
+        source_path.as_deref(),
+    )
+    .map_err(|error| error.to_string())
+}
+
 fn ends_with_version_segment(url: &str) -> bool {
     let Some(segment) = url.rsplit('/').next() else {
         return false;

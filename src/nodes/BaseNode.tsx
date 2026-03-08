@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../utils/nodeMeta'
 import { listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../utils/execution'
+import { buildLaunchApplicationParams, filterStartMenuApps, getStartMenuAppDisplayName } from '../utils/startMenuApp'
 import {
   createParamInputHandleId,
   getNodePortSpec,
@@ -11,6 +12,7 @@ import {
 import { useWorkflowStore } from '../stores/workflowStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import PathPickerDropdown from '../components/PathPickerDropdown'
+import StartMenuAppOptionsList from '../components/StartMenuAppOptionsList'
 
 interface BaseNodeProps {
   id: string
@@ -374,6 +376,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         const suggestFieldKey = inSuggestRoot?.dataset.nodeSuggestFieldKey ?? null
         const suggestNodeId = inSuggestRoot?.dataset.nodeSuggestNodeId ?? null
         if (!inSuggestRoot || suggestFieldKey !== openSuggestFieldKey || suggestNodeId !== id) {
+          if (data.kind === 'launchApplication' && openSuggestFieldKey === 'selectedApp') {
+            const selectedApp = startMenuApps.find((app) => app.sourcePath === String(params.selectedApp ?? ''))
+            setDrafts((state) => ({ ...state, selectedApp: selectedApp ? getStartMenuAppDisplayName(selectedApp) : '' }))
+          }
           setOpenSuggestFieldKey(null)
         }
       }
@@ -433,6 +439,138 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       data.kind === 'guiAgent' && field.key === 'imageInput' && Boolean(params.continuousMode ?? true)
     const isInputDisabled =
       connectedToInput || isScreenshotSaveDirFieldDisabled || isScreenshotSizeFieldDisabled || isGuiAgentImageInputDisabled
+
+    if (data.kind === 'launchApplication' && field.key === 'selectedApp') {
+      const selectedApp = startMenuApps.find((app) => app.sourcePath === String(currentValue ?? '')) ?? null
+      const displayValue = drafts[field.key] ?? (selectedApp ? getStartMenuAppDisplayName(selectedApp) : '')
+      const filteredApps = filterStartMenuApps(startMenuApps, displayValue)
+
+      const commitLaunchApp = (app: StartMenuAppPayload) => {
+        updateNodeParams(id, buildLaunchApplicationParams(params, app))
+        setDrafts((state) => ({ ...state, [field.key]: getStartMenuAppDisplayName(app) }))
+        setErrors((state) => {
+          const nextState = { ...state }
+          delete nextState[field.key]
+          return nextState
+        })
+        setOpenSuggestFieldKey(null)
+      }
+
+      return (
+        <div
+          className="relative"
+          data-node-suggest-root="true"
+          data-node-suggest-node-id={id}
+          data-node-suggest-field-key={field.key}
+        >
+          <div className={`flex items-center gap-1 rounded-full border bg-black/20 px-2 py-1 text-[11px] shadow-inner dark:bg-black/35 ${errors[field.key] ? 'border-rose-400/80' : 'border-white/25 dark:border-white/20'}`}>
+            <input
+              type="text"
+              value={displayValue}
+              disabled={isInputDisabled}
+              placeholder={startMenuApps.length > 0 ? '输入筛选应用' : '未扫描到可用应用'}
+              onFocus={() => {
+                if (isInputDisabled) return
+                setOpenSelectFieldKey(null)
+                setOpenSuggestFieldKey(field.key)
+                setActiveSuggestIndex(0)
+              }}
+              onChange={(event) => {
+                if (isInputDisabled) return
+                setDrafts((state) => ({ ...state, [field.key]: event.target.value }))
+                setOpenSelectFieldKey(null)
+                setOpenSuggestFieldKey(field.key)
+                setActiveSuggestIndex(0)
+              }}
+              onKeyDown={(event) => {
+                if (openSuggestFieldKey !== field.key) return
+
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  if (filteredApps.length > 0) {
+                    setActiveSuggestIndex((idx) => Math.min(idx + 1, filteredApps.length - 1))
+                  }
+                  return
+                }
+
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  if (filteredApps.length > 0) {
+                    setActiveSuggestIndex((idx) => Math.max(idx - 1, 0))
+                  }
+                  return
+                }
+
+                if (event.key === 'Enter') {
+                  if (filteredApps.length > 0) {
+                    event.preventDefault()
+                    const picked = filteredApps[Math.max(0, Math.min(activeSuggestIndex, filteredApps.length - 1))]
+                    if (picked) {
+                      commitLaunchApp(picked)
+                    }
+                  }
+                  return
+                }
+
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setDrafts((state) => ({ ...state, [field.key]: selectedApp ? getStartMenuAppDisplayName(selectedApp) : '' }))
+                  setOpenSuggestFieldKey(null)
+                }
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              className={`nodrag w-full bg-transparent px-1 text-[11px] font-semibold ${isInputDisabled ? 'text-slate-400' : 'text-slate-100'} outline-none placeholder:text-slate-400`}
+            />
+            <button
+              type="button"
+              disabled={isInputDisabled}
+              onClick={() => {
+                if (isInputDisabled) return
+                setOpenSelectFieldKey(null)
+                setOpenSuggestFieldKey((prev) => {
+                  const nextOpen = prev === field.key ? null : field.key
+                  if (nextOpen) {
+                    setActiveSuggestIndex(0)
+                  } else {
+                    setDrafts((state) => ({ ...state, [field.key]: selectedApp ? getStartMenuAppDisplayName(selectedApp) : '' }))
+                  }
+                  return nextOpen
+                })
+              }}
+              className="nodrag rounded-full px-1.5 py-0.5 text-slate-300 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-500"
+              aria-label="切换应用下拉列表"
+            >
+              ▾
+            </button>
+          </div>
+          <Handle
+            id={createParamInputHandleId(field.key)}
+            type="target"
+            position={Position.Left}
+            className="proximity-handle"
+            style={{ top: '50%', left: -6 }}
+          />
+
+          {openSuggestFieldKey === field.key ? (
+            <div
+              className="absolute left-0 right-0 z-[270] mt-1 rounded-xl border border-white/20 bg-[#1f2127]/95 p-1 shadow-2xl backdrop-blur"
+              onWheelCapture={(event) => event.stopPropagation()}
+            >
+              <StartMenuAppOptionsList
+                apps={filteredApps}
+                activeIndex={activeSuggestIndex}
+                selectedValue={String(currentValue ?? '')}
+                onHover={setActiveSuggestIndex}
+                onSelect={commitLaunchApp}
+                emptyText="暂无匹配应用"
+                tone="dark"
+                maxHeightClassName="max-h-44"
+              />
+            </div>
+          ) : null}
+        </div>
+      )
+    }
 
     if (isBoolean) {
       const checked = Boolean(currentValue)
@@ -520,14 +658,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                     if (data.kind === 'launchApplication' && field.key === 'selectedApp') {
                       const selectedApp = startMenuApps.find((app) => app.sourcePath === option.value)
                       if (selectedApp) {
-                        updateNodeParams(id, {
-                          ...params,
-                          selectedApp: selectedApp.sourcePath,
-                          appName: selectedApp.appName,
-                          targetPath: selectedApp.targetPath,
-                          iconPath: selectedApp.iconPath,
-                          sourcePath: selectedApp.sourcePath,
-                        })
+                        updateNodeParams(id, buildLaunchApplicationParams(params, selectedApp))
                       } else {
                         updateParam(field.key, option.value)
                       }

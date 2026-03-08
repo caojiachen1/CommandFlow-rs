@@ -4,7 +4,9 @@ import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperatio
 import { fetchLlmModels, listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../../utils/execution'
 import { resolveGuiAgentChatEndpointPreview } from '../../utils/llmEndpoint'
 import type { NodeKind } from '../../types/workflow'
+import { buildLaunchApplicationParams } from '../../utils/startMenuApp'
 import SmartInputSelect from '../SmartInputSelect'
+import StartMenuAppSelect from '../StartMenuAppSelect'
 import StyledSelect from '../StyledSelect'
 import PathPickerDropdown from '../PathPickerDropdown'
 
@@ -345,27 +347,15 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     if (field.type === 'select') {
       if (selectedNode.data.kind === 'launchApplication' && field.key === 'selectedApp') {
         return (
-          <StyledSelect
+          <StartMenuAppSelect
+            apps={startMenuApps}
             value={String(currentValue ?? '')}
-            options={startMenuApps.map((app) => ({ label: app.appName, value: app.sourcePath }))}
-            onChange={(nextValue) => {
-              const selectedApp = startMenuApps.find((app) => app.sourcePath === nextValue)
-              if (!selectedApp) {
-                updateParam(field.key, nextValue)
-                return
-              }
-
-              updateNodeParams(selectedNode.id, {
-                ...selectedNode.data.params,
-                selectedApp: selectedApp.sourcePath,
-                appName: selectedApp.appName,
-                targetPath: selectedApp.targetPath,
-                iconPath: selectedApp.iconPath,
-                sourcePath: selectedApp.sourcePath,
-              })
+            onSelect={(selectedApp) => {
+              updateNodeParams(selectedNode.id, buildLaunchApplicationParams(selectedNode.data.params, selectedApp))
             }}
             onEnter={handleClose}
-            placeholder={startMenuApps.length > 0 ? '请选择开始菜单应用' : '未扫描到可用应用'}
+            placeholder={startMenuApps.length > 0 ? '输入以筛选开始菜单应用' : '未扫描到可用应用'}
+            hint="输入可筛选应用，也可用方向键和回车快速选择"
           />
         )
       }
