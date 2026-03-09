@@ -15,6 +15,7 @@ import { useSettingsStore } from './stores/settingsStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
 import { getCursorPosition, pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
+import { getNodePortSpec } from './utils/nodePorts'
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
@@ -47,6 +48,114 @@ function truncateParams(params: Record<string, unknown>, maxLen = 80): string {
     }),
   )
   return JSON.stringify(truncated)
+}
+
+type WorkflowNodeEventPayload = {
+  node_id: string
+  node_kind: string
+  node_kind_key?: string
+  node_label: string
+  params: Record<string, unknown>
+}
+
+type WorkflowNodeCompletedPayload = WorkflowNodeEventPayload & {
+  outputs?: Record<string, unknown>
+  selected_control_output?: string | null
+}
+
+const workflowNodeKinds = [
+  'hotkeyTrigger',
+  'timerTrigger',
+  'manualTrigger',
+  'windowTrigger',
+  'mouseOperation',
+  'keyboardOperation',
+  'screenshot',
+  'windowActivate',
+  'launchApplication',
+  'fileOperation',
+  'runCommand',
+  'pythonCode',
+  'clipboardRead',
+  'clipboardWrite',
+  'showMessage',
+  'delay',
+  'systemOperation',
+  'guiAgent',
+  'guiAgentActionParser',
+  'condition',
+  'loop',
+  'whileLoop',
+  'imageMatch',
+  'varDefine',
+  'varSet',
+  'varMath',
+  'varGet',
+  'constValue',
+] as const satisfies ReadonlyArray<WorkflowNode['data']['kind']>
+
+const isWorkflowNodeKind = (value: unknown): value is WorkflowNode['data']['kind'] =>
+  typeof value === 'string' && (workflowNodeKinds as readonly string[]).includes(value)
+
+const stringifyLogValue = (value: unknown, maxLen = 180) => {
+  let serialized = ''
+
+  if (typeof value === 'string') {
+    serialized = JSON.stringify(value)
+  } else if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+    serialized = String(value)
+  } else if (typeof value === 'undefined') {
+    serialized = 'undefined'
+  } else {
+    try {
+      serialized = JSON.stringify(value)
+    } catch {
+      serialized = '[不可序列化的值]'
+    }
+  }
+
+  if (serialized.length <= maxLen) {
+    return serialized
+  }
+
+  return `${serialized.slice(0, maxLen)}...（已截断）`
+}
+
+const buildNodeOutputLogMessage = (payload: WorkflowNodeCompletedPayload) => {
+  const nodeId = payload.node_id
+  if (!nodeId) return null
+
+  const nodeKind = payload.node_kind ?? 'Unknown'
+  const nodeLabel = payload.node_label ?? '未命名节点'
+  const params = payload.params ?? {}
+  const outputs = payload.outputs ?? {}
+  const selectedControlOutput = payload.selected_control_output ?? null
+  const nodeKindKey = isWorkflowNodeKind(payload.node_kind_key) ? payload.node_kind_key : null
+
+  const lines = nodeKindKey
+    ? getNodePortSpec(nodeKindKey, params).outputs.map((port) => {
+        const hasValue = Object.prototype.hasOwnProperty.call(outputs, port.id)
+        const displayValue =
+          port.valueType === 'control'
+            ? String(selectedControlOutput === port.id)
+            : hasValue
+              ? stringifyLogValue(outputs[port.id])
+              : '未输出'
+        return `- ${port.label ?? port.id} (${port.id}) = ${displayValue}`
+      })
+    : (() => {
+        const rawEntries = Object.entries(outputs)
+        if (selectedControlOutput && !rawEntries.some(([key]) => key === selectedControlOutput)) {
+          rawEntries.unshift([selectedControlOutput, true])
+        }
+        return rawEntries.map(([key, value]) => `- ${key} = ${stringifyLogValue(value)}`)
+      })()
+
+  if (lines.length === 0) {
+    return `节点输出：${nodeLabel} [${nodeKind}] id=${nodeId}\n- （该节点没有定义输出触点）`
+  }
+
+  return `节点输出：${nodeLabel} [${nodeKind}] id=${nodeId}\n${lines.join('\n')}`
 }
 
 const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
@@ -308,9 +417,10 @@ function App() {
     }
 
     let unlistenProgress: (() => void) | null = null
+    let unlistenNodeCompleted: (() => void) | null = null
     let unlistenVariables: (() => void) | null = null
     let unlistenLog: (() => void) | null = null
-    void listen<{ node_id: string; node_kind: string; node_label: string; params: Record<string, unknown> }>('workflow-node-started', (event) => {
+    void listen<WorkflowNodeEventPayload>('workflow-node-started', (event) => {
       const nodeId = event.payload?.node_id
       if (!nodeId) return
 
@@ -369,6 +479,18 @@ function App() {
         addLog('warn', `监听变量更新失败：${String(error)}`)
       })
 
+    void listen<WorkflowNodeCompletedPayload>('workflow-node-completed', (event) => {
+      const message = buildNodeOutputLogMessage(event.payload)
+      if (!message) return
+      addLog('info', message)
+    })
+      .then((cleanup) => {
+        unlistenNodeCompleted = cleanup
+      })
+      .catch((error) => {
+        addLog('warn', `监听节点输出失败：${String(error)}`)
+      })
+
     void listen<{ level: string; message: string }>('workflow-log', (event) => {
       const level = event.payload?.level
       const message = event.payload?.message
@@ -390,6 +512,7 @@ function App() {
 
     return () => {
       unlistenProgress?.()
+      unlistenNodeCompleted?.()
       unlistenVariables?.()
       unlistenLog?.()
       loopRoundRef.current.clear()

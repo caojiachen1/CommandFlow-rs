@@ -126,8 +126,20 @@ fn get_virtual_screen_bounds() -> (i32, i32, u32, u32) {
 pub struct NodeProgressPayload {
     pub node_id: String,
     pub node_kind: String,
+    pub node_kind_key: String,
     pub node_label: String,
     pub params: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeCompletedPayload {
+    pub node_id: String,
+    pub node_kind: String,
+    pub node_kind_key: String,
+    pub node_label: String,
+    pub params: HashMap<String, Value>,
+    pub outputs: HashMap<String, Value>,
+    pub selected_control_output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -139,6 +151,13 @@ pub struct VariablesUpdatedPayload {
 pub struct ExecutionLogPayload {
     pub level: String,
     pub message: String,
+}
+
+fn node_kind_key(kind: &crate::workflow::node::NodeKind) -> String {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| format!("{:?}", kind))
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,6 +196,7 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             NodeProgressPayload {
                 node_id: node.id.clone(),
                 node_kind: format!("{:?}", node.kind),
+                node_kind_key: node_kind_key(&node.kind),
                 node_label: node.label.clone(),
                 params: node.params.clone(),
             },
@@ -199,6 +219,24 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             },
         );
     };
+    let mut emit_node_complete = |
+        node: &crate::workflow::node::WorkflowNode,
+        outputs: &HashMap<String, Value>,
+        selected_control_output: Option<&str>,
+    | {
+        let _ = app.emit(
+            "workflow-node-completed",
+            NodeCompletedPayload {
+                node_id: node.id.clone(),
+                node_kind: format!("{:?}", node.kind),
+                node_kind_key: node_kind_key(&node.kind),
+                node_label: node.label.clone(),
+                params: node.params.clone(),
+                outputs: outputs.clone(),
+                selected_control_output: selected_control_output.map(ToString::to_string),
+            },
+        );
+    };
 
     let run_result = executor
         .execute_with_progress(
@@ -206,6 +244,7 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             &mut emit_progress,
             &mut emit_variables,
             &mut emit_log,
+            &mut emit_node_complete,
             &|| control.cancel_requested.load(Ordering::Relaxed),
         )
         .await;

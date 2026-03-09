@@ -49,29 +49,36 @@ impl WorkflowExecutor {
         let mut noop = |_node: &WorkflowNode| {};
         let mut noop_vars = |_variables: &HashMap<String, Value>| {};
         let mut noop_log = |_level: &str, _message: String| {};
+        let mut noop_complete =
+            |_node: &WorkflowNode,
+             _outputs: &HashMap<String, Value>,
+             _selected_control_output: Option<&str>| {};
         let never_cancel = || false;
         self.execute_with_progress(
             graph,
             &mut noop,
             &mut noop_vars,
             &mut noop_log,
+            &mut noop_complete,
             &never_cancel,
         )
             .await
     }
 
-    pub async fn execute_with_progress<F, G, H, I>(
+    pub async fn execute_with_progress<F, G, H, J, I>(
         &self,
         graph: &WorkflowGraph,
         on_node_start: &mut F,
         on_variables_update: &mut G,
         on_log: &mut H,
+        on_node_complete: &mut J,
         should_cancel: &I,
     ) -> CommandResult<()>
     where
         F: FnMut(&WorkflowNode),
         G: FnMut(&HashMap<String, Value>),
         H: FnMut(&str, String),
+        J: FnMut(&WorkflowNode, &HashMap<String, Value>, Option<&str>),
         I: Fn() -> bool,
     {
         if graph.nodes.is_empty() {
@@ -142,6 +149,7 @@ impl WorkflowExecutor {
                     on_node_start,
                     on_variables_update,
                     on_log,
+                    on_node_complete,
                     should_cancel,
                 )
                     .await?;
@@ -160,6 +168,7 @@ impl WorkflowExecutor {
         on_node_start: &mut impl FnMut(&WorkflowNode),
         on_variables_update: &mut impl FnMut(&HashMap<String, Value>),
         on_log: &mut impl FnMut(&str, String),
+        on_node_complete: &mut impl FnMut(&WorkflowNode, &HashMap<String, Value>, Option<&str>),
         should_cancel: &impl Fn() -> bool,
     ) -> CommandResult<()> {
         let mut current_id = start_id.to_string();
@@ -180,6 +189,9 @@ impl WorkflowExecutor {
             on_node_start(&effective_node);
 
             if matches!(effective_node.kind, NodeKind::Loop | NodeKind::WhileLoop) {
+                ctx.node_outputs
+                    .insert(effective_node.id.clone(), HashMap::<String, Value>::new());
+
                 let outgoing: Vec<_> = graph
                     .edges
                     .iter()
@@ -224,6 +236,13 @@ impl WorkflowExecutor {
                                     loop_stack.push(effective_node.id.clone());
                                 }
 
+                                let outputs_snapshot = ctx
+                                    .node_outputs
+                                    .get(&effective_node.id)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                on_node_complete(&effective_node, &outputs_snapshot, Some("loop"));
+
                                 sleep_after_node(&effective_node, should_cancel).await?;
                                 current_id = edge.target.clone();
                                 continue;
@@ -238,16 +257,37 @@ impl WorkflowExecutor {
                         }
 
                         if let Some(edge) = done_edge {
+                            let outputs_snapshot = ctx
+                                .node_outputs
+                                .get(&effective_node.id)
+                                .cloned()
+                                .unwrap_or_default();
+                            on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
+
                             sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
+                            let outputs_snapshot = ctx
+                                .node_outputs
+                                .get(&effective_node.id)
+                                .cloned()
+                                .unwrap_or_default();
+                            on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
+
                             sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
+
+                        let outputs_snapshot = ctx
+                            .node_outputs
+                            .get(&effective_node.id)
+                            .cloned()
+                            .unwrap_or_default();
+                        on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
 
                         sleep_after_node(&effective_node, should_cancel).await?;
                         return Ok(());
@@ -267,6 +307,13 @@ impl WorkflowExecutor {
                                 if loop_stack.last().map(String::as_str) != Some(effective_node.id.as_str()) {
                                     loop_stack.push(effective_node.id.clone());
                                 }
+
+                                let outputs_snapshot = ctx
+                                    .node_outputs
+                                    .get(&effective_node.id)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                on_node_complete(&effective_node, &outputs_snapshot, Some("loop"));
 
                                 sleep_after_node(&effective_node, should_cancel).await?;
                                 current_id = edge.target.clone();
@@ -288,16 +335,37 @@ impl WorkflowExecutor {
                         }
 
                         if let Some(edge) = done_edge {
+                            let outputs_snapshot = ctx
+                                .node_outputs
+                                .get(&effective_node.id)
+                                .cloned()
+                                .unwrap_or_default();
+                            on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
+
                             sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = edge.target.clone();
                             continue;
                         }
 
                         if let Some(parent_loop_id) = loop_stack.last() {
+                            let outputs_snapshot = ctx
+                                .node_outputs
+                                .get(&effective_node.id)
+                                .cloned()
+                                .unwrap_or_default();
+                            on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
+
                             sleep_after_node(&effective_node, should_cancel).await?;
                             current_id = parent_loop_id.clone();
                             continue;
                         }
+
+                        let outputs_snapshot = ctx
+                            .node_outputs
+                            .get(&effective_node.id)
+                            .cloned()
+                            .unwrap_or_default();
+                        on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
 
                         sleep_after_node(&effective_node, should_cancel).await?;
                         return Ok(());
@@ -309,6 +377,16 @@ impl WorkflowExecutor {
             let directive = self
                 .execute_single_node(&effective_node, node, graph, ctx, on_log, should_cancel)
                 .await?;
+            let outputs_snapshot = ctx
+                .node_outputs
+                .get(&effective_node.id)
+                .cloned()
+                .unwrap_or_default();
+            let selected_control_output = match &directive {
+                NextDirective::Default => Some("next"),
+                NextDirective::Branch(handle) => Some(*handle),
+            };
+            on_node_complete(&effective_node, &outputs_snapshot, selected_control_output);
             sleep_after_node(&effective_node, should_cancel).await?;
             on_variables_update(&ctx.variables);
 
