@@ -307,7 +307,7 @@ impl WorkflowExecutor {
             }
 
             let directive = self
-                .execute_single_node(&effective_node, ctx, on_log, should_cancel)
+                .execute_single_node(&effective_node, node, graph, ctx, on_log, should_cancel)
                 .await?;
             sleep_after_node(&effective_node, should_cancel).await?;
             on_variables_update(&ctx.variables);
@@ -352,6 +352,8 @@ impl WorkflowExecutor {
     async fn execute_single_node(
         &self,
         node: &WorkflowNode,
+        original_node: &WorkflowNode,
+        graph: &WorkflowGraph,
         ctx: &mut ExecutionContext,
         on_log: &mut impl FnMut(&str, String),
         should_cancel: &impl Fn() -> bool,
@@ -501,8 +503,10 @@ impl WorkflowExecutor {
                 Ok(NextDirective::Default)
             }
             NodeKind::WindowActivate => {
+                let connected_window_inputs = connected_window_input_keys(&original_node.id, graph);
+                let has_connected_window_inputs = !connected_window_inputs.is_empty();
                 let switch_mode = get_string(node, "switchMode", "title");
-                if switch_mode.eq_ignore_ascii_case("shortcut") {
+                if !has_connected_window_inputs && switch_mode.eq_ignore_ascii_case("shortcut") {
                     let shortcut = get_string(node, "shortcut", "Alt+Tab");
                     let times = get_u64(node, "shortcutTimes", 1).max(1);
                     let interval_ms = get_u64(node, "shortcutIntervalMs", 120).max(1);
@@ -523,10 +527,7 @@ impl WorkflowExecutor {
                     set_node_output(ctx, node, "className", Value::String(String::new()));
                     set_node_output(ctx, node, "processId", value_from_u64(0));
                 } else {
-                    let match_mode = get_string(node, "matchMode", "contains");
-                    let title = get_string(node, "title", "");
-                    let program = get_string(node, "program", "");
-                    let query = build_window_match_query(node, &switch_mode, &title, &program, &match_mode);
+                    let query = build_window_activate_query(node, &connected_window_inputs, has_connected_window_inputs)?;
                     let activated_window = window::activate_window(&query)?;
                     set_node_output(ctx, node, "title", Value::String(activated_window.title));
                     set_node_output(ctx, node, "program", Value::String(activated_window.program_name));
@@ -1352,6 +1353,193 @@ fn optional_process_id_param(node: &WorkflowNode, key: &str) -> Option<u32> {
         .and_then(|value| value.as_u64())
         .map(|value| value as u32)
         .filter(|value| *value > 0)
+}
+
+const WINDOW_LOOKUP_PARAM_KEYS: [&str; 5] = ["title", "program", "programPath", "className", "processId"];
+
+fn connected_window_input_keys(node_id: &str, graph: &WorkflowGraph) -> HashSet<String> {
+    graph
+        .edges
+        .iter()
+        .filter(|edge| edge.target == node_id)
+        .filter_map(|edge| edge.target_handle.as_deref())
+        .filter_map(extract_param_key_from_input_handle)
+        .filter(|field_key| WINDOW_LOOKUP_PARAM_KEYS.contains(&field_key.as_str()))
+        .collect()
+}
+
+fn required_connected_string_param(
+    node: &WorkflowNode,
+    connected_inputs: &HashSet<String>,
+    key: &str,
+    display_name: &str,
+) -> CommandResult<Option<String>> {
+    if !connected_inputs.contains(key) {
+        return Ok(None);
+    }
+
+    let value = get_string(node, key, "");
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "切换窗口节点 '{}' 的已连接输入 {} 为空",
+            node.label, display_name
+        )));
+    }
+
+    Ok(Some(trimmed.to_string()))
+}
+
+fn required_connected_process_id_param(
+    node: &WorkflowNode,
+    connected_inputs: &HashSet<String>,
+) -> CommandResult<Option<u32>> {
+    if !connected_inputs.contains("processId") {
+        return Ok(None);
+    }
+
+    let process_id = optional_process_id_param(node, "processId").ok_or_else(|| {
+        CommandFlowError::Validation(format!(
+            "切换窗口节点 '{}' 的已连接输入 PID 无效",
+            node.label
+        ))
+    })?;
+
+    Ok(Some(process_id))
+}
+
+fn build_single_window_filter_query(key: &str, query: &window::WindowMatchQuery) -> window::WindowMatchQuery {
+    let mut single = window::WindowMatchQuery::new(&query.match_mode);
+    match key {
+        "title" => single.title = query.title.clone(),
+        "program" => single.program = query.program.clone(),
+        "programPath" => single.program_path = query.program_path.clone(),
+        "className" => single.class_name = query.class_name.clone(),
+        "processId" => single.process_id = query.process_id,
+        _ => {}
+    }
+    single
+}
+
+fn describe_connected_window_inputs(query: &window::WindowMatchQuery, connected_inputs: &HashSet<String>) -> Vec<String> {
+    let mut descriptions = Vec::new();
+
+    if connected_inputs.contains("title") {
+        if let Some(title) = query.title.as_deref() {
+            descriptions.push(format!("标题='{}'", title));
+        }
+    }
+    if connected_inputs.contains("program") {
+        if let Some(program) = query.program.as_deref() {
+            descriptions.push(format!("程序='{}'", program));
+        }
+    }
+    if connected_inputs.contains("programPath") {
+        if let Some(program_path) = query.program_path.as_deref() {
+            descriptions.push(format!("程序路径='{}'", program_path));
+        }
+    }
+    if connected_inputs.contains("className") {
+        if let Some(class_name) = query.class_name.as_deref() {
+            descriptions.push(format!("类名='{}'", class_name));
+        }
+    }
+    if connected_inputs.contains("processId") {
+        if let Some(process_id) = query.process_id {
+            descriptions.push(format!("PID={} ", process_id).trim().to_string());
+        }
+    }
+
+    descriptions
+}
+
+fn validate_connected_window_activate_query(
+    node: &WorkflowNode,
+    query: &window::WindowMatchQuery,
+    connected_inputs: &HashSet<String>,
+) -> CommandResult<()> {
+    let matched = window::list_matching_windows(query)?;
+    if !matched.is_empty() {
+        return Ok(());
+    }
+
+    let descriptions = describe_connected_window_inputs(query, connected_inputs);
+    let mut matched_individually = Vec::new();
+    let mut missing_individually = Vec::new();
+
+    for key in WINDOW_LOOKUP_PARAM_KEYS {
+        if !connected_inputs.contains(key) {
+            continue;
+        }
+
+        let single_query = build_single_window_filter_query(key, query);
+        let single_matches = window::list_matching_windows(&single_query)?;
+        let description = descriptions
+            .iter()
+            .find(|item| match key {
+                "title" => item.starts_with("标题="),
+                "program" => item.starts_with("程序='"),
+                "programPath" => item.starts_with("程序路径='"),
+                "className" => item.starts_with("类名='"),
+                "processId" => item.starts_with("PID="),
+                _ => false,
+            })
+            .cloned()
+            .unwrap_or_else(|| key.to_string());
+
+        if single_matches.is_empty() {
+            missing_individually.push(description);
+        } else {
+            matched_individually.push(description);
+        }
+    }
+
+    if matched_individually.len() > 1 && missing_individually.is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "切换窗口节点 '{}' 的多个已连接输入互相冲突：{}。请确保这些输入指向同一个窗口程序。",
+            node.label,
+            matched_individually.join("、")
+        )));
+    }
+
+    if !missing_individually.is_empty() {
+        return Err(CommandFlowError::Automation(format!(
+            "切换窗口节点 '{}' 未找到匹配的输入条件：{}",
+            node.label,
+            missing_individually.join("、")
+        )));
+    }
+
+    Err(CommandFlowError::Automation(format!(
+        "切换窗口节点 '{}' 未找到同时满足以下条件的窗口：{}",
+        node.label,
+        descriptions.join("、")
+    )))
+}
+
+fn build_window_activate_query(
+    node: &WorkflowNode,
+    connected_inputs: &HashSet<String>,
+    has_connected_window_inputs: bool,
+) -> CommandResult<window::WindowMatchQuery> {
+    let match_mode = get_string(node, "matchMode", "contains");
+
+    if has_connected_window_inputs {
+        let mut query = window::WindowMatchQuery::new(&match_mode);
+        query.title = required_connected_string_param(node, connected_inputs, "title", "标题")?;
+        query.program = required_connected_string_param(node, connected_inputs, "program", "程序")?;
+        query.program_path = required_connected_string_param(node, connected_inputs, "programPath", "程序路径")?;
+        query.class_name = required_connected_string_param(node, connected_inputs, "className", "类名")?;
+        query.process_id = required_connected_process_id_param(node, connected_inputs)?;
+
+        validate_connected_window_activate_query(node, &query, connected_inputs)?;
+        return Ok(query);
+    }
+
+    let switch_mode = get_string(node, "switchMode", "title");
+    let title = get_string(node, "title", "");
+    let program = get_string(node, "program", "");
+    Ok(build_window_match_query(node, &switch_mode, &title, &program, &match_mode))
 }
 
 fn build_window_match_query(

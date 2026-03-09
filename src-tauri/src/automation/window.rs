@@ -386,6 +386,23 @@ pub fn foreground_window_matches(query: &WindowMatchQuery) -> CommandResult<Opti
     }
 }
 
+pub fn list_matching_windows(query: &WindowMatchQuery) -> CommandResult<Vec<OpenWindowEntry>> {
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(enumerate_windows()
+            .into_iter()
+            .filter(|entry| matches_query(entry, query))
+            .map(to_public_window_entry)
+            .collect());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = query;
+        Ok(vec![])
+    }
+}
+
 pub fn window_title_exists(title: &str, match_mode: &str) -> CommandResult<bool> {
     foreground_window_matches_title(title, match_mode).map(|matched| matched.is_some())
 }
