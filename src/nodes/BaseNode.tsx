@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../utils/nodeMeta'
-import { listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../utils/execution'
+import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../utils/execution'
 import { buildLaunchApplicationParams, filterStartMenuApps, getStartMenuAppDisplayName } from '../utils/startMenuApp'
 import {
   createParamInputHandleId,
@@ -77,6 +77,21 @@ const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
 const isWindowTitleField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'title'
 
+const isWindowProgramField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'program'
+
+const isWindowProgramPathField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'programPath'
+
+const isWindowClassField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'className'
+
+const isWindowPidField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'processId'
+
+const isWindowLookupField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'windowTrigger' || kind === 'windowActivate') && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
+
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
   const isSelected = selected
   const portSpec = getNodePortSpec(data.kind, data.params)
@@ -94,7 +109,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [openSelectFieldKey, setOpenSelectFieldKey] = useState<string | null>(null)
   const [openSuggestFieldKey, setOpenSuggestFieldKey] = useState<string | null>(null)
   const [activeSuggestIndex, setActiveSuggestIndex] = useState(0)
-  const [windowTitles, setWindowTitles] = useState<string[]>([])
+  const [openWindows, setOpenWindows] = useState<OpenWindowEntryPayload[]>([])
   const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
   const llmPresets = useSettingsStore((state) => state.llmPresets)
   const [pathEditor, setPathEditor] = useState<{
@@ -126,33 +141,58 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     [nodes],
   )
 
-  const refreshWindowTitles = () => {
+  const windowTitles = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.title)),
+    [openWindows],
+  )
+
+  const windowPrograms = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.programName)),
+    [openWindows],
+  )
+
+  const windowProgramPaths = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.programPath)),
+    [openWindows],
+  )
+
+  const windowClassNames = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.className)),
+    [openWindows],
+  )
+
+  const windowPids = useMemo(
+    () => dedupe(openWindows.map((entry) => (entry.processId > 0 ? String(entry.processId) : ''))),
+    [openWindows],
+  )
+
+  const refreshWindowEntries = () => {
     if (data.kind !== 'windowTrigger' && data.kind !== 'windowActivate') return
 
-    void listOpenWindows()
-      .then((titles) => {
-        setWindowTitles(dedupe(titles))
+    void listOpenWindowEntries()
+      .then((entries) => {
+        setOpenWindows(entries)
       })
       .catch(() => {
-        setWindowTitles([])
+        setOpenWindows([])
       })
   }
 
   useEffect(() => {
     if (data.kind !== 'windowTrigger' && data.kind !== 'windowActivate') {
-      setWindowTitles([])
+      setOpenWindows([])
       return
     }
 
     let cancelled = false
-    void listOpenWindows()
-      .then((titles) => {
+    void listOpenWindowEntries()
+      .then((entries) => {
         if (cancelled) return
-        setWindowTitles(dedupe(titles))
+        setOpenWindows(entries)
       })
       .catch(() => {
         if (cancelled) return
-        setWindowTitles([])
+        setOpenWindows([])
       })
 
     return () => {
@@ -189,6 +229,22 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       return windowTitles
     }
 
+    if (isWindowProgramField(kind, field.key)) {
+      return windowPrograms
+    }
+
+    if (isWindowProgramPathField(kind, field.key)) {
+      return windowProgramPaths
+    }
+
+    if (isWindowClassField(kind, field.key)) {
+      return windowClassNames
+    }
+
+    if (isWindowPidField(kind, field.key)) {
+      return windowPids
+    }
+
     const variableReferenceField =
       isVariableOperandField(kind, field.key) &&
       (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var')
@@ -203,6 +259,58 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     }
 
     return []
+  }
+
+  const findOpenWindowEntry = (fieldKey: string, value: string) => {
+    const normalizedValue = value.trim().toLowerCase()
+    if (!normalizedValue) return null
+
+    return openWindows.find((entry) => {
+      if (fieldKey === 'title') return entry.title.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'program') return entry.programName.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'programPath') return entry.programPath.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'className') return entry.className.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'processId') return String(entry.processId) === value.trim()
+      return false
+    }) ?? null
+  }
+
+  const applyWindowEntrySelection = (fieldKey: string, value: string) => {
+    if (!isWindowLookupField(data.kind, fieldKey)) {
+      return false
+    }
+
+    const matchedEntry = findOpenWindowEntry(fieldKey, value)
+    if (!matchedEntry) {
+      return false
+    }
+
+    updateNodeParams(id, {
+      ...params,
+      title: matchedEntry.title,
+      program: matchedEntry.programName,
+      programPath: matchedEntry.programPath,
+      className: matchedEntry.className,
+      processId: matchedEntry.processId,
+    })
+    setDrafts((state) => ({
+      ...state,
+      title: matchedEntry.title,
+      program: matchedEntry.programName,
+      programPath: matchedEntry.programPath,
+      className: matchedEntry.className,
+      processId: matchedEntry.processId > 0 ? String(matchedEntry.processId) : '',
+    }))
+    setErrors((state) => {
+      const nextState = { ...state }
+      delete nextState.title
+      delete nextState.program
+      delete nextState.programPath
+      delete nextState.className
+      delete nextState.processId
+      return nextState
+    })
+    return true
   }
 
   const updateParam = (key: string, value: unknown) => {
@@ -253,6 +361,11 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           nextParams.operand = 0
         }
       }
+    }
+
+    if (key === 'processId') {
+      const num = Number(value)
+      nextParams.processId = Number.isFinite(num) && num > 0 ? Math.floor(num) : 0
     }
 
     updateNodeParams(id, nextParams)
@@ -424,10 +537,11 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const currentValue = params[field.key] ?? meta.defaultParams[field.key]
     const isBoolean = field.type === 'boolean'
     const isNumber = field.type === 'number'
+    const isWindowPidSuggestionField = isWindowPidField(data.kind, field.key)
     const isSelect = field.type === 'select'
     const isJson = field.type === 'json'
     const isSensitiveField = data.kind === 'guiAgent' && field.key === 'apiKey'
-    const canUseArrows = isNumber
+    const canUseArrows = isNumber && !isWindowPidSuggestionField
     const isPathField = isFilePathField(data.kind, field.key)
     const isScreenshotSizeFieldDisabled =
       data.kind === 'screenshot' &&
@@ -478,6 +592,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               onChange={(event) => {
                 if (isInputDisabled) return
                 setDrafts((state) => ({ ...state, [field.key]: event.target.value }))
+                setOpenSelectFieldKey(null)
+                setOpenSuggestFieldKey(field.key)
+                setActiveSuggestIndex(0)
+              }}
+              onClick={() => {
+                if (isInputDisabled) return
                 setOpenSelectFieldKey(null)
                 setOpenSuggestFieldKey(field.key)
                 setActiveSuggestIndex(0)
@@ -715,16 +835,44 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var'))
 
     const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, field.key)
+    const supportsWindowProgramSuggestions = isWindowProgramField(data.kind, field.key)
+    const supportsWindowProgramPathSuggestions = isWindowProgramPathField(data.kind, field.key)
+    const supportsWindowClassSuggestions = isWindowClassField(data.kind, field.key)
+    const supportsWindowPidSuggestions = isWindowPidSuggestionField
     const supportsGuiModelSuggestions = false
-    const supportsInlineSuggestions = supportsVariableSuggestions || supportsWindowTitleSuggestions || supportsGuiModelSuggestions
+    const supportsWindowSuggestions =
+      supportsWindowTitleSuggestions ||
+      supportsWindowProgramSuggestions ||
+      supportsWindowProgramPathSuggestions ||
+      supportsWindowClassSuggestions ||
+      supportsWindowPidSuggestions
+    const supportsInlineSuggestions = supportsVariableSuggestions || supportsWindowSuggestions || supportsGuiModelSuggestions
 
-    const canShowSuggestions = !connectedToInput && !isNumber && !isSelect && !isJson && !isPathField && !isSensitiveField && supportsInlineSuggestions
-    const usesFloatingTextEditor = !connectedToInput && !isNumber && !isSelect && !isPathField && !isSensitiveField && !supportsInlineSuggestions
+    const canShowSuggestions = !connectedToInput && (!isNumber || isWindowPidSuggestionField) && !isSelect && !isJson && !isPathField && !isSensitiveField && supportsInlineSuggestions
+    const usesFloatingTextEditor = !connectedToInput && !isWindowPidSuggestionField && !isNumber && !isSelect && !isPathField && !isSensitiveField && !supportsInlineSuggestions
     const filteredSuggestions = canShowSuggestions
-      ? (supportsWindowTitleSuggestions
+      ? (supportsWindowSuggestions
         ? suggestions
         : suggestions.filter((option) => option.toLowerCase().includes(displayValue.trim().toLowerCase())))
       : []
+
+    const commitSuggestedValue = (value: string) => {
+      if (applyWindowEntrySelection(field.key, value)) {
+        return
+      }
+
+      setDrafts((state) => ({ ...state, [field.key]: value }))
+      if (isWindowPidSuggestionField) {
+        updateParam(field.key, value.trim() ? Number(value) : 0)
+      } else {
+        updateParam(field.key, value)
+      }
+      setErrors((state) => {
+        const nextState = { ...state }
+        delete nextState[field.key]
+        return nextState
+      })
+    }
 
     return (
       <div
@@ -799,6 +947,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 )
                 return
               }
+
+              if (canShowSuggestions) {
+                setOpenSelectFieldKey(null)
+                setOpenSuggestFieldKey(field.key)
+                setActiveSuggestIndex(0)
+              }
             }}
             onChange={(event) => {
               if (isInputDisabled) return
@@ -809,6 +963,25 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 return
               }
               const nextRaw = event.target.value
+
+              if (isWindowPidSuggestionField) {
+                if (!/^\d*$/.test(nextRaw)) {
+                  return
+                }
+                setDrafts((state) => ({ ...state, [field.key]: nextRaw }))
+                updateParam(field.key, nextRaw.trim() ? Number(nextRaw) : 0)
+                setErrors((state) => {
+                  const nextState = { ...state }
+                  delete nextState[field.key]
+                  return nextState
+                })
+                if (canShowSuggestions) {
+                  setOpenSelectFieldKey(null)
+                  setOpenSuggestFieldKey(field.key)
+                  setActiveSuggestIndex(0)
+                }
+                return
+              }
 
               if (isNumber) {
                 if (!/^-?\d*(\.\d*)?$/.test(nextRaw)) {
@@ -865,8 +1038,8 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               }
             }}
             onFocus={() => {
-              if (supportsWindowTitleSuggestions) {
-                refreshWindowTitles()
+              if (supportsWindowSuggestions) {
+                refreshWindowEntries()
               }
               if (canShowSuggestions) {
                 setOpenSelectFieldKey(null)
@@ -898,7 +1071,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   event.preventDefault()
                   const picked = filteredSuggestions[Math.max(0, Math.min(activeSuggestIndex, filteredSuggestions.length - 1))]
                   if (picked !== undefined) {
-                    commitStringValue(field, picked)
+                    commitSuggestedValue(picked)
                     setOpenSuggestFieldKey(null)
                   }
                 }
@@ -979,7 +1152,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   onMouseEnter={() => setActiveSuggestIndex(index)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
-                    commitStringValue(field, option)
+                    commitSuggestedValue(option)
                     setOpenSuggestFieldKey(null)
                   }}
                 >

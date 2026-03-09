@@ -5,23 +5,33 @@ interface SmartInputSelectProps {
   placeholder?: string
   options: string[]
   onChange: (nextValue: string) => void
+  onOptionSelect?: (nextValue: string) => void
   onEnter?: () => void
   hint?: string
+  filterOptions?: boolean
 }
 
 const dedupe = (values: string[]) => Array.from(new Set(values.filter((item) => item.trim().length > 0)))
 
-export default function SmartInputSelect({ value, placeholder, options, onChange, onEnter, hint }: SmartInputSelectProps) {
+export default function SmartInputSelect({ value, placeholder, options, onChange, onOptionSelect, onEnter, hint, filterOptions = true }: SmartInputSelectProps) {
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const allOptions = useMemo(() => dedupe(options), [options])
   const filteredOptions = useMemo(() => {
+    if (!filterOptions) return allOptions
     const keyword = value.trim().toLowerCase()
     if (!keyword) return allOptions
     return allOptions.filter((option) => option.toLowerCase().includes(keyword))
-  }, [allOptions, value])
+  }, [allOptions, filterOptions, value])
+
+  const openMenu = () => {
+    setOpen(true)
+    if (allOptions.length > 0) {
+      setActiveIndex(0)
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -73,6 +83,7 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
         const picked = filteredOptions[activeIndex]
         if (picked !== undefined) {
           onChange(picked)
+          onOptionSelect?.(picked)
         }
         setOpen(false)
       } else if (onEnter) {
@@ -94,18 +105,20 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
           type="text"
           value={value}
           placeholder={placeholder}
-          onFocus={() => {
-            setOpen(true)
-            if (allOptions.length > 0) {
-              setActiveIndex(0)
+          onFocus={openMenu}
+          onMouseDown={() => {
+            if (!open) {
+              openMenu()
+            }
+          }}
+          onClick={() => {
+            if (!open) {
+              openMenu()
             }
           }}
           onChange={(event) => {
             onChange(event.target.value)
-            setOpen(true)
-            if (allOptions.length > 0) {
-              setActiveIndex(0)
-            }
+            openMenu()
           }}
           onKeyDown={handleKeyDown}
           className="w-full bg-transparent px-1 py-0.5 text-xs text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
@@ -145,6 +158,7 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => {
                   onChange(option)
+                  onOptionSelect?.(option)
                   setOpen(false)
                 }}
               >

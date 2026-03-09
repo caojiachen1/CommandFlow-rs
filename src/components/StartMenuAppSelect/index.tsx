@@ -51,6 +51,11 @@ export default function StartMenuAppSelect({ apps, value, placeholder, onSelect,
     setActiveIndex(bounded)
   }, [activeIndex, filteredApps.length, open])
 
+  const openMenu = () => {
+    setOpen(true)
+    setActiveIndex(0)
+  }
+
   const commitSelection = (app: StartMenuAppPayload) => {
     onSelect(app)
     setQuery(getStartMenuAppDisplayName(app))
@@ -102,14 +107,20 @@ export default function StartMenuAppSelect({ apps, value, placeholder, onSelect,
           type="text"
           value={query}
           placeholder={placeholder}
-          onFocus={() => {
-            setOpen(true)
-            setActiveIndex(0)
+          onFocus={openMenu}
+          onMouseDown={() => {
+            if (!open) {
+              openMenu()
+            }
+          }}
+          onClick={() => {
+            if (!open) {
+              openMenu()
+            }
           }}
           onChange={(event) => {
             setQuery(event.target.value)
-            setOpen(true)
-            setActiveIndex(0)
+            openMenu()
           }}
           onKeyDown={handleKeyDown}
           className="w-full bg-transparent px-1 py-0.5 text-xs text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"

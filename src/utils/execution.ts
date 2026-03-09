@@ -17,6 +17,14 @@ export interface StartMenuAppPayload {
   sourcePath: string
 }
 
+export interface OpenWindowEntryPayload {
+  title: string
+  programName: string
+  programPath: string
+  className: string
+  processId: number
+}
+
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 let startMenuAppsCache: StartMenuAppPayload[] | null = null
 let startMenuAppsPromise: Promise<StartMenuAppPayload[]> | null = null
@@ -42,6 +50,13 @@ export const listOpenWindows = async (): Promise<string[]> => {
     return []
   }
   return invoke<string[]>('list_open_windows')
+}
+
+export const listOpenWindowEntries = async (): Promise<OpenWindowEntryPayload[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+  return invoke<OpenWindowEntryPayload[]>('list_open_window_details')
 }
 
 export const listStartMenuApps = async (forceRefresh = false): Promise<StartMenuAppPayload[]> => {

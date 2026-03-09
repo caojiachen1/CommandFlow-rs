@@ -415,6 +415,11 @@ pub async fn list_open_windows() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+pub async fn list_open_window_details() -> Result<Vec<window::OpenWindowEntry>, String> {
+    window::list_open_window_entries().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn list_start_menu_apps() -> Result<Vec<start_menu::StartMenuAppEntry>, String> {
     start_menu::scan_start_menu_apps().map_err(|error| error.to_string())
 }

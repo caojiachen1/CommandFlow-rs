@@ -2,6 +2,8 @@ import type { NodeKind } from '../types/workflow'
 
 export type ParamFieldType = 'string' | 'number' | 'boolean' | 'select' | 'json' | 'text'
 
+const WINDOW_ADVANCED_FIELD_KEYS = ['programPath', 'className', 'processId']
+
 export type SystemOperationKind =
   | 'shutdown'
   | 'restart'
@@ -308,9 +310,22 @@ export const isNodeFieldVisible = (
   if (kind === 'windowActivate') {
     const mode = String(params.switchMode ?? defaultParams.switchMode ?? 'title')
     if (mode === 'title') {
-      return !['shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
+      return !['program', 'shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
+    }
+    if (mode === 'program') {
+      return !['title', 'shortcut', 'shortcutTimes', 'shortcutIntervalMs'].includes(field.key)
     }
     if (mode === 'shortcut') {
+      return !['title', 'program', 'matchMode', ...WINDOW_ADVANCED_FIELD_KEYS].includes(field.key)
+    }
+  }
+
+  if (kind === 'windowTrigger') {
+    const target = String(params.matchTarget ?? defaultParams.matchTarget ?? 'title')
+    if (target === 'title') {
+      return field.key !== 'program'
+    }
+    if (target === 'program') {
       return field.key !== 'title'
     }
   }
@@ -637,10 +652,31 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   windowTrigger: {
     label: '窗口触发',
-    description: '检测到指定窗口时触发。',
-    defaultParams: { title: 'Untitled - Notepad', matchMode: 'contains' },
+    description: '检测到指定前台窗口标题或程序时触发。',
+    defaultParams: {
+      matchTarget: 'title',
+      title: 'Untitled - Notepad',
+      program: 'notepad.exe',
+      matchMode: 'contains',
+      programPath: '',
+      className: '',
+      processId: 0,
+    },
     fields: [
+      {
+        key: 'matchTarget',
+        label: '匹配目标',
+        type: 'select',
+        options: [
+          { label: '窗口标题', value: 'title' },
+          { label: '窗口程序', value: 'program' },
+        ],
+      },
       { key: 'title', label: '窗口标题', type: 'string', placeholder: 'Untitled - Notepad' },
+      { key: 'program', label: '窗口程序', type: 'string', placeholder: 'notepad.exe' },
+      { key: 'programPath', label: '程序路径(可选)', type: 'string', placeholder: 'C:\\Windows\\System32\\notepad.exe' },
+      { key: 'className', label: '窗口类名(可选)', type: 'string', placeholder: 'Notepad' },
+      { key: 'processId', label: '进程 PID(可选)', type: 'number', min: 0, step: 1 },
       {
         key: 'matchMode',
         label: '匹配方式',
@@ -847,10 +883,15 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
   },
   windowActivate: {
     label: '切换窗口',
-    description: '可按窗口标题切换，或通过 Alt+Tab 等快捷键切换。',
+    description: '可按窗口标题、窗口程序切换，或通过 Alt+Tab 等快捷键切换。',
     defaultParams: {
       switchMode: 'title',
       title: 'CommandFlow-rs',
+      program: 'commandflow-rs.exe',
+      matchMode: 'contains',
+      programPath: '',
+      className: '',
+      processId: 0,
       shortcut: 'Alt+Tab',
       shortcutTimes: 1,
       shortcutIntervalMs: 120,
@@ -862,10 +903,24 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
         type: 'select',
         options: [
           { label: '按窗口标题', value: 'title' },
+          { label: '按窗口程序', value: 'program' },
           { label: '按快捷键', value: 'shortcut' },
         ],
       },
       { key: 'title', label: '窗口标题', type: 'string', placeholder: 'CommandFlow-rs' },
+      { key: 'program', label: '窗口程序', type: 'string', placeholder: 'commandflow-rs.exe' },
+      { key: 'programPath', label: '程序路径(可选)', type: 'string', placeholder: 'D:\\Apps\\CommandFlow-rs\\commandflow-rs.exe' },
+      { key: 'className', label: '窗口类名(可选)', type: 'string', placeholder: 'Chrome_WidgetWin_1' },
+      { key: 'processId', label: '进程 PID(可选)', type: 'number', min: 0, step: 1 },
+      {
+        key: 'matchMode',
+        label: '匹配方式',
+        type: 'select',
+        options: [
+          { label: '包含', value: 'contains' },
+          { label: '完全匹配', value: 'exact' },
+        ],
+      },
       {
         key: 'shortcut',
         label: '快捷键',

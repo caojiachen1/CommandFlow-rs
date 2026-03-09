@@ -64,6 +64,7 @@ pub fn run() {
             commands::confirm_coordinate_pick,
             commands::cancel_coordinate_pick,
             commands::list_open_windows,
+            commands::list_open_window_details,
             commands::list_start_menu_apps,
             commands::resolve_start_menu_app_icon,
             commands::fetch_llm_models,

@@ -198,6 +198,10 @@ const specs: Record<NodeKind, NodePortSpec> = {
     outputs: [
       ...singleOut(),
       { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
+      { id: 'program', label: 'program', maxConnections: MANY, valueType: 'string' },
+      { id: 'programPath', label: 'programPath', maxConnections: MANY, valueType: 'string' },
+      { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
+      { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
     ],
   },
   mouseOperation: {
@@ -226,7 +230,14 @@ const specs: Record<NodeKind, NodePortSpec> = {
   },
   windowActivate: {
     inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' }],
+    outputs: [
+      ...singleOut(),
+      { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
+      { id: 'program', label: 'program', maxConnections: MANY, valueType: 'string' },
+      { id: 'programPath', label: 'programPath', maxConnections: MANY, valueType: 'string' },
+      { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
+      { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
+    ],
   },
   launchApplication: {
     inputs: singleIn(),

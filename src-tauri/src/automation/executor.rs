@@ -374,42 +374,60 @@ impl WorkflowExecutor {
             }
             NodeKind::ManualTrigger => Ok(NextDirective::Default),
             NodeKind::WindowTrigger => {
+                let match_target = get_string(node, "matchTarget", "title");
                 let title = get_string(node, "title", "");
+                let program = get_string(node, "program", "");
                 let match_mode = get_string(node, "matchMode", "contains");
                 let timeout_ms = get_u64(node, "timeoutMs", 30_000);
                 let poll_ms = get_u64(node, "pollMs", 250);
 
-                if title.trim().is_empty() {
+                let waiting_for_program = match_target.eq_ignore_ascii_case("program");
+                let match_value = if waiting_for_program {
+                    program.trim()
+                } else {
+                    title.trim()
+                };
+
+                if match_value.is_empty() {
                     return Err(CommandFlowError::Validation(format!(
-                        "node '{}' window trigger title is empty",
-                        node.id
+                        "node '{}' window trigger {} is empty",
+                        node.id,
+                        if waiting_for_program { "program" } else { "title" }
                     )));
                 }
+
+                let query = build_window_match_query(node, &match_target, &title, &program, &match_mode);
+                let query_description = describe_window_query(&match_target, match_value, &query);
 
                 let poll_interval = Duration::from_millis(poll_ms.max(10));
                 let deadline = Duration::from_millis(timeout_ms);
                 let started = tokio::time::Instant::now();
-
-                loop {
+                let matched_window = loop {
                     if should_cancel() {
                         return Err(CommandFlowError::Canceled);
                     }
 
-                    if window::window_title_exists(&title, &match_mode)? {
-                        break;
+                    let matched = window::foreground_window_matches(&query)?;
+
+                    if let Some(window) = matched {
+                        break window;
                     }
 
                     if started.elapsed() >= deadline {
                         return Err(CommandFlowError::Automation(format!(
-                            "window trigger timed out after {} ms waiting for foreground window title '{}'",
-                            timeout_ms, title
+                            "window trigger timed out after {} ms waiting for foreground window {}",
+                            timeout_ms, query_description
                         )));
                     }
 
                     interruptible_sleep(poll_interval, should_cancel).await?;
-                }
+                };
 
-                set_node_output(ctx, node, "title", Value::String(title));
+                set_node_output(ctx, node, "title", Value::String(matched_window.title));
+                set_node_output(ctx, node, "program", Value::String(matched_window.program_name));
+                set_node_output(ctx, node, "programPath", Value::String(matched_window.program_path));
+                set_node_output(ctx, node, "className", Value::String(matched_window.class_name));
+                set_node_output(ctx, node, "processId", value_from_u64(matched_window.process_id as u64));
 
                 Ok(NextDirective::Default)
             }
@@ -500,10 +518,21 @@ impl WorkflowExecutor {
                         }
                     }
                     set_node_output(ctx, node, "title", Value::String(shortcut));
+                    set_node_output(ctx, node, "program", Value::String(String::new()));
+                    set_node_output(ctx, node, "programPath", Value::String(String::new()));
+                    set_node_output(ctx, node, "className", Value::String(String::new()));
+                    set_node_output(ctx, node, "processId", value_from_u64(0));
                 } else {
+                    let match_mode = get_string(node, "matchMode", "contains");
                     let title = get_string(node, "title", "");
-                    window::activate_window(&title)?;
-                    set_node_output(ctx, node, "title", Value::String(title));
+                    let program = get_string(node, "program", "");
+                    let query = build_window_match_query(node, &switch_mode, &title, &program, &match_mode);
+                    let activated_window = window::activate_window(&query)?;
+                    set_node_output(ctx, node, "title", Value::String(activated_window.title));
+                    set_node_output(ctx, node, "program", Value::String(activated_window.program_name));
+                    set_node_output(ctx, node, "programPath", Value::String(activated_window.program_path));
+                    set_node_output(ctx, node, "className", Value::String(activated_window.class_name));
+                    set_node_output(ctx, node, "processId", value_from_u64(activated_window.process_id as u64));
                 }
                 Ok(NextDirective::Default)
             }
@@ -1305,6 +1334,66 @@ fn set_node_output(ctx: &mut ExecutionContext, node: &WorkflowNode, handle: &str
         .entry(node.id.clone())
         .or_insert_with(HashMap::new);
     outputs.insert(handle.to_string(), value);
+}
+
+fn optional_string_param(node: &WorkflowNode, key: &str) -> Option<String> {
+    let value = get_string(node, key, "");
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn optional_process_id_param(node: &WorkflowNode, key: &str) -> Option<u32> {
+    node.params
+        .get(key)
+        .and_then(|value| value.as_u64())
+        .map(|value| value as u32)
+        .filter(|value| *value > 0)
+}
+
+fn build_window_match_query(
+    node: &WorkflowNode,
+    primary_target: &str,
+    title: &str,
+    program: &str,
+    match_mode: &str,
+) -> window::WindowMatchQuery {
+    let mut query = window::WindowMatchQuery::new(match_mode);
+    if primary_target.eq_ignore_ascii_case("program") {
+        if !program.trim().is_empty() {
+            query.program = Some(program.trim().to_string());
+        }
+    } else if !title.trim().is_empty() {
+        query.title = Some(title.trim().to_string());
+    }
+
+    query.program_path = optional_string_param(node, "programPath");
+    query.class_name = optional_string_param(node, "className");
+    query.process_id = optional_process_id_param(node, "processId");
+    query
+}
+
+fn describe_window_query(primary_target: &str, match_value: &str, query: &window::WindowMatchQuery) -> String {
+    let mut parts = vec![format!(
+        "{} '{}'",
+        if primary_target.eq_ignore_ascii_case("program") { "program" } else { "title" },
+        match_value
+    )];
+
+    if let Some(program_path) = query.program_path.as_deref() {
+        parts.push(format!("programPath '{}'", program_path));
+    }
+    if let Some(class_name) = query.class_name.as_deref() {
+        parts.push(format!("className '{}'", class_name));
+    }
+    if let Some(process_id) = query.process_id {
+        parts.push(format!("pid {}", process_id));
+    }
+
+    parts.join(", ")
 }
 
 fn value_from_i32(value: i32) -> Value {

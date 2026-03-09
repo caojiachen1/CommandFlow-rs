@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
-import { listOpenWindows, listStartMenuApps, type StartMenuAppPayload } from '../../utils/execution'
+import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
 import type { NodeKind } from '../../types/workflow'
 import { buildLaunchApplicationParams } from '../../utils/startMenuApp'
 import SmartInputSelect from '../SmartInputSelect'
@@ -110,6 +110,9 @@ const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
 ]
 
+const isWindowLookupField = (kind: NodeKind, fieldKey: string) =>
+  (kind === 'windowTrigger' || kind === 'windowActivate') && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
+
 export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps) {
   const { selectedNodeId, nodes, updateNodeParams } = useWorkflowStore()
   const selectedNode = useMemo(
@@ -125,7 +128,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   const llmPresets = useSettingsStore((state) => state.llmPresets)
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [windowTitles, setWindowTitles] = useState<string[]>([])
+  const [openWindows, setOpenWindows] = useState<OpenWindowEntryPayload[]>([])
   const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
 
   const variableNames = useMemo(
@@ -136,6 +139,31 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
           .map((node) => (typeof node.data.params.name === 'string' ? node.data.params.name.trim() : '')),
       ),
     [nodes],
+  )
+
+  const windowTitles = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.title)),
+    [openWindows],
+  )
+
+  const windowPrograms = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.programName)),
+    [openWindows],
+  )
+
+  const windowProgramPaths = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.programPath)),
+    [openWindows],
+  )
+
+  const windowClassNames = useMemo(
+    () => dedupe(openWindows.map((entry) => entry.className)),
+    [openWindows],
+  )
+
+  const windowPids = useMemo(
+    () => dedupe(openWindows.map((entry) => (entry.processId > 0 ? String(entry.processId) : ''))),
+    [openWindows],
   )
 
   useEffect(() => {
@@ -151,18 +179,19 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   useEffect(() => {
     if (!selectedNode || !expanded) return
     if (selectedNode.data.kind !== 'windowTrigger' && selectedNode.data.kind !== 'windowActivate') {
+      setOpenWindows([])
       return
     }
 
     let cancelled = false
-    void listOpenWindows()
-      .then((titles) => {
+    void listOpenWindowEntries()
+      .then((entries) => {
         if (cancelled) return
-        setWindowTitles(dedupe(titles))
+        setOpenWindows(entries)
       })
       .catch(() => {
         if (cancelled) return
-        setWindowTitles([])
+        setOpenWindows([])
       })
 
     return () => {
@@ -202,6 +231,18 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     if (kind === 'windowActivate' && field.key === 'title') {
       return windowTitles
     }
+    if (kind === 'windowTrigger' && field.key === 'program') {
+      return windowPrograms
+    }
+    if (kind === 'windowActivate' && field.key === 'program') {
+      return windowPrograms
+    }
+    if ((kind === 'windowTrigger' || kind === 'windowActivate') && field.key === 'programPath') {
+      return windowProgramPaths
+    }
+    if ((kind === 'windowTrigger' || kind === 'windowActivate') && field.key === 'className') {
+      return windowClassNames
+    }
     if (kind === 'windowActivate' && field.key === 'shortcut') {
       return COMMON_HOTKEYS
     }
@@ -238,6 +279,41 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       return COMMON_HOTKEYS
     }
     return []
+  }
+
+  const findOpenWindowEntry = (fieldKey: string, value: string) => {
+    const normalizedValue = value.trim().toLowerCase()
+    if (!normalizedValue) return null
+
+    return openWindows.find((entry) => {
+      if (fieldKey === 'title') return entry.title.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'program') return entry.programName.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'programPath') return entry.programPath.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'className') return entry.className.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'processId') return String(entry.processId) === value.trim()
+      return false
+    }) ?? null
+  }
+
+  const applyWindowEntrySelection = (fieldKey: string, value: string) => {
+    if (!selectedNode || !isWindowLookupField(selectedNode.data.kind, fieldKey)) {
+      return false
+    }
+
+    const matchedEntry = findOpenWindowEntry(fieldKey, value)
+    if (!matchedEntry) {
+      return false
+    }
+
+    updateNodeParams(selectedNode.id, {
+      ...selectedNode.data.params,
+      title: matchedEntry.title,
+      program: matchedEntry.programName,
+      programPath: matchedEntry.programPath,
+      className: matchedEntry.className,
+      processId: matchedEntry.processId,
+    })
+    return true
   }
 
   const updateParam = (key: string, value: unknown) => {
@@ -300,6 +376,11 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
           nextParams.operand = 0
         }
       }
+    }
+
+    if (key === 'processId') {
+      const num = Number(value)
+      nextParams.processId = Number.isFinite(num) && num > 0 ? Math.floor(num) : 0
     }
 
     updateNodeParams(selectedNode.id, nextParams)
@@ -379,6 +460,24 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
           options={field.options ?? []}
           onChange={(nextValue) => updateParam(field.key, nextValue)}
           placeholder="请选择"
+        />
+      )
+    }
+
+    if ((selectedNode.data.kind === 'windowTrigger' || selectedNode.data.kind === 'windowActivate') && field.key === 'processId') {
+      return (
+        <SmartInputSelect
+          value={String(Number(currentValue ?? 0) > 0 ? currentValue : '')}
+          placeholder={field.placeholder}
+          options={windowPids}
+          onChange={(nextValue) => updateParam(field.key, nextValue.trim() ? Number(nextValue) : 0)}
+          onOptionSelect={(nextValue) => {
+            if (!applyWindowEntrySelection(field.key, nextValue)) {
+              updateParam(field.key, nextValue.trim() ? Number(nextValue) : 0)
+            }
+          }}
+          hint="可下拉选择当前窗口 PID，也可手动输入"
+          filterOptions={false}
         />
       )
     }
@@ -502,7 +601,13 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
               placeholder={field.placeholder}
               options={suggestions}
               onChange={(nextValue) => updateParam(field.key, nextValue)}
+              onOptionSelect={(nextValue) => {
+                if (!applyWindowEntrySelection(field.key, nextValue)) {
+                  updateParam(field.key, nextValue)
+                }
+              }}
               hint="支持下拉选择，也可手动输入"
+              filterOptions={!isWindowLookupField(selectedNode.data.kind, field.key)}
             />
           )
         }
