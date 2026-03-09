@@ -4,7 +4,6 @@ use image::ImageReader;
 use lnk_parser::LNKParser;
 use serde::Serialize;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -22,17 +21,17 @@ use windows_sys::Win32::Graphics::Gdi::{
     BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, RGBQUAD,
 };
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::Shell::{ExtractIconExW, SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+use windows_sys::Win32::UI::Shell::{ExtractIconExW, ShellExecuteW, SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, PrivateExtractIconsW, HICON, DI_NORMAL};
+use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, PrivateExtractIconsW, HICON, DI_NORMAL, SW_SHOWNORMAL};
 
 const EXECUTABLE_EXTENSIONS: &[&str] = &["exe", "com", "bat", "cmd"];
 const DIRECT_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "webp", "ico"];
 const ICON_RESOURCE_EXTENSIONS: &[&str] = &["exe", "dll", "ico", "icl", "cpl", "scr"];
 const EXTRACTED_ICON_SIZE: i32 = 256;
+const ICON_RENDER_FALLBACK_SIZES: &[i32] = &[128, 64, 48, 32, 24, 16];
 
-fn icon_debug(message: impl AsRef<str>) {
-    eprintln!("[start-menu-icon] {}", message.as_ref());
+fn icon_debug(_message: impl AsRef<str>) {
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,16 +61,7 @@ pub fn scan_start_menu_apps() -> CommandResult<Vec<StartMenuAppEntry>> {
 
     entries.sort_by(compare_entries);
 
-    let mut deduped = Vec::new();
-    let mut seen_targets = HashSet::new();
-    for entry in entries {
-        let key = normalize_path_key(&entry.target_path);
-        if seen_targets.insert(key) {
-            deduped.push(entry);
-        }
-    }
-
-    Ok(deduped)
+    Ok(entries)
 }
 
 pub fn resolve_launch_application_entry(
@@ -80,6 +70,48 @@ pub fn resolve_launch_application_entry(
     app_name: Option<&str>,
     icon_path: Option<&str>,
 ) -> CommandResult<StartMenuAppEntry> {
+    if let Some(source_path) = source_path.and_then(sanitize_path_string) {
+        let source = PathBuf::from(&source_path);
+        if source.is_file() && is_shortcut_file(&source) {
+            if let Some(mut parsed) = parse_shortcut_entry(&source) {
+                if parsed.app_name.trim().is_empty() {
+                    if let Some(name) = app_name.map(str::trim).filter(|value| !value.is_empty()) {
+                        parsed.app_name = name.to_string();
+                    }
+                }
+
+                if parsed.icon_path.trim().is_empty() {
+                    parsed.icon_path = icon_path
+                        .and_then(sanitize_optional_metadata)
+                        .unwrap_or_default();
+                }
+
+                if parsed.target_path.trim().is_empty() {
+                    parsed.target_path = sanitize_path_string(target_path).unwrap_or_default();
+                }
+
+                return Ok(parsed);
+            }
+
+            let sanitized_target = sanitize_path_string(target_path).unwrap_or_default();
+            let app_name = app_name
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .or_else(|| derive_name_from_source_or_target(&source_path, &sanitized_target))
+                .unwrap_or_else(|| source_path.clone());
+
+            return Ok(StartMenuAppEntry {
+                app_name,
+                target_path: sanitized_target,
+                icon_path: icon_path
+                    .and_then(sanitize_optional_metadata)
+                    .unwrap_or_default(),
+                source_path,
+            });
+        }
+    }
+
     if let Some(target_path) = sanitize_path_string(target_path) {
         let target = PathBuf::from(&target_path);
         if is_valid_launch_target(&target) {
@@ -131,6 +163,15 @@ pub fn resolve_launch_application_entry(
 }
 
 pub fn launch_application(entry: &StartMenuAppEntry) -> CommandResult<Option<u32>> {
+    #[cfg(target_os = "windows")]
+    {
+        let source_path = PathBuf::from(&entry.source_path);
+        if source_path.is_file() && is_shortcut_file(&source_path) {
+            open_path_via_shell_execute(&source_path)?;
+            return Ok(None);
+        }
+    }
+
     let target_path = PathBuf::from(&entry.target_path);
     if !is_valid_launch_target(&target_path) {
         return Err(CommandFlowError::Validation(format!(
@@ -261,11 +302,11 @@ fn is_shortcut_file(path: &Path) -> bool {
 fn parse_shortcut_entry(path: &Path) -> Option<StartMenuAppEntry> {
     let parser = LNKParser::from_path(path.to_str()?).ok()?;
 
-    let target_path = sanitize_path_string(parser.get_target_full_path().as_deref()?)?;
-    let target = PathBuf::from(&target_path);
-    if !is_valid_launch_target(&target) {
-        return None;
-    }
+    let target_path = parser
+        .get_target_full_path()
+        .as_deref()
+        .and_then(sanitize_path_string)
+        .unwrap_or_default();
 
     let source_path = normalize_display_path(path);
     let app_name = path
@@ -325,6 +366,7 @@ fn is_valid_launch_target(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn normalize_path_key(path: &str) -> String {
     path.trim()
         .trim_matches('"')
@@ -513,6 +555,39 @@ fn load_image_file_data_url(path: &Path) -> CommandResult<Option<String>> {
 }
 
 #[cfg(target_os = "windows")]
+fn open_path_via_shell_execute(path: &Path) -> CommandResult<()> {
+    if !path.exists() || !path.is_file() {
+        return Err(CommandFlowError::Validation(format!(
+            "应用快捷方式不存在：{}",
+            path.display()
+        )));
+    }
+
+    let operation = to_wide_null("open");
+    let file = to_wide_null(&path.to_string_lossy());
+    let result = unsafe {
+        ShellExecuteW(
+            ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+
+    if result as usize <= 32 {
+        return Err(CommandFlowError::Automation(format!(
+            "通过 Windows Shell 打开快捷方式失败：{}（code={}）",
+            path.display(),
+            result as isize
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 fn to_wide_null(value: &str) -> Vec<u16> {
     OsStr::new(value)
         .encode_wide()
@@ -664,6 +739,37 @@ fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<
         return Ok(None);
     }
 
+    if let Some(data_url) = render_hicon_to_png_data_url(icon_handle, size)? {
+        return Ok(Some(data_url));
+    }
+
+    for fallback_size in ICON_RENDER_FALLBACK_SIZES {
+        if *fallback_size >= size {
+            continue;
+        }
+
+        if let Some(data_url) = render_hicon_to_png_data_url(icon_handle, *fallback_size)? {
+            icon_debug(format!(
+                "icon render recovered with fallback size {} (requested {})",
+                fallback_size, size
+            ));
+            return Ok(Some(data_url));
+        }
+    }
+
+    icon_debug(format!(
+        "DrawIconEx failed or produced empty bitmap for all attempted sizes (requested {})",
+        size
+    ));
+    Ok(None)
+}
+
+#[cfg(target_os = "windows")]
+fn render_hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<String>> {
+    if icon_handle.is_null() || size <= 0 {
+        return Ok(None);
+    }
+
     let dc = unsafe { CreateCompatibleDC(ptr::null_mut()) };
     if dc.is_null() {
         icon_debug("CreateCompatibleDC failed");
@@ -712,7 +818,6 @@ fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<
     }
 
     let previous = unsafe { SelectObject(dc, bitmap as _) };
-        icon_debug(format!("DrawIconEx failed or produced empty bitmap at size {}", size));
     let byte_len = (size as usize) * (size as usize) * 4;
     unsafe {
         slice::from_raw_parts_mut(bits as *mut u8, byte_len).fill(0);
@@ -731,7 +836,18 @@ fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<
         DeleteDC(dc);
     }
 
-    if drawn == 0 || bgra.is_empty() {
+    if drawn == 0 {
+        icon_debug(format!("DrawIconEx failed at size {}", size));
+        return Ok(None);
+    }
+
+    if bgra.is_empty() {
+        icon_debug(format!("DrawIconEx produced no bitmap data at size {}", size));
+        return Ok(None);
+    }
+
+    if !bitmap_has_visible_pixels(&bgra) {
+        icon_debug(format!("DrawIconEx produced a fully transparent bitmap at size {}", size));
         return Ok(None);
     }
 
@@ -741,6 +857,11 @@ fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<
     }
 
     rgba_to_png_data_url(&rgba, size as u32, size as u32)
+}
+
+fn bitmap_has_visible_pixels(bgra: &[u8]) -> bool {
+    bgra.chunks_exact(4)
+        .any(|pixel| pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0 || pixel[3] != 0)
 }
 
 fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<String>> {
@@ -779,7 +900,8 @@ fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<
 #[cfg(test)]
 mod tests {
     use super::{
-        compare_entries, is_valid_launch_target, normalize_path_key, parse_icon_location,
+        bitmap_has_visible_pixels, compare_entries, is_valid_launch_target,
+        normalize_path_key, parse_icon_location, resolve_launch_application_entry,
         StartMenuAppEntry,
     };
     use std::fs;
@@ -818,6 +940,21 @@ mod tests {
     }
 
     #[test]
+    fn resolves_existing_shortcut_even_without_valid_target() {
+        let path = unique_temp_path("demo.lnk");
+        fs::write(&path, b"not-a-real-shortcut").expect("create test shortcut placeholder");
+
+        let entry = resolve_launch_application_entry("", path.to_str(), Some("Demo Shortcut"), None)
+            .expect("resolve shortcut entry");
+
+        assert_eq!(entry.app_name, "Demo Shortcut");
+        assert!(entry.target_path.is_empty());
+        assert!(entry.source_path.ends_with("demo.lnk"));
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
     fn compare_prefers_deeper_source_path_when_names_match() {
         let shallow = StartMenuAppEntry {
             app_name: "App".to_string(),
@@ -847,5 +984,17 @@ mod tests {
         let parsed = parse_icon_location(r#"\\?\C:\Icons\app.ico"#).expect("icon location");
         assert!(parsed.path.ends_with(r#"C:\Icons\app.ico"#));
         assert_eq!(parsed.index, 0);
+    }
+
+    #[test]
+    fn detects_fully_transparent_bitmap_as_empty() {
+        let pixels = vec![0u8; 16];
+        assert!(!bitmap_has_visible_pixels(&pixels));
+    }
+
+    #[test]
+    fn detects_non_empty_bitmap_pixels() {
+        let pixels = vec![0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 255u8];
+        assert!(bitmap_has_visible_pixels(&pixels));
     }
 }
