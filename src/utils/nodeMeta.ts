@@ -23,6 +23,7 @@ export type SystemOperationKind =
   | 'theme'
   | 'powerPlan'
   | 'openSettings'
+  | 'runCommand'
 
 export type FileOperationKind = 'copy' | 'move' | 'delete' | 'readText' | 'writeText'
 
@@ -31,6 +32,10 @@ export type MouseOperationKind = 'click' | 'move' | 'drag' | 'wheel' | 'down' | 
 export type KeyboardOperationKind = 'key' | 'input' | 'down' | 'up' | 'shortcut'
 
 export type LaunchApplicationMode = 'auto' | 'direct' | 'shell'
+
+export type ClipboardReadMode = 'auto' | 'text' | 'image'
+export type ClipboardWriteContentType = 'text' | 'image'
+export type ClipboardImageSource = 'literal' | 'var' | 'file'
 
 export interface ParamField {
   key: string
@@ -68,6 +73,24 @@ export const SYSTEM_OPERATION_OPTIONS: Array<{ label: string; value: SystemOpera
   { label: '系统主题模式', value: 'theme' },
   { label: '电源计划', value: 'powerPlan' },
   { label: '打开系统设置页', value: 'openSettings' },
+  { label: '执行命令', value: 'runCommand' },
+]
+
+export const CLIPBOARD_READ_MODE_OPTIONS: Array<{ label: string; value: ClipboardReadMode }> = [
+  { label: '自动检测', value: 'auto' },
+  { label: '仅读文本', value: 'text' },
+  { label: '仅读图片', value: 'image' },
+]
+
+export const CLIPBOARD_WRITE_CONTENT_TYPE_OPTIONS: Array<{ label: string; value: ClipboardWriteContentType }> = [
+  { label: '文本', value: 'text' },
+  { label: '图片', value: 'image' },
+]
+
+export const CLIPBOARD_IMAGE_SOURCE_OPTIONS: Array<{ label: string; value: ClipboardImageSource }> = [
+  { label: '直接输入 base64 / Data URL', value: 'literal' },
+  { label: '从变量读取', value: 'var' },
+  { label: '从文件读取', value: 'file' },
 ]
 
 export const FILE_OPERATION_OPTIONS: Array<{ label: string; value: FileOperationKind }> = [
@@ -132,6 +155,7 @@ const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
   theme: ['mode'],
   powerPlan: ['plan'],
   openSettings: ['page'],
+  runCommand: ['command', 'shell'],
 }
 
 const FILE_OPERATION_FIELD_KEYS: Record<FileOperationKind, string[]> = {
@@ -225,6 +249,36 @@ export const getSystemOperationLabel = (
 ): string => {
   const operation = getSystemOperationKind(params, defaultOperation)
   return SYSTEM_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '系统操作'
+}
+
+export const getClipboardReadMode = (
+  params: Record<string, unknown>,
+  defaultMode: ClipboardReadMode = 'auto',
+): ClipboardReadMode => {
+  const mode = String(params.readMode ?? defaultMode)
+  return CLIPBOARD_READ_MODE_OPTIONS.some((item) => item.value === mode)
+    ? (mode as ClipboardReadMode)
+    : defaultMode
+}
+
+export const getClipboardWriteContentType = (
+  params: Record<string, unknown>,
+  defaultType: ClipboardWriteContentType = 'text',
+): ClipboardWriteContentType => {
+  const contentType = String(params.contentType ?? defaultType)
+  return CLIPBOARD_WRITE_CONTENT_TYPE_OPTIONS.some((item) => item.value === contentType)
+    ? (contentType as ClipboardWriteContentType)
+    : defaultType
+}
+
+export const getClipboardImageSource = (
+  params: Record<string, unknown>,
+  defaultSource: ClipboardImageSource = 'literal',
+): ClipboardImageSource => {
+  const imageSource = String(params.imageSource ?? defaultSource)
+  return CLIPBOARD_IMAGE_SOURCE_OPTIONS.some((item) => item.value === imageSource)
+    ? (imageSource as ClipboardImageSource)
+    : defaultSource
 }
 
 export const getFileOperationLabel = (
@@ -401,6 +455,41 @@ export const isNodeFieldVisible = (
     }
   }
 
+  if (kind === 'clipboardRead') {
+    if (field.key === 'readMode') return true
+    return ['outputVar', 'outputTextVar', 'outputImageVar'].includes(field.key)
+  }
+
+  if (kind === 'clipboardWrite') {
+    const contentType = getClipboardWriteContentType(
+      params,
+      getClipboardWriteContentType(defaultParams, 'text'),
+    )
+
+    if (field.key === 'contentType') return true
+
+    if (contentType === 'text') {
+      if (field.key === 'inputText' || field.key === 'inputVar') {
+        const inputMode = String(params.inputMode ?? defaultParams.inputMode ?? 'literal')
+        if (field.key === 'inputText') return inputMode === 'literal'
+        if (field.key === 'inputVar') return inputMode === 'var'
+      }
+
+      return ['inputMode', 'inputText', 'inputVar'].includes(field.key)
+    }
+
+    if (field.key === 'imageSource') return true
+    const imageSource = getClipboardImageSource(
+      params,
+      getClipboardImageSource(defaultParams, 'literal'),
+    )
+
+    if (imageSource === 'literal') return field.key === 'imageData'
+    if (imageSource === 'var') return field.key === 'imageVar'
+    if (imageSource === 'file') return field.key === 'imagePath'
+    return false
+  }
+
   if (kind === 'varMath' && field.key === 'operand') {
     const unaryOperations = new Set([
       'neg',
@@ -485,10 +574,7 @@ export const isNodeFieldVisible = (
     return false
   }
 
-  if (
-    (kind === 'clipboardWrite' || kind === 'showMessage') &&
-    (field.key === 'inputText' || field.key === 'inputVar')
-  ) {
+  if (kind === 'showMessage' && (field.key === 'inputText' || field.key === 'inputVar')) {
     const inputMode = String(params.inputMode ?? defaultParams.inputMode ?? 'literal')
     if (field.key === 'inputText') return inputMode === 'literal'
     if (field.key === 'inputVar') return inputMode === 'var'
@@ -528,6 +614,24 @@ const resolveSystemOperationField = (
     return {
       ...field,
       label: operation === 'brightnessSet' ? '亮度(%)' : '音量(%)',
+    }
+  }
+
+  if (operation === 'runCommand') {
+    if (field.key === 'command') {
+      return {
+        ...field,
+        label: '命令',
+        placeholder: 'echo Hello CommandFlow',
+        description: '开启 Shell 时使用系统 shell 执行；关闭时按可执行程序 + 参数拆分执行。',
+      }
+    }
+
+    if (field.key === 'shell') {
+      return {
+        ...field,
+        label: '通过 Shell 执行',
+      }
     }
   }
 
@@ -1088,15 +1192,6 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       { key: 'createParentDir', label: '自动创建父目录', type: 'boolean' },
     ],
   },
-  runCommand: {
-    label: '执行命令',
-    description: '在系统 shell 中执行命令。',
-    defaultParams: { command: 'echo CommandFlow', shell: true },
-    fields: [
-      { key: 'command', label: '命令', type: 'string', placeholder: 'echo Hello' },
-      { key: 'shell', label: '通过 Shell 执行', type: 'boolean' },
-    ],
-  },
   pythonCode: {
     label: '执行 Python',
     description: '使用系统 Python 执行代码。',
@@ -1113,27 +1208,64 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
   },
   clipboardRead: {
     label: '读取剪贴板',
-    description: '读取系统剪贴板文本并输出到变量。',
-    defaultParams: { outputVar: 'clipboardText' },
+    description: '读取系统剪贴板内容，支持文本与图片（PNG Data URL）。',
+    defaultParams: {
+      readMode: 'auto',
+      outputVar: 'clipboardContent',
+      outputTextVar: 'clipboardText',
+      outputImageVar: 'clipboardImage',
+    },
     fields: [
       {
+        key: 'readMode',
+        label: '读取模式',
+        type: 'select',
+        options: CLIPBOARD_READ_MODE_OPTIONS,
+        description: '自动模式会尽量同时读取文本和图片，并输出结构化内容。',
+      },
+      {
         key: 'outputVar',
-        label: '输出变量名',
+        label: '结构化输出变量',
+        type: 'string',
+        placeholder: 'clipboardContent',
+        description: '输出 JSON 对象：包含 contentType / text / image / imageWidth / imageHeight。',
+      },
+      {
+        key: 'outputTextVar',
+        label: '文本输出变量',
         type: 'string',
         placeholder: 'clipboardText',
-        description: '读取到的文本将写入该变量；留空则仅记录日志。',
+        description: '若剪贴板含文本，则写入该变量。',
+      },
+      {
+        key: 'outputImageVar',
+        label: '图片输出变量',
+        type: 'string',
+        placeholder: 'clipboardImage',
+        description: '若剪贴板含图片，则写入 PNG Data URL。',
       },
     ],
   },
   clipboardWrite: {
     label: '写入剪贴板',
-    description: '将文本写入系统剪贴板。',
+    description: '向系统剪贴板写入文本或图片。图片支持 base64 / Data URL / 文件路径 / 变量。',
     defaultParams: {
+      contentType: 'text',
       inputMode: 'literal',
       inputText: 'Hello from CommandFlow',
       inputVar: 'clipboardText',
+      imageSource: 'literal',
+      imageData: '',
+      imageVar: 'clipboardImage',
+      imagePath: '',
     },
     fields: [
+      {
+        key: 'contentType',
+        label: '内容类型',
+        type: 'select',
+        options: CLIPBOARD_WRITE_CONTENT_TYPE_OPTIONS,
+      },
       {
         key: 'inputMode',
         label: '输入来源',
@@ -1154,6 +1286,32 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
         label: '变量名',
         type: 'string',
         placeholder: 'clipboardText',
+      },
+      {
+        key: 'imageSource',
+        label: '图片来源',
+        type: 'select',
+        options: CLIPBOARD_IMAGE_SOURCE_OPTIONS,
+      },
+      {
+        key: 'imageData',
+        label: '图片数据',
+        type: 'text',
+        placeholder: '支持 data:image/png;base64,... 或纯 base64',
+        description: '建议使用 PNG Data URL 或纯 base64。',
+      },
+      {
+        key: 'imageVar',
+        label: '图片变量名',
+        type: 'string',
+        placeholder: 'clipboardImage',
+        description: '变量值可为 Data URL、纯 base64，或图片文件路径。',
+      },
+      {
+        key: 'imagePath',
+        label: '图片文件路径',
+        type: 'string',
+        placeholder: 'D:\\images\\clipboard.png',
       },
     ],
   },
@@ -1205,7 +1363,7 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
   },
   systemOperation: {
     label: '系统操作',
-    description: '统一的系统操作节点；先选择操作类型，再按需填写对应参数。',
+    description: '统一的系统操作节点；先选择操作类型，再按需填写对应参数。包含电源、音量、网络、设置页以及执行命令。',
     defaultParams: {
       operation: 'shutdown',
       timeoutSec: 0,
@@ -1217,6 +1375,8 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       adapterName: '',
       plan: 'balanced',
       page: 'sound',
+      command: 'echo CommandFlow',
+      shell: true,
     },
     fields: [
       {
@@ -1276,6 +1436,8 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
           { label: '系统首页', value: 'system' },
         ],
       },
+      { key: 'command', label: '命令', type: 'string', placeholder: 'echo CommandFlow' },
+      { key: 'shell', label: '通过 Shell 执行', type: 'boolean' },
     ],
   },
   condition: {

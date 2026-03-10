@@ -44,6 +44,9 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if (kind === 'screenshot' && fieldKey === 'saveDir') {
     return true
   }
+  if (kind === 'clipboardWrite' && fieldKey === 'imagePath') {
+    return true
+  }
 
   return false
 }
@@ -55,7 +58,7 @@ const isTextFilePathField = (kind: NodeKind, fieldKey: string, params: Record<st
   kind === 'fileOperation' && fieldKey === 'path' && (params.operation === 'readText' || params.operation === 'writeText')
 
 const isStrictFilePathField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
-  isImageMatchImageField(kind, fieldKey) || isTextFilePathField(kind, fieldKey, params)
+  isImageMatchImageField(kind, fieldKey) || isTextFilePathField(kind, fieldKey, params) || (kind === 'clipboardWrite' && fieldKey === 'imagePath')
 
 const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
@@ -70,10 +73,12 @@ const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath' || kind === 'varGet') && fieldKey === 'name'
 
 const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'clipboardWrite' || kind === 'fileOperation' || kind === 'showMessage') && fieldKey === 'inputVar'
+  ((kind === 'clipboardWrite' || kind === 'fileOperation' || kind === 'showMessage') && fieldKey === 'inputVar') ||
+  (kind === 'clipboardWrite' && fieldKey === 'imageVar')
 
 const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'clipboardRead' || kind === 'fileOperation') && fieldKey === 'outputVar'
+  ((kind === 'clipboardRead' || kind === 'fileOperation') && fieldKey === 'outputVar') ||
+  (kind === 'clipboardRead' && (fieldKey === 'outputTextVar' || fieldKey === 'outputImageVar'))
 
 const isWindowLookupNode = (kind: NodeKind, params: Record<string, unknown> = {}) =>
   kind === 'windowActivate' || (kind === 'trigger' && getTriggerMode(params) === 'window')

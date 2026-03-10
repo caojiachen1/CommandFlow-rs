@@ -237,7 +237,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       windowActivate: ClickNode,
       launchApplication: ClickNode,
       fileOperation: ClickNode,
-      runCommand: ClickNode,
       pythonCode: ClickNode,
       clipboardRead: ClickNode,
       clipboardWrite: ClickNode,

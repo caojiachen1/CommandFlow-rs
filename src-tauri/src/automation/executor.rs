@@ -1,6 +1,7 @@
 use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, start_menu, system_settings, window};
-use arboard::Clipboard;
+use arboard::{Clipboard, ImageData};
 use base64::Engine as _;
+use base64::engine::general_purpose;
 use regex::Regex;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
@@ -8,8 +9,9 @@ use crate::error::{CommandFlowError, CommandResult};
 use crate::workflow::graph::WorkflowGraph;
 use crate::workflow::node::{NodeKind, WorkflowNode};
 use image::{ImageBuffer, Rgba, RgbaImage};
-use serde_json::{Number, Value};
+use serde_json::{Map, Number, Value};
 use std::backtrace::Backtrace;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::ErrorKind;
@@ -42,6 +44,24 @@ struct ExecutionContext {
 enum NextDirective {
     Default,
     Branch(&'static str),
+}
+
+struct CommandExecutionResult {
+    stdout: String,
+    stderr: String,
+    exit_code: i32,
+}
+
+struct ClipboardImageContent {
+    data_url: String,
+    width: u32,
+    height: u32,
+}
+
+struct ClipboardWriteImage {
+    rgba: Vec<u8>,
+    width: usize,
+    height: usize,
 }
 
 impl WorkflowExecutor {
@@ -554,19 +574,7 @@ impl WorkflowExecutor {
             NodeKind::FileCopy => execute_file_operation(node, ctx, Some("copy"), on_log),
             NodeKind::FileMove => execute_file_operation(node, ctx, Some("move"), on_log),
             NodeKind::FileDelete => execute_file_operation(node, ctx, Some("delete"), on_log),
-            NodeKind::RunCommand => {
-                let command = get_string(node, "command", "");
-                if command.trim().is_empty() {
-                    return Err(CommandFlowError::Validation(format!(
-                        "node '{}' command is empty",
-                        node.id
-                    )));
-                }
-                let use_shell = get_bool(node, "shell", true);
-                run_system_command(&command, use_shell).await?;
-                set_node_output(ctx, node, "command", Value::String(command));
-                Ok(NextDirective::Default)
-            }
+            NodeKind::RunCommand => execute_system_operation(node, ctx, Some("runCommand")).await,
             NodeKind::PythonCode => {
                 run_python_code(node, on_log).await?;
                 Ok(NextDirective::Default)
@@ -574,51 +582,172 @@ impl WorkflowExecutor {
             NodeKind::ClipboardRead => {
                 let mut clipboard = Clipboard::new()
                     .map_err(|error| CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error)))?;
-                let text = clipboard
-                    .get_text()
-                    .map_err(|error| CommandFlowError::Automation(format!("读取系统剪贴板失败：{}", error)))?;
-                set_node_output(ctx, node, "text", Value::String(text.clone()));
+                let read_mode_raw = get_string(node, "readMode", "auto");
+                let read_mode = normalize_system_operation_name(&read_mode_raw);
 
-                let output_var = get_string(node, "outputVar", "clipboardText").trim().to_string();
-                if !output_var.is_empty() {
-                    ctx.variables.insert(output_var.clone(), Value::String(text.clone()));
-                    on_log(
-                        "info",
-                        format!(
-                            "剪贴板读取节点 '{}' 已输出 {} 字符到变量 '{}'。",
-                            node.label,
-                            text.chars().count(),
-                            output_var
-                        ),
-                    );
-                } else {
-                    on_log(
-                        "info",
-                        format!(
-                            "剪贴板读取节点 '{}' 读取到 {} 字符（未配置输出变量）。",
-                            node.label,
-                            text.chars().count()
-                        ),
-                    );
+                let text = match read_mode.as_str() {
+                    "text" => Some(read_clipboard_text_required(&mut clipboard)?),
+                    "image" => None,
+                    _ => read_clipboard_text(&mut clipboard, false)?,
+                };
+                let image = match read_mode.as_str() {
+                    "image" => Some(read_clipboard_image_required(&mut clipboard)?),
+                    "text" => None,
+                    _ => read_clipboard_image(&mut clipboard, false)?,
+                };
+
+                let has_text = text.is_some();
+                let has_image = image.is_some();
+
+                if !has_text && !has_image {
+                    return Err(CommandFlowError::Automation(format!(
+                        "剪贴板读取节点 '{}' 未读取到可用内容（模式：{}）",
+                        node.label, read_mode_raw
+                    )));
                 }
+
+                let content_type = match (has_text, has_image) {
+                    (true, true) => "mixed",
+                    (true, false) => "text",
+                    (false, true) => "image",
+                    (false, false) => "",
+                };
+
+                let text_value = text.clone().unwrap_or_default();
+                let image_value = image
+                    .as_ref()
+                    .map(|content| content.data_url.clone())
+                    .unwrap_or_default();
+                let image_width = image.as_ref().map(|content| content.width).unwrap_or(0);
+                let image_height = image.as_ref().map(|content| content.height).unwrap_or(0);
+
+                set_node_output(ctx, node, "contentType", Value::String(content_type.to_string()));
+                set_node_output(ctx, node, "text", Value::String(text_value.clone()));
+                set_node_output(ctx, node, "image", Value::String(image_value.clone()));
+                set_node_output(ctx, node, "imageWidth", value_from_u64(image_width as u64));
+                set_node_output(ctx, node, "imageHeight", value_from_u64(image_height as u64));
+
+                let mut structured = Map::new();
+                structured.insert("contentType".to_string(), Value::String(content_type.to_string()));
+                structured.insert(
+                    "text".to_string(),
+                    text.clone().map(Value::String).unwrap_or(Value::Null),
+                );
+                structured.insert(
+                    "image".to_string(),
+                    image
+                        .as_ref()
+                        .map(|content| Value::String(content.data_url.clone()))
+                        .unwrap_or(Value::Null),
+                );
+                structured.insert(
+                    "imageWidth".to_string(),
+                    if has_image {
+                        value_from_u64(image_width as u64)
+                    } else {
+                        Value::Null
+                    },
+                );
+                structured.insert(
+                    "imageHeight".to_string(),
+                    if has_image {
+                        value_from_u64(image_height as u64)
+                    } else {
+                        Value::Null
+                    },
+                );
+                let structured_value = Value::Object(structured);
+                set_node_output(ctx, node, "content", structured_value.clone());
+
+                let output_var = get_string(node, "outputVar", "clipboardContent").trim().to_string();
+                if !output_var.is_empty() {
+                    ctx.variables.insert(output_var, structured_value);
+                }
+
+                if let Some(text) = text {
+                    let output_text_var = get_string(node, "outputTextVar", "clipboardText").trim().to_string();
+                    if !output_text_var.is_empty() {
+                        ctx.variables.insert(output_text_var, Value::String(text));
+                    }
+                }
+
+                if let Some(image) = image {
+                    let output_image_var = get_string(node, "outputImageVar", "clipboardImage").trim().to_string();
+                    if !output_image_var.is_empty() {
+                        ctx.variables
+                            .insert(output_image_var, Value::String(image.data_url));
+                    }
+                }
+
+                on_log(
+                    "info",
+                    format!(
+                        "剪贴板读取节点 '{}' 完成：contentType={}{}{}。",
+                        node.label,
+                        content_type,
+                        if has_text {
+                            format!("，文本 {} 字符", text_value.chars().count())
+                        } else {
+                            String::new()
+                        },
+                        if has_image {
+                            format!("，图片 {}x{}", image_width, image_height)
+                        } else {
+                            String::new()
+                        }
+                    ),
+                );
 
                 Ok(NextDirective::Default)
             }
             NodeKind::ClipboardWrite => {
-                let text = resolve_text_input(node, &ctx.variables);
                 let mut clipboard = Clipboard::new()
                     .map_err(|error| CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error)))?;
-                clipboard
-                    .set_text(text.clone())
-                    .map_err(|error| CommandFlowError::Automation(format!("写入系统剪贴板失败：{}", error)))?;
-                on_log(
-                    "info",
-                    format!(
-                        "剪贴板写入节点 '{}' 已写入 {} 字符。",
-                        node.label,
-                        text.chars().count()
-                    ),
-                );
+                let content_type_raw = get_string(node, "contentType", "text");
+                let content_type = normalize_system_operation_name(&content_type_raw);
+
+                match content_type.as_str() {
+                    "text" => {
+                        let text = resolve_text_input(node, &ctx.variables);
+                        clipboard
+                            .set_text(text.clone())
+                            .map_err(|error| CommandFlowError::Automation(format!("写入系统剪贴板文本失败：{}", error)))?;
+                        on_log(
+                            "info",
+                            format!(
+                                "剪贴板写入节点 '{}' 已写入 {} 字符文本。",
+                                node.label,
+                                text.chars().count()
+                            ),
+                        );
+                    }
+                    "image" => {
+                        let image = resolve_clipboard_write_image(node, &ctx.variables)?;
+                        clipboard
+                            .set_image(ImageData {
+                                width: image.width,
+                                height: image.height,
+                                bytes: Cow::Owned(image.rgba),
+                            })
+                            .map_err(|error| CommandFlowError::Automation(format!("写入系统剪贴板图片失败：{}", error)))?;
+                        on_log(
+                            "info",
+                            format!(
+                                "剪贴板写入节点 '{}' 已写入图片 {}x{}。",
+                                node.label,
+                                image.width,
+                                image.height
+                            ),
+                        );
+                    }
+                    _ => {
+                        return Err(CommandFlowError::Validation(format!(
+                            "node '{}' has unsupported clipboard content type '{}'",
+                            node.id, content_type_raw
+                        )));
+                    }
+                }
+
                 Ok(NextDirective::Default)
             }
             NodeKind::FileReadText => execute_file_operation(node, ctx, Some("readText"), on_log),
@@ -2109,6 +2238,23 @@ async fn execute_system_operation(
             system_settings::open_settings_page(&page).await?;
             set_node_output(ctx, node, "page", Value::String(page));
         }
+        "runcommand" => {
+            let command = get_string(node, "command", "");
+            if command.trim().is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' command is empty",
+                    node.id
+                )));
+            }
+
+            let use_shell = get_bool(node, "shell", true);
+            let result = run_system_command(&command, use_shell).await?;
+            set_node_output(ctx, node, "action", Value::String("runCommand".to_string()));
+            set_node_output(ctx, node, "command", Value::String(command));
+            set_node_output(ctx, node, "stdout", Value::String(result.stdout));
+            set_node_output(ctx, node, "stderr", Value::String(result.stderr));
+            set_node_output(ctx, node, "exitCode", value_from_i32(result.exit_code));
+        }
         _ => {
             return Err(CommandFlowError::Validation(format!(
                 "node '{}' has unsupported system operation '{}'",
@@ -2262,13 +2408,17 @@ async fn execute_keyboard_operation(
     Ok(NextDirective::Default)
 }
 
-async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<()> {
+async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<CommandExecutionResult> {
     let output = if use_shell {
         #[cfg(target_os = "windows")]
         {
             if should_spawn_terminal_window(command) {
                 spawn_windows_terminal(command).await?;
-                return Ok(());
+                return Ok(CommandExecutionResult {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                });
             }
 
             Command::new("cmd")
@@ -2300,13 +2450,191 @@ async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<()>
             .map_err(|error| CommandFlowError::Automation(error.to_string()))?
     };
 
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let exit_code = output.status.code().unwrap_or(-1);
+
     if output.status.success() {
-        Ok(())
+        Ok(CommandExecutionResult {
+            stdout,
+            stderr,
+            exit_code,
+        })
     } else {
-        Err(CommandFlowError::Automation(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ))
+        Err(CommandFlowError::Automation(if stderr.is_empty() {
+            format!("命令执行失败，退出码 {}", exit_code)
+        } else {
+            format!("命令执行失败，退出码 {}：{}", exit_code, stderr)
+        }))
     }
+}
+
+fn read_clipboard_text(clipboard: &mut Clipboard, required: bool) -> CommandResult<Option<String>> {
+    match clipboard.get_text() {
+        Ok(text) => Ok(Some(text)),
+        Err(_error) if !required => Ok(None),
+        Err(error) => Err(CommandFlowError::Automation(format!("读取系统剪贴板文本失败：{}", error))),
+    }
+}
+
+fn read_clipboard_text_required(clipboard: &mut Clipboard) -> CommandResult<String> {
+    read_clipboard_text(clipboard, true)?.ok_or_else(|| {
+        CommandFlowError::Automation("系统剪贴板当前不包含文本内容".to_string())
+    })
+}
+
+fn read_clipboard_image(
+    clipboard: &mut Clipboard,
+    required: bool,
+) -> CommandResult<Option<ClipboardImageContent>> {
+    match clipboard.get_image() {
+        Ok(image) => {
+            let width = u32::try_from(image.width).map_err(|_| {
+                CommandFlowError::Automation("剪贴板图片宽度超出支持范围".to_string())
+            })?;
+            let height = u32::try_from(image.height).map_err(|_| {
+                CommandFlowError::Automation("剪贴板图片高度超出支持范围".to_string())
+            })?;
+            let data_url = rgba_to_png_data_url(image.bytes.as_ref(), width, height)?;
+            Ok(Some(ClipboardImageContent {
+                data_url,
+                width,
+                height,
+            }))
+        }
+        Err(_error) if !required => Ok(None),
+        Err(error) => Err(CommandFlowError::Automation(format!("读取系统剪贴板图片失败：{}", error))),
+    }
+}
+
+fn read_clipboard_image_required(clipboard: &mut Clipboard) -> CommandResult<ClipboardImageContent> {
+    read_clipboard_image(clipboard, true)?.ok_or_else(|| {
+        CommandFlowError::Automation("系统剪贴板当前不包含图片内容".to_string())
+    })
+}
+
+fn rgba_to_png_data_url(rgba: &[u8], width: u32, height: u32) -> CommandResult<String> {
+    let encoded = screenshot::encode_rgba_to_png_base64(rgba, width, height)?;
+    Ok(format!("data:image/png;base64,{}", encoded))
+}
+
+fn resolve_clipboard_write_image(
+    node: &WorkflowNode,
+    variables: &HashMap<String, Value>,
+) -> CommandResult<ClipboardWriteImage> {
+    let image_source_raw = get_string(node, "imageSource", "literal");
+    let image_source = normalize_system_operation_name(&image_source_raw);
+
+    match image_source.as_str() {
+        "literal" => {
+            let raw = resolve_text_template(&get_string(node, "imageData", ""), variables);
+            load_clipboard_image_from_string(&raw, false)
+        }
+        "var" => {
+            let var_name = get_string(node, "imageVar", "").trim().to_string();
+            if var_name.is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' clipboard image variable is empty",
+                    node.id
+                )));
+            }
+
+            let value = variables.get(&var_name).ok_or_else(|| {
+                CommandFlowError::Automation(format!("变量 '{}' 不存在，无法写入剪贴板图片", var_name))
+            })?;
+            load_clipboard_image_from_value(value)
+        }
+        "file" => {
+            let path = resolve_text_template(&get_string(node, "imagePath", ""), variables);
+            load_clipboard_image_from_file(&path)
+        }
+        _ => Err(CommandFlowError::Validation(format!(
+            "node '{}' has unsupported clipboard image source '{}'",
+            node.id, image_source_raw
+        ))),
+    }
+}
+
+fn load_clipboard_image_from_value(value: &Value) -> CommandResult<ClipboardWriteImage> {
+    match value {
+        Value::String(text) => load_clipboard_image_from_string(text, true),
+        Value::Object(object) => {
+            if let Some(image) = object.get("image") {
+                return load_clipboard_image_from_value(image);
+            }
+            if let Some(path) = object.get("path").and_then(|item| item.as_str()) {
+                if Path::new(path).exists() {
+                    return load_clipboard_image_from_file(path);
+                }
+            }
+
+            Err(CommandFlowError::Automation(
+                "变量中的 JSON 对象不包含可识别的图片数据(image/path)".to_string(),
+            ))
+        }
+        _ => Err(CommandFlowError::Automation(
+            "图片变量内容不是字符串或结构化图片对象".to_string(),
+        )),
+    }
+}
+
+fn load_clipboard_image_from_string(
+    raw: &str,
+    allow_path_fallback: bool,
+) -> CommandResult<ClipboardWriteImage> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(CommandFlowError::Validation("剪贴板图片数据不能为空".to_string()));
+    }
+
+    if allow_path_fallback && Path::new(trimmed).exists() {
+        return load_clipboard_image_from_file(trimmed);
+    }
+
+    let bytes = decode_base64_image_payload(trimmed)?;
+    load_clipboard_image_from_memory(&bytes)
+}
+
+fn load_clipboard_image_from_file(path: &str) -> CommandResult<ClipboardWriteImage> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(CommandFlowError::Validation("剪贴板图片文件路径不能为空".to_string()));
+    }
+
+    let image = image::open(trimmed).map_err(|error| {
+        CommandFlowError::Automation(format!("读取剪贴板图片文件失败 '{}': {}", trimmed, error))
+    })?;
+    Ok(dynamic_image_to_clipboard_write_image(image))
+}
+
+fn load_clipboard_image_from_memory(bytes: &[u8]) -> CommandResult<ClipboardWriteImage> {
+    let image = image::load_from_memory(bytes)
+        .map_err(|error| CommandFlowError::Automation(format!("解析剪贴板图片数据失败：{}", error)))?;
+    Ok(dynamic_image_to_clipboard_write_image(image))
+}
+
+fn dynamic_image_to_clipboard_write_image(image: image::DynamicImage) -> ClipboardWriteImage {
+    let rgba = image.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    ClipboardWriteImage {
+        rgba: rgba.into_raw(),
+        width: width as usize,
+        height: height as usize,
+    }
+}
+
+fn decode_base64_image_payload(raw: &str) -> CommandResult<Vec<u8>> {
+    let payload = if raw.starts_with("data:") {
+        raw.split_once(',')
+            .map(|(_, data)| data)
+            .ok_or_else(|| CommandFlowError::Validation("图片 Data URL 缺少 base64 数据段".to_string()))?
+    } else {
+        raw
+    };
+
+    general_purpose::STANDARD
+        .decode(payload.trim())
+        .map_err(|error| CommandFlowError::Automation(format!("解析图片 base64 失败：{}", error)))
 }
 
 #[cfg(target_os = "windows")]

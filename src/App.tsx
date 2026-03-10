@@ -72,7 +72,6 @@ const workflowNodeKinds = [
   'windowActivate',
   'launchApplication',
   'fileOperation',
-  'runCommand',
   'pythonCode',
   'clipboardRead',
   'clipboardWrite',

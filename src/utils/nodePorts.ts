@@ -6,6 +6,7 @@ import {
   getMouseOperationKind,
   getNodeFields,
   getNodeMeta,
+  getSystemOperationKind,
   getTriggerMode,
 } from './nodeMeta'
 
@@ -157,6 +158,21 @@ const getLaunchApplicationDynamicOutputs = (params: Record<string, unknown> = {}
     : [{ id: 'pid', label: 'pid', maxConnections: MANY, valueType: 'number' }]
 }
 
+const getSystemOperationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
+  const operation = getSystemOperationKind(params)
+
+  if (operation !== 'runCommand') {
+    return []
+  }
+
+  return [
+    { id: 'command', label: 'command', maxConnections: MANY, valueType: 'string' },
+    { id: 'stdout', label: 'stdout', maxConnections: MANY, valueType: 'string' },
+    { id: 'stderr', label: 'stderr', maxConnections: MANY, valueType: 'string' },
+    { id: 'exitCode', label: 'exitCode', maxConnections: MANY, valueType: 'number' },
+  ]
+}
+
 const getTriggerDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
   const triggerMode = getTriggerMode(params)
 
@@ -260,17 +276,21 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
-  runCommand: {
-    inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'command', label: 'command', maxConnections: MANY, valueType: 'string' }],
-  },
   pythonCode: {
     inputs: singleIn(),
     outputs: singleOut(),
   },
   clipboardRead: {
     inputs: singleIn(),
-    outputs: [...singleOut(), { id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' }],
+    outputs: [
+      ...singleOut(),
+      { id: 'contentType', label: 'contentType', maxConnections: MANY, valueType: 'string' },
+      { id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' },
+      { id: 'image', label: 'image', maxConnections: MANY, valueType: 'string' },
+      { id: 'imageWidth', label: 'imageWidth', maxConnections: MANY, valueType: 'number' },
+      { id: 'imageHeight', label: 'imageHeight', maxConnections: MANY, valueType: 'number' },
+      { id: 'content', label: 'content', maxConnections: MANY, valueType: 'json' },
+    ],
   },
   clipboardWrite: {
     inputs: singleIn(),
@@ -364,6 +384,8 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
             ? getFileOperationDynamicOutputs(params)
             : kind === 'launchApplication'
               ? getLaunchApplicationDynamicOutputs(params)
+              : kind === 'systemOperation'
+                ? getSystemOperationDynamicOutputs(params)
           : []
 
   const merged: NodePortSpec = {

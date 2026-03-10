@@ -8,7 +8,6 @@ export type ActionNodeKind =
   | 'windowActivate'
   | 'launchApplication'
   | 'fileOperation'
-  | 'runCommand'
   | 'pythonCode'
   | 'clipboardRead'
   | 'clipboardWrite'

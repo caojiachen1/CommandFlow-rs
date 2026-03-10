@@ -118,6 +118,7 @@ const initialNodes: WorkflowNode[] = [
 const makeInitialNodes = (): WorkflowNode[] => structuredClone(initialNodes)
 
 const legacySystemKindToOperation = {
+  runCommand: 'runCommand',
   powerShutdown: 'shutdown',
   powerRestart: 'restart',
   powerSleep: 'sleep',
