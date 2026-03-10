@@ -1789,6 +1789,7 @@ fn execute_launch_application(
     ctx: &mut ExecutionContext,
     on_log: &mut impl FnMut(&str, String),
 ) -> CommandResult<NextDirective> {
+    let launch_mode = start_menu::ApplicationLaunchMode::from_param(&get_string(node, "launchMode", "auto"));
     let selected_app = get_string(node, "selectedApp", "");
     let app_name = get_string(node, "appName", "");
     let target_path = get_string(node, "targetPath", "");
@@ -1809,7 +1810,7 @@ fn execute_launch_application(
         Some(&icon_path),
     )?;
 
-    let pid = start_menu::launch_application(&entry)?;
+    let pid = start_menu::launch_application(&entry, launch_mode)?;
 
     set_node_output(ctx, node, "appName", Value::String(entry.app_name.clone()));
     set_node_output(ctx, node, "targetPath", Value::String(entry.target_path.clone()));

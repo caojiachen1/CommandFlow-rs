@@ -49,6 +49,23 @@ struct IconLocation {
     index: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplicationLaunchMode {
+    Auto,
+    Direct,
+    Shell,
+}
+
+impl ApplicationLaunchMode {
+    pub fn from_param(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "direct" => Self::Direct,
+            "shell" | "shellapi" | "shell_api" => Self::Shell,
+            _ => Self::Auto,
+        }
+    }
+}
+
 pub fn scan_start_menu_apps() -> CommandResult<Vec<StartMenuAppEntry>> {
     if !cfg!(target_os = "windows") {
         return Ok(Vec::new());
@@ -162,11 +179,20 @@ pub fn resolve_launch_application_entry(
     ))
 }
 
-pub fn launch_application(entry: &StartMenuAppEntry) -> CommandResult<Option<u32>> {
+pub fn launch_application(
+    entry: &StartMenuAppEntry,
+    mode: ApplicationLaunchMode,
+) -> CommandResult<Option<u32>> {
     #[cfg(target_os = "windows")]
     {
+        if mode == ApplicationLaunchMode::Shell {
+            let shell_path = resolve_shell_launch_path(entry)?;
+            open_path_via_shell_execute(&shell_path)?;
+            return Ok(None);
+        }
+
         let source_path = PathBuf::from(&entry.source_path);
-        if source_path.is_file() && is_shortcut_file(&source_path) {
+        if mode == ApplicationLaunchMode::Auto && should_launch_shortcut_via_shell(entry, &source_path) {
             open_path_via_shell_execute(&source_path)?;
             return Ok(None);
         }
@@ -174,9 +200,16 @@ pub fn launch_application(entry: &StartMenuAppEntry) -> CommandResult<Option<u32
 
     let target_path = PathBuf::from(&entry.target_path);
     if !is_valid_launch_target(&target_path) {
+        let reason = if mode == ApplicationLaunchMode::Direct {
+            "当前启动方式为直接启动，请改为自动或 Shell API 启动。"
+        } else {
+            ""
+        };
         return Err(CommandFlowError::Validation(format!(
-            "应用目标不可执行或不存在：{}",
-            entry.target_path
+            "应用目标不可执行或不存在：{}{}{}",
+            entry.target_path,
+            if reason.is_empty() { "" } else { "；" },
+            reason
         )));
     }
 
@@ -202,6 +235,34 @@ pub fn launch_application(entry: &StartMenuAppEntry) -> CommandResult<Option<u32
     })?;
 
     Ok(Some(child.id()))
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_shell_launch_path(entry: &StartMenuAppEntry) -> CommandResult<PathBuf> {
+    let source_path = PathBuf::from(&entry.source_path);
+    if source_path.is_file() {
+        return Ok(source_path);
+    }
+
+    let target_path = PathBuf::from(&entry.target_path);
+    if target_path.is_file() {
+        return Ok(target_path);
+    }
+
+    Err(CommandFlowError::Validation(format!(
+        "未找到可通过 Shell API 启动的应用路径：{}",
+        entry.app_name
+    )))
+}
+
+#[cfg(target_os = "windows")]
+fn should_launch_shortcut_via_shell(entry: &StartMenuAppEntry, source_path: &Path) -> bool {
+    if !(source_path.is_file() && is_shortcut_file(source_path)) {
+        return false;
+    }
+
+    let target_path = PathBuf::from(&entry.target_path);
+    !is_valid_launch_target(&target_path)
 }
 
 pub fn resolve_app_icon_data_url(
@@ -902,7 +963,7 @@ mod tests {
     use super::{
         bitmap_has_visible_pixels, compare_entries, is_valid_launch_target,
         normalize_path_key, parse_icon_location, resolve_launch_application_entry,
-        StartMenuAppEntry,
+        ApplicationLaunchMode, StartMenuAppEntry,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -954,6 +1015,45 @@ mod tests {
         let _ = fs::remove_file(&path);
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shortcut_with_direct_executable_target_prefers_direct_launch_path() {
+        let shortcut = unique_temp_path("direct-demo.lnk");
+        let executable = unique_temp_path("direct-demo.exe");
+        fs::write(&shortcut, b"shortcut-placeholder").expect("create test shortcut placeholder");
+        fs::write(&executable, b"MZ").expect("create test executable placeholder");
+
+        let entry = StartMenuAppEntry {
+            app_name: "Direct Demo".to_string(),
+            target_path: executable.to_string_lossy().into_owned(),
+            icon_path: String::new(),
+            source_path: shortcut.to_string_lossy().into_owned(),
+        };
+
+        assert!(!super::should_launch_shortcut_via_shell(&entry, &shortcut));
+
+        let _ = fs::remove_file(&shortcut);
+        let _ = fs::remove_file(&executable);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shortcut_without_direct_executable_target_uses_shell_fallback() {
+        let shortcut = unique_temp_path("shell-demo.lnk");
+        fs::write(&shortcut, b"shortcut-placeholder").expect("create test shortcut placeholder");
+
+        let entry = StartMenuAppEntry {
+            app_name: "Shell Demo".to_string(),
+            target_path: String::new(),
+            icon_path: String::new(),
+            source_path: shortcut.to_string_lossy().into_owned(),
+        };
+
+        assert!(super::should_launch_shortcut_via_shell(&entry, &shortcut));
+
+        let _ = fs::remove_file(&shortcut);
+    }
+
     #[test]
     fn compare_prefers_deeper_source_path_when_names_match() {
         let shallow = StartMenuAppEntry {
@@ -996,5 +1096,14 @@ mod tests {
     fn detects_non_empty_bitmap_pixels() {
         let pixels = vec![0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 255u8];
         assert!(bitmap_has_visible_pixels(&pixels));
+    }
+
+    #[test]
+    fn parses_launch_mode_from_params() {
+        assert_eq!(ApplicationLaunchMode::from_param("auto"), ApplicationLaunchMode::Auto);
+        assert_eq!(ApplicationLaunchMode::from_param("direct"), ApplicationLaunchMode::Direct);
+        assert_eq!(ApplicationLaunchMode::from_param("shell"), ApplicationLaunchMode::Shell);
+        assert_eq!(ApplicationLaunchMode::from_param("shell_api"), ApplicationLaunchMode::Shell);
+        assert_eq!(ApplicationLaunchMode::from_param("unknown"), ApplicationLaunchMode::Auto);
     }
 }

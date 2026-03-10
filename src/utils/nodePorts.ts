@@ -2,6 +2,7 @@ import type { NodeKind } from '../types/workflow'
 import {
   getFileOperationKind,
   getKeyboardOperationKind,
+  getLaunchApplicationMode,
   getMouseOperationKind,
   getNodeFields,
   getNodeMeta,
@@ -147,6 +148,14 @@ const getFileOperationDynamicOutputs = (params: Record<string, unknown> = {}): N
   return [{ id: 'targetPath', label: 'targetPath', maxConnections: MANY, valueType: 'string' }]
 }
 
+const getLaunchApplicationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
+  const launchMode = getLaunchApplicationMode(params)
+
+  return launchMode === 'shell'
+    ? []
+    : [{ id: 'pid', label: 'pid', maxConnections: MANY, valueType: 'number' }]
+}
+
 export const isHandleValueTypeCompatible = (
   sourceType: HandleValueType,
   targetType: HandleValueType,
@@ -247,7 +256,6 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'targetPath', label: 'targetPath', maxConnections: MANY, valueType: 'string' },
       { id: 'sourcePath', label: 'sourcePath', maxConnections: MANY, valueType: 'string' },
       { id: 'iconPath', label: 'iconPath', maxConnections: MANY, valueType: 'string' },
-      { id: 'pid', label: 'pid', maxConnections: MANY, valueType: 'number' },
     ],
   },
   fileOperation: {
@@ -341,19 +349,7 @@ const specs: Record<NodeKind, NodePortSpec> = {
   },
 }
 
-const mergedSpecCache = new Map<NodeKind, NodePortSpec>()
-
 export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> = {}): NodePortSpec => {
-  const canUseCache =
-    kind !== 'guiAgentActionParser' &&
-    kind !== 'mouseOperation' &&
-    kind !== 'keyboardOperation' &&
-    kind !== 'fileOperation'
-  if (canUseCache) {
-    const cached = mergedSpecCache.get(kind)
-    if (cached) return cached
-  }
-
   const base = specs[kind]
   const meta = getNodeMeta(kind)
   const connectableFields = getNodeFields(kind, params, meta.defaultParams).filter((field) => isConnectableFieldType(field.type))
@@ -366,6 +362,8 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
           ? getKeyboardOperationDynamicOutputs(params)
           : kind === 'fileOperation'
             ? getFileOperationDynamicOutputs(params)
+            : kind === 'launchApplication'
+              ? getLaunchApplicationDynamicOutputs(params)
           : []
 
   const merged: NodePortSpec = {
@@ -379,10 +377,6 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
       })),
     ],
     outputs: [...base.outputs, ...dynamicOutputs],
-  }
-
-  if (canUseCache) {
-    mergedSpecCache.set(kind, merged)
   }
   return merged
 }
@@ -408,8 +402,12 @@ export const normalizeSourceHandleId = (
 ): string | null =>
   normalizeHandleId(getNodePortSpec(kind, params).outputs, handleId)
 
-export const normalizeTargetHandleId = (kind: NodeKind, handleId: string | null | undefined): string | null =>
-  normalizeHandleId(getNodePortSpec(kind).inputs, handleId)
+export const normalizeTargetHandleId = (
+  kind: NodeKind,
+  handleId: string | null | undefined,
+  params: Record<string, unknown> = {},
+): string | null =>
+  normalizeHandleId(getNodePortSpec(kind, params).inputs, handleId)
 
 export const getOutputHandleMaxConnections = (
   kind: NodeKind,
@@ -418,8 +416,12 @@ export const getOutputHandleMaxConnections = (
 ): number =>
   getNodePortSpec(kind, params).outputs.find((port) => port.id === handleId)?.maxConnections ?? 0
 
-export const getInputHandleMaxConnections = (kind: NodeKind, handleId: string): number =>
-  getNodePortSpec(kind).inputs.find((port) => port.id === handleId)?.maxConnections ?? 0
+export const getInputHandleMaxConnections = (
+  kind: NodeKind,
+  handleId: string,
+  params: Record<string, unknown> = {},
+): number =>
+  getNodePortSpec(kind, params).inputs.find((port) => port.id === handleId)?.maxConnections ?? 0
 
 export const getOutputHandleValueType = (
   kind: NodeKind,
@@ -440,8 +442,12 @@ export const getOutputHandleValueType = (
   return getNodePortSpec(kind, params).outputs.find((port) => port.id === normalized)?.valueType ?? null
 }
 
-export const getInputHandleValueType = (kind: NodeKind, handleId: string): HandleValueType | null => {
-  const normalized = normalizeTargetHandleId(kind, handleId)
+export const getInputHandleValueType = (
+  kind: NodeKind,
+  handleId: string,
+  params: Record<string, unknown> = {},
+): HandleValueType | null => {
+  const normalized = normalizeTargetHandleId(kind, handleId, params)
   if (!normalized) return null
-  return getNodePortSpec(kind).inputs.find((port) => port.id === normalized)?.valueType ?? null
+  return getNodePortSpec(kind, params).inputs.find((port) => port.id === normalized)?.valueType ?? null
 }

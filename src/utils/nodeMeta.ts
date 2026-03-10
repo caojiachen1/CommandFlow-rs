@@ -28,6 +28,8 @@ export type MouseOperationKind = 'click' | 'move' | 'drag' | 'wheel' | 'down' | 
 
 export type KeyboardOperationKind = 'key' | 'input' | 'down' | 'up' | 'shortcut'
 
+export type LaunchApplicationMode = 'auto' | 'direct' | 'shell'
+
 export interface ParamField {
   key: string
   label: string
@@ -89,6 +91,12 @@ export const KEYBOARD_OPERATION_OPTIONS: Array<{ label: string; value: KeyboardO
   { label: '键盘按下', value: 'down' },
   { label: '键盘松开', value: 'up' },
   { label: '组合键', value: 'shortcut' },
+]
+
+export const LAUNCH_APPLICATION_MODE_OPTIONS: Array<{ label: string; value: LaunchApplicationMode }> = [
+  { label: '自动（优先直启，必要时回退 Shell API）', value: 'auto' },
+  { label: '直接启动（尽量获取 PID）', value: 'direct' },
+  { label: 'Shell API 启动（兼容性更高）', value: 'shell' },
 ]
 
 const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
@@ -173,6 +181,16 @@ export const getKeyboardOperationKind = (
   return KEYBOARD_OPERATION_OPTIONS.some((item) => item.value === operation)
     ? (operation as KeyboardOperationKind)
     : defaultOperation
+}
+
+export const getLaunchApplicationMode = (
+  params: Record<string, unknown>,
+  defaultMode: LaunchApplicationMode = 'auto',
+): LaunchApplicationMode => {
+  const mode = String(params.launchMode ?? defaultMode)
+  return LAUNCH_APPLICATION_MODE_OPTIONS.some((item) => item.value === mode)
+    ? (mode as LaunchApplicationMode)
+    : defaultMode
 }
 
 export const getSystemOperationLabel = (
@@ -950,6 +968,7 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
     label: '启动应用',
     description: '扫描 Windows 开始菜单中的快捷方式，选择一个有效应用并启动。',
     defaultParams: {
+      launchMode: 'auto',
       selectedApp: '',
       appName: '',
       targetPath: '',
@@ -957,6 +976,13 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       sourcePath: '',
     },
     fields: [
+      {
+        key: 'launchMode',
+        label: '启动方式',
+        type: 'select',
+        options: LAUNCH_APPLICATION_MODE_OPTIONS,
+        description: '选择 Shell API 启动时兼容性更高，但无法返回 PID。',
+      },
       {
         key: 'selectedApp',
         label: '开始菜单应用',

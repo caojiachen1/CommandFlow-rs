@@ -122,10 +122,14 @@ const resolveSourceHandleValueType = (
   return getOutputHandleValueType(kind, normalizedSource, params)
 }
 
-const resolveTargetHandleValueType = (kind: NodeKind, targetHandleId: string | null) => {
-  const normalizedTarget = normalizeTargetHandleId(kind, targetHandleId)
+const resolveTargetHandleValueType = (
+  kind: NodeKind,
+  params: Record<string, unknown>,
+  targetHandleId: string | null,
+) => {
+  const normalizedTarget = normalizeTargetHandleId(kind, targetHandleId, params)
   if (!normalizedTarget) return null
-  return getInputHandleValueType(kind, normalizedTarget)
+  return getInputHandleValueType(kind, normalizedTarget, params)
 }
 
 const resolveQuickInsertTargetHandle = (
@@ -142,7 +146,7 @@ const resolveQuickInsertTargetHandle = (
     if (!isParamInputHandleId(input.id)) {
       continue
     }
-    const targetType = getInputHandleValueType(kind, input.id)
+    const targetType = getInputHandleValueType(kind, input.id, getNodeMeta(kind).defaultParams)
     if (targetType && isHandleValueTypeCompatible(sourceValueType, targetType)) {
       return input.id
     }
@@ -304,7 +308,11 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         return Boolean(resolveQuickInsertTargetHandle(item.kind, sourceValueType))
       }
 
-      const targetValueType = resolveTargetHandleValueType(pendingNode.data.kind, quickInsert.pendingHandleId)
+      const targetValueType = resolveTargetHandleValueType(
+        pendingNode.data.kind,
+        pendingNode.data.params,
+        quickInsert.pendingHandleId,
+      )
       if (!targetValueType) return false
       const sourceHandle = resolveQuickInsertSourceHandle(item.kind, targetValueType)
       if (!sourceHandle) return false
@@ -612,7 +620,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
           quickInsert.pendingHandleId,
         )
         const quickTargetHandle = sourceValueType ? resolveQuickInsertTargetHandle(kind, sourceValueType) : null
-        const targetHandle = normalizeTargetHandleId(kind, quickTargetHandle)
+        const targetHandle = normalizeTargetHandleId(kind, quickTargetHandle, getNodeMeta(kind).defaultParams)
 
         if (sourceHandle && targetHandle) {
           connectNodes({
@@ -623,8 +631,16 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
           })
         }
       } else {
-        const targetHandle = normalizeTargetHandleId(pendingNode.data.kind, quickInsert.pendingHandleId)
-        const targetValueType = resolveTargetHandleValueType(pendingNode.data.kind, quickInsert.pendingHandleId)
+        const targetHandle = normalizeTargetHandleId(
+          pendingNode.data.kind,
+          quickInsert.pendingHandleId,
+          pendingNode.data.params,
+        )
+        const targetValueType = resolveTargetHandleValueType(
+          pendingNode.data.kind,
+          pendingNode.data.params,
+          quickInsert.pendingHandleId,
+        )
         const quickSourceHandle = targetValueType ? resolveQuickInsertSourceHandle(kind, targetValueType) : null
 
         const sourceMeta = getNodeMeta(kind)
@@ -685,11 +701,11 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       if (!sourceNode || !targetNode) return false
 
       const normalizedSource = normalizeSourceHandleId(sourceNode.data.kind, sourceHandle, sourceNode.data.params)
-      const normalizedTarget = normalizeTargetHandleId(targetNode.data.kind, targetHandle)
+      const normalizedTarget = normalizeTargetHandleId(targetNode.data.kind, targetHandle, targetNode.data.params)
       if (!normalizedSource || !normalizedTarget) return false
 
       const sourceType = resolveSourceHandleValueType(sourceNode.data.kind, sourceNode.data.params, normalizedSource)
-      const targetType = resolveTargetHandleValueType(targetNode.data.kind, normalizedTarget)
+      const targetType = resolveTargetHandleValueType(targetNode.data.kind, targetNode.data.params, normalizedTarget)
       if (!sourceType || !targetType) return false
 
       return isHandleValueTypeCompatible(sourceType, targetType)

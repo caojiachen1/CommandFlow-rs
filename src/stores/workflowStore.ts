@@ -68,6 +68,12 @@ const cloneSnapshot = (nodes: WorkflowNode[], edges: WorkflowEdge[]): Snapshot =
   edges: structuredClone(edges),
 })
 
+const hasSourceHandle = (node: WorkflowNode, handleId: string | null | undefined) =>
+  getOutputHandleMaxConnections(node.data.kind, String(handleId ?? ''), node.data.params) > 0
+
+const hasTargetHandle = (node: WorkflowNode, handleId: string | null | undefined) =>
+  getInputHandleMaxConnections(node.data.kind, String(handleId ?? ''), node.data.params) > 0
+
 const deriveSelectedNodeIds = (nodes: WorkflowNode[]) =>
   nodes.filter((node) => Boolean(node.selected)).map((node) => node.id)
 
@@ -245,7 +251,7 @@ const applyConnectionWithReplacement = (
   }
 
   const sourceHandle = normalizeSourceHandleId(sourceNode.data.kind, connection.sourceHandle, sourceNode.data.params)
-  const targetHandle = normalizeTargetHandleId(targetNode.data.kind, connection.targetHandle)
+  const targetHandle = normalizeTargetHandleId(targetNode.data.kind, connection.targetHandle, targetNode.data.params)
   if (!sourceHandle || !targetHandle) {
     return null
   }
@@ -264,7 +270,7 @@ const applyConnectionWithReplacement = (
   }
 
   const sourceType = getOutputHandleValueType(sourceNode.data.kind, sourceHandle, sourceNode.data.params)
-  const targetType = getInputHandleValueType(targetNode.data.kind, targetHandle)
+  const targetType = getInputHandleValueType(targetNode.data.kind, targetHandle, targetNode.data.params)
   if (!sourceType || !targetType || !isHandleValueTypeCompatible(sourceType, targetType)) {
     return null
   }
@@ -284,7 +290,7 @@ const applyConnectionWithReplacement = (
     nextEdges = nextEdges.filter((edge) => !sourceDropIds.has(edge.id))
   }
 
-  const targetMax = getInputHandleMaxConnections(targetNode.data.kind, targetHandle)
+  const targetMax = getInputHandleMaxConnections(targetNode.data.kind, targetHandle, targetNode.data.params)
   if (targetMax <= 0) {
     return null
   }
@@ -378,7 +384,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         return nextEdges.length === state.edges.length ? state : { edges: nextEdges }
       }
 
-      const normalized = normalizeTargetHandleId(node.data.kind, handleId)
+      const normalized = normalizeTargetHandleId(node.data.kind, handleId, node.data.params)
       if (!normalized) return state
       const nextEdges = state.edges.filter(
         (edge) => !(edge.target === nodeId && edge.targetHandle === normalized),
@@ -530,8 +536,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     return true
   },
   updateNodeParams: (id, params) =>
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
+    set((state) => {
+      const nextNodes = state.nodes.map((node) =>
         node.id === id
           ? (() => {
               const meta = getNodeMeta(node.data.kind)
@@ -545,8 +551,28 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               }
             })()
           : node,
-      ),
-    })),
+      )
+
+      const updatedNode = nextNodes.find((node) => node.id === id)
+      if (!updatedNode) {
+        return { nodes: nextNodes }
+      }
+
+      const nextEdges = state.edges.filter((edge) => {
+        if (edge.source === id && !hasSourceHandle(updatedNode, edge.sourceHandle)) {
+          return false
+        }
+        if (edge.target === id && !hasTargetHandle(updatedNode, edge.targetHandle)) {
+          return false
+        }
+        return true
+      })
+
+      return {
+        nodes: nextNodes,
+        edges: nextEdges,
+      }
+    }),
   setGraphName: (name) =>
     set(() => ({
       graphName: name,
