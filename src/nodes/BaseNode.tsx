@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../utils/nodeMeta'
 import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../utils/execution'
+import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../utils/refresh'
 import { buildLaunchApplicationParams, filterStartMenuApps, getStartMenuAppDisplayName } from '../utils/startMenuApp'
 import {
   createParamInputHandleId,
@@ -219,6 +220,35 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
     return () => {
       cancelled = true
+    }
+  }, [data.kind])
+
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      if (data.kind === 'windowTrigger' || data.kind === 'windowActivate') {
+        void listOpenWindowEntries()
+          .then((entries) => {
+            setOpenWindows(entries)
+          })
+          .catch(() => {
+            setOpenWindows([])
+          })
+      }
+
+      if (data.kind === 'launchApplication') {
+        void listStartMenuApps(true)
+          .then((apps) => {
+            setStartMenuApps(apps)
+          })
+          .catch(() => {
+            setStartMenuApps([])
+          })
+      }
+    }
+
+    window.addEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
+    return () => {
+      window.removeEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
     }
   }, [data.kind])
 

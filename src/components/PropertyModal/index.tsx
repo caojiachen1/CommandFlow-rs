@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
 import { fetchLlmModels, listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
+import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../../utils/refresh'
 import { resolveGuiAgentChatEndpointPreview } from '../../utils/llmEndpoint'
 import type { NodeKind } from '../../types/workflow'
 import { buildLaunchApplicationParams } from '../../utils/startMenuApp'
@@ -248,6 +249,55 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
 
     return () => {
       cancelled = true
+    }
+  }, [open, selectedMeta?.defaultParams.apiKey, selectedMeta?.defaultParams.baseUrl, selectedNode])
+
+  useEffect(() => {
+    if (!selectedNode || !open) return
+
+    const handleGlobalRefresh = () => {
+      if (selectedNode.data.kind === 'windowTrigger' || selectedNode.data.kind === 'windowActivate') {
+        void listOpenWindowEntries()
+          .then((entries) => {
+            setOpenWindows(entries)
+          })
+          .catch(() => {
+            setOpenWindows([])
+          })
+      }
+
+      if (selectedNode.data.kind === 'launchApplication') {
+        void listStartMenuApps(true)
+          .then((apps) => {
+            setStartMenuApps(apps)
+          })
+          .catch(() => {
+            setStartMenuApps([])
+          })
+      }
+
+      if (selectedNode.data.kind === 'guiAgent') {
+        const baseUrl = String(selectedNode.data.params.baseUrl ?? selectedMeta?.defaultParams.baseUrl ?? '').trim()
+        const apiKey = String(selectedNode.data.params.apiKey ?? selectedMeta?.defaultParams.apiKey ?? '').trim()
+
+        if (!baseUrl) {
+          setGuiModelNames([])
+          return
+        }
+
+        void fetchLlmModels(baseUrl, apiKey)
+          .then((models) => {
+            setGuiModelNames(models)
+          })
+          .catch(() => {
+            setGuiModelNames([])
+          })
+      }
+    }
+
+    window.addEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
+    return () => {
+      window.removeEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
     }
   }, [open, selectedMeta?.defaultParams.apiKey, selectedMeta?.defaultParams.baseUrl, selectedNode])
 

@@ -31,6 +31,13 @@ let startMenuAppsPromise: Promise<StartMenuAppPayload[]> | null = null
 const startMenuIconCache = new Map<string, string | null>()
 const startMenuIconPromises = new Map<string, Promise<string | null>>()
 
+export const invalidateDynamicOptionCaches = () => {
+  startMenuAppsCache = null
+  startMenuAppsPromise = null
+  startMenuIconCache.clear()
+  startMenuIconPromises.clear()
+}
+
 export const runWorkflow = async (graph: BackendWorkflowGraph): Promise<string> => {
   if (!isTauriRuntime()) {
     return '当前为浏览器预览模式，未连接 Tauri 后端，已跳过真实执行。'

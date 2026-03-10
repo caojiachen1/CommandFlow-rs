@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useExecutionStore } from '../stores/executionStore'
 import { useWorkflowStore } from '../stores/workflowStore'
+import { triggerGlobalRefresh } from '../utils/refresh'
 import { runWorkflow } from '../utils/execution'
 import { toBackendGraph } from '../utils/workflowBridge'
 
@@ -51,6 +52,19 @@ export const useShortcutBindings = () => {
       if (ctrl && key === 'z') {
         event.preventDefault()
         undo()
+      } else if (!ctrl && key === 'r' && !editable) {
+        if (event.repeat) {
+          return
+        }
+        event.preventDefault()
+        addLog('info', '正在刷新最新节点定义、下拉选项和布局...')
+        void triggerGlobalRefresh()
+          .then(() => {
+            addLog('success', '已刷新到最新状态。')
+          })
+          .catch((error) => {
+            addLog('warn', `刷新过程中出现部分异常：${String(error)}`)
+          })
       } else if (ctrl && key === 'a') {
         event.preventDefault()
         setSelectedNodes(nodes.map((node) => node.id))

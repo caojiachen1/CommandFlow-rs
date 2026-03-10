@@ -10,6 +10,7 @@ import {
   type NodeMouseHandler,
   type OnConnectStartParams,
   useReactFlow,
+  useUpdateNodeInternals,
 } from '@xyflow/react'
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -18,6 +19,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { NodeKind } from '../../types/workflow'
 import { getNodeFields, getNodeMeta } from '../../utils/nodeMeta'
+import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../../utils/refresh'
 import {
   getInputHandleValueType,
   getNodePortSpec,
@@ -212,6 +214,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   } = useWorkflowStore()
   const setZoom = useSettingsStore((state) => state.setZoom)
   const reactFlow = useReactFlow()
+  const updateNodeInternals = useUpdateNodeInternals()
   const pendingConnectStartRef = useRef<PendingConnectStart | null>(null)
   const quickSearchInputRef = useRef<HTMLInputElement>(null)
   const globalSearchInputRef = useRef<HTMLInputElement>(null)
@@ -476,6 +479,28 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       window.clearTimeout(timer)
     }
   }, [reactFlow, setZoom])
+
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      const nodeIds = nodes.map((node) => node.id)
+      if (nodeIds.length === 0) {
+        return
+      }
+
+      window.requestAnimationFrame(() => {
+        nodeIds.forEach((nodeId) => updateNodeInternals(nodeId))
+
+        window.requestAnimationFrame(() => {
+          nodeIds.forEach((nodeId) => updateNodeInternals(nodeId))
+        })
+      })
+    }
+
+    window.addEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
+    return () => {
+      window.removeEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
+    }
+  }, [nodes, updateNodeInternals])
 
   const [modalOpen, setModalOpen] = useState(false)
 

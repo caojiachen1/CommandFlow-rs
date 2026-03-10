@@ -3,6 +3,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
 import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
+import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../../utils/refresh'
 import type { NodeKind } from '../../types/workflow'
 import { buildLaunchApplicationParams } from '../../utils/startMenuApp'
 import SmartInputSelect from '../SmartInputSelect'
@@ -218,6 +219,37 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
 
     return () => {
       cancelled = true
+    }
+  }, [expanded, selectedNode])
+
+  useEffect(() => {
+    if (!selectedNode || !expanded) return
+
+    const handleGlobalRefresh = () => {
+      if (selectedNode.data.kind === 'windowTrigger' || selectedNode.data.kind === 'windowActivate') {
+        void listOpenWindowEntries()
+          .then((entries) => {
+            setOpenWindows(entries)
+          })
+          .catch(() => {
+            setOpenWindows([])
+          })
+      }
+
+      if (selectedNode.data.kind === 'launchApplication') {
+        void listStartMenuApps(true)
+          .then((apps) => {
+            setStartMenuApps(apps)
+          })
+          .catch(() => {
+            setStartMenuApps([])
+          })
+      }
+    }
+
+    window.addEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
+    return () => {
+      window.removeEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
     }
   }, [expanded, selectedNode])
 
