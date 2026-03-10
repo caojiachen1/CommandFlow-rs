@@ -1,6 +1,6 @@
 import type { Edge, Node } from '@xyflow/react'
 
-export type TriggerNodeKind = 'hotkeyTrigger' | 'timerTrigger' | 'manualTrigger' | 'windowTrigger'
+export type TriggerNodeKind = 'trigger'
 export type ActionNodeKind =
   | 'mouseOperation'
   | 'keyboardOperation'

@@ -100,14 +100,18 @@ const shallowEqualArray = (a: string[], b: string[]) => {
 const initialNodes: WorkflowNode[] = [
   {
     id: crypto.randomUUID(),
-    type: 'manualTrigger',
+    type: 'trigger',
     position: { x: 200, y: 120 },
-    data: {
-      kind: 'manualTrigger',
-      label: getNodeMeta('manualTrigger').label,
-      params: structuredClone(getNodeMeta('manualTrigger').defaultParams),
-      description: getNodeMeta('manualTrigger').description,
-    },
+    data: (() => {
+      const meta = getNodeMeta('trigger')
+      const params = structuredClone(meta.defaultParams)
+      return {
+        kind: 'trigger' as const,
+        label: getNodeDisplayLabel('trigger', params, meta.label),
+        params,
+        description: meta.description,
+      }
+    })(),
   },
 ]
 
@@ -157,18 +161,29 @@ const legacyFileKindToOperation = {
   fileWriteText: 'writeText',
 } as const
 
+const legacyTriggerKindToMode = {
+  hotkeyTrigger: 'hotkey',
+  timerTrigger: 'timer',
+  manualTrigger: 'manual',
+  windowTrigger: 'window',
+} as const
+
 type LegacySystemKind = keyof typeof legacySystemKindToOperation
 type LegacyMouseKind = keyof typeof legacyMouseKindToOperation
 type LegacyKeyboardKind = keyof typeof legacyKeyboardKindToOperation
 type LegacyFileKind = keyof typeof legacyFileKindToOperation
+type LegacyTriggerKind = keyof typeof legacyTriggerKindToMode
 
 const isLegacySystemKind = (kind: string): kind is LegacySystemKind => kind in legacySystemKindToOperation
 const isLegacyMouseKind = (kind: string): kind is LegacyMouseKind => kind in legacyMouseKindToOperation
 const isLegacyKeyboardKind = (kind: string): kind is LegacyKeyboardKind => kind in legacyKeyboardKindToOperation
 const isLegacyFileKind = (kind: string): kind is LegacyFileKind => kind in legacyFileKindToOperation
+const isLegacyTriggerKind = (kind: string): kind is LegacyTriggerKind => kind in legacyTriggerKindToMode
 
 const normalizeImportedNodeKind = (kind: string): NodeKind =>
-  (isLegacySystemKind(kind)
+  (isLegacyTriggerKind(kind)
+    ? 'trigger'
+    : isLegacySystemKind(kind)
     ? 'systemOperation'
     : isLegacyMouseKind(kind)
       ? 'mouseOperation'
@@ -179,7 +194,12 @@ const normalizeImportedNodeKind = (kind: string): NodeKind =>
         : kind) as NodeKind
 
 const normalizeImportedNodeParams = (kind: string, params: Record<string, unknown>) =>
-  isLegacySystemKind(kind)
+  isLegacyTriggerKind(kind)
+    ? {
+        triggerType: legacyTriggerKindToMode[kind],
+        ...params,
+      }
+    : isLegacySystemKind(kind)
     ? {
         operation: legacySystemKindToOperation[kind],
         ...params,

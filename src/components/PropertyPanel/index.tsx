@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../../utils/nodeMeta'
+import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, getTriggerMode, type ParamField } from '../../utils/nodeMeta'
 import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
 import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../../utils/refresh'
 import type { NodeKind } from '../../types/workflow'
@@ -111,8 +111,14 @@ const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
 ]
 
-const isWindowLookupField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'windowTrigger' || kind === 'windowActivate') && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
+const isWindowLookupNode = (kind: NodeKind, params: Record<string, unknown> = {}) =>
+  kind === 'windowActivate' || (kind === 'trigger' && getTriggerMode(params) === 'window')
+
+const isHotkeyTriggerNode = (kind: NodeKind, params: Record<string, unknown> = {}) =>
+  kind === 'trigger' && getTriggerMode(params) === 'hotkey'
+
+const isWindowLookupField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
+  isWindowLookupNode(kind, params) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
 
 export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps) {
   const { selectedNodeId, nodes, updateNodeParams } = useWorkflowStore()
@@ -120,6 +126,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   )
+  const selectedTriggerMode = selectedNode?.data.kind === 'trigger' ? getTriggerMode(selectedNode.data.params) : null
 
   const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
   const selectedFields = useMemo(
@@ -179,7 +186,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
 
   useEffect(() => {
     if (!selectedNode || !expanded) return
-    if (selectedNode.data.kind !== 'windowTrigger' && selectedNode.data.kind !== 'windowActivate') {
+    if (!isWindowLookupNode(selectedNode.data.kind, selectedNode.data.params)) {
       setOpenWindows([])
       return
     }
@@ -198,7 +205,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     return () => {
       cancelled = true
     }
-  }, [expanded, selectedNode])
+  }, [expanded, selectedNode, selectedTriggerMode])
 
   useEffect(() => {
     if (!selectedNode || !expanded || selectedNode.data.kind !== 'launchApplication') {
@@ -226,7 +233,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     if (!selectedNode || !expanded) return
 
     const handleGlobalRefresh = () => {
-      if (selectedNode.data.kind === 'windowTrigger' || selectedNode.data.kind === 'windowActivate') {
+      if (isWindowLookupNode(selectedNode.data.kind, selectedNode.data.params)) {
         void listOpenWindowEntries()
           .then((entries) => {
             setOpenWindows(entries)
@@ -251,28 +258,23 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     return () => {
       window.removeEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
     }
-  }, [expanded, selectedNode])
+  }, [expanded, selectedNode, selectedTriggerMode])
 
   const getStringSuggestions = (field: ParamField): string[] => {
     if (!selectedNode) return []
     const kind = selectedNode.data.kind
+    const params = selectedNode.data.params
 
-    if (kind === 'windowTrigger' && field.key === 'title') {
+    if (isWindowLookupNode(kind, params) && field.key === 'title') {
       return windowTitles
     }
-    if (kind === 'windowActivate' && field.key === 'title') {
-      return windowTitles
-    }
-    if (kind === 'windowTrigger' && field.key === 'program') {
+    if (isWindowLookupNode(kind, params) && field.key === 'program') {
       return windowPrograms
     }
-    if (kind === 'windowActivate' && field.key === 'program') {
-      return windowPrograms
-    }
-    if ((kind === 'windowTrigger' || kind === 'windowActivate') && field.key === 'programPath') {
+    if (isWindowLookupNode(kind, params) && field.key === 'programPath') {
       return windowProgramPaths
     }
-    if ((kind === 'windowTrigger' || kind === 'windowActivate') && field.key === 'className') {
+    if (isWindowLookupNode(kind, params) && field.key === 'className') {
       return windowClassNames
     }
     if (kind === 'windowActivate' && field.key === 'shortcut') {
@@ -307,7 +309,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
         return COMMON_KEYS
       }
     }
-    if (kind === 'hotkeyTrigger' && field.key === 'hotkey') {
+    if (isHotkeyTriggerNode(kind, params) && field.key === 'hotkey') {
       return COMMON_HOTKEYS
     }
     return []
@@ -328,7 +330,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   }
 
   const applyWindowEntrySelection = (fieldKey: string, value: string) => {
-    if (!selectedNode || !isWindowLookupField(selectedNode.data.kind, fieldKey)) {
+    if (!selectedNode || !isWindowLookupField(selectedNode.data.kind, fieldKey, selectedNode.data.params)) {
       return false
     }
 
@@ -496,7 +498,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       )
     }
 
-    if ((selectedNode.data.kind === 'windowTrigger' || selectedNode.data.kind === 'windowActivate') && field.key === 'processId') {
+    if (isWindowLookupField(selectedNode.data.kind, field.key, selectedNode.data.params) && field.key === 'processId') {
       return (
         <SmartInputSelect
           value={String(Number(currentValue ?? 0) > 0 ? currentValue : '')}
@@ -639,7 +641,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 }
               }}
               hint="支持下拉选择，也可手动输入"
-              filterOptions={!isWindowLookupField(selectedNode.data.kind, field.key)}
+              filterOptions={!isWindowLookupField(selectedNode.data.kind, field.key, selectedNode.data.params)}
             />
           )
         }

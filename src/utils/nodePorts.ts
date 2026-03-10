@@ -6,6 +6,7 @@ import {
   getMouseOperationKind,
   getNodeFields,
   getNodeMeta,
+  getTriggerMode,
 } from './nodeMeta'
 
 export type HandleValueType = 'control' | 'string' | 'number' | 'json' | 'any'
@@ -156,6 +157,22 @@ const getLaunchApplicationDynamicOutputs = (params: Record<string, unknown> = {}
     : [{ id: 'pid', label: 'pid', maxConnections: MANY, valueType: 'number' }]
 }
 
+const getTriggerDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
+  const triggerMode = getTriggerMode(params)
+
+  if (triggerMode !== 'window') {
+    return []
+  }
+
+  return [
+    { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
+    { id: 'program', label: 'program', maxConnections: MANY, valueType: 'string' },
+    { id: 'programPath', label: 'programPath', maxConnections: MANY, valueType: 'string' },
+    { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
+    { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
+  ]
+}
+
 export const isHandleValueTypeCompatible = (
   sourceType: HandleValueType,
   targetType: HandleValueType,
@@ -190,28 +207,9 @@ export const getParamFieldKeyFromHandleId = (handleId: string | null | undefined
 }
 
 const specs: Record<NodeKind, NodePortSpec> = {
-  hotkeyTrigger: {
+  trigger: {
     inputs: [],
     outputs: singleOut(),
-  },
-  timerTrigger: {
-    inputs: [],
-    outputs: singleOut(),
-  },
-  manualTrigger: {
-    inputs: [],
-    outputs: singleOut(),
-  },
-  windowTrigger: {
-    inputs: [],
-    outputs: [
-      ...singleOut(),
-      { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
-      { id: 'program', label: 'program', maxConnections: MANY, valueType: 'string' },
-      { id: 'programPath', label: 'programPath', maxConnections: MANY, valueType: 'string' },
-      { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
-      { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
-    ],
   },
   mouseOperation: {
     inputs: singleIn(),
@@ -356,6 +354,8 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
   const dynamicOutputs =
     kind === 'guiAgentActionParser'
       ? getGuiAgentParserDynamicOutputs(params)
+      : kind === 'trigger'
+        ? getTriggerDynamicOutputs(params)
       : kind === 'mouseOperation'
         ? getMouseOperationDynamicOutputs(params)
         : kind === 'keyboardOperation'

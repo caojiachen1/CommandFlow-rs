@@ -16,6 +16,7 @@ import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
 import { getCursorPosition, pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
 import { getNodePortSpec } from './utils/nodePorts'
+import { getTriggerMode } from './utils/nodeMeta'
 import { toBackendGraph } from './utils/workflowBridge'
 import type { WorkflowFile, WorkflowNode } from './types/workflow'
 
@@ -64,10 +65,7 @@ type WorkflowNodeCompletedPayload = WorkflowNodeEventPayload & {
 }
 
 const workflowNodeKinds = [
-  'hotkeyTrigger',
-  'timerTrigger',
-  'manualTrigger',
-  'windowTrigger',
+  'trigger',
   'mouseOperation',
   'keyboardOperation',
   'screenshot',
@@ -158,9 +156,10 @@ const buildNodeOutputLogMessage = (payload: WorkflowNodeCompletedPayload) => {
   return `节点输出：${nodeLabel} [${nodeKind}] id=${nodeId}\n${lines.join('\n')}`
 }
 
-const isTriggerKind = (kind: WorkflowNode['data']['kind']) =>
-  kind === 'hotkeyTrigger' || kind === 'timerTrigger' || kind === 'manualTrigger' || kind === 'windowTrigger'
-const isManualTriggerKind = (kind: WorkflowNode['data']['kind']) => kind === 'manualTrigger'
+const isTriggerNode = (node: WorkflowNode) => node.data.kind === 'trigger'
+
+const isManualTriggerNode = (node: WorkflowNode) =>
+  node.data.kind === 'trigger' && getTriggerMode(node.data.params) === 'manual'
 
 let completionAudioContext: AudioContext | null = null
 
@@ -708,9 +707,9 @@ function App() {
         incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1)
       }
 
-      const manualTriggerStarts = nodes.filter((node) => isManualTriggerKind(node.data.kind)).map((node) => node.id)
+      const manualTriggerStarts = nodes.filter(isManualTriggerNode).map((node) => node.id)
       const autoTriggerStarts = nodes
-        .filter((node) => isTriggerKind(node.data.kind) && !isManualTriggerKind(node.data.kind))
+        .filter((node) => isTriggerNode(node) && !isManualTriggerNode(node))
         .map((node) => node.id)
 
       if (manualTriggerStarts.length > 0) {

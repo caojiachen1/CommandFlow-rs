@@ -16,10 +16,7 @@ const categories: NodePaletteCategory[] = [
   {
     title: '触发与流程',
     items: [
-      { label: '热键触发', kind: 'hotkeyTrigger', color: 'bg-orange-500', category: '触发与流程' },
-      { label: '定时触发', kind: 'timerTrigger', color: 'bg-amber-500', category: '触发与流程' },
-      { label: '手动触发', kind: 'manualTrigger', color: 'bg-yellow-500', category: '触发与流程' },
-      { label: '窗口触发', kind: 'windowTrigger', color: 'bg-lime-500', category: '触发与流程' },
+      { label: '触发器', kind: 'trigger', color: 'bg-orange-500', category: '触发与流程' },
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500', category: '触发与流程' },
       { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500', category: '触发与流程' },
       { label: 'while 循环', kind: 'whileLoop', color: 'bg-purple-600', category: '触发与流程' },

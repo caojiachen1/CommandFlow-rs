@@ -5,6 +5,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NodeKind {
+    Trigger,
     HotkeyTrigger,
     TimerTrigger,
     ManualTrigger,

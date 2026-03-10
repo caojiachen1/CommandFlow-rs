@@ -104,14 +104,14 @@ impl WorkflowExecutor {
         let manual_trigger_starts: Vec<&str> = graph
             .nodes
             .iter()
-            .filter(|node| is_manual_trigger(&node.kind))
+            .filter(|node| is_manual_trigger_node(node))
             .map(|node| node.id.as_str())
             .collect();
 
         let auto_trigger_starts: Vec<&str> = graph
             .nodes
             .iter()
-            .filter(|node| is_trigger(&node.kind) && !is_manual_trigger(&node.kind))
+            .filter(|node| is_trigger_node(node) && !is_manual_trigger_node(node))
             .map(|node| node.id.as_str())
             .collect();
 
@@ -440,77 +440,11 @@ impl WorkflowExecutor {
             .insert(node.id.clone(), HashMap::<String, Value>::new());
 
         match node.kind {
-            NodeKind::HotkeyTrigger => {
-                let hotkey = get_string(node, "hotkey", "Ctrl+Shift+R");
-                let timeout_ms = get_u64(node, "timeoutMs", 30_000);
-                let poll_ms = get_u64(node, "pollMs", 50);
-                keyboard::wait_for_hotkey(&hotkey, timeout_ms, poll_ms).await?;
-                Ok(NextDirective::Default)
-            }
-            NodeKind::TimerTrigger => {
-                let interval_ms = get_u64(node, "intervalMs", 1000);
-                interruptible_sleep(Duration::from_millis(interval_ms), should_cancel).await?;
-                Ok(NextDirective::Default)
-            }
-            NodeKind::ManualTrigger => Ok(NextDirective::Default),
-            NodeKind::WindowTrigger => {
-                let match_target = get_string(node, "matchTarget", "title");
-                let title = get_string(node, "title", "");
-                let program = get_string(node, "program", "");
-                let match_mode = get_string(node, "matchMode", "contains");
-                let timeout_ms = get_u64(node, "timeoutMs", 30_000);
-                let poll_ms = get_u64(node, "pollMs", 250);
-
-                let waiting_for_program = match_target.eq_ignore_ascii_case("program");
-                let match_value = if waiting_for_program {
-                    program.trim()
-                } else {
-                    title.trim()
-                };
-
-                if match_value.is_empty() {
-                    return Err(CommandFlowError::Validation(format!(
-                        "node '{}' window trigger {} is empty",
-                        node.id,
-                        if waiting_for_program { "program" } else { "title" }
-                    )));
-                }
-
-                let query = build_window_match_query(node, &match_target, &title, &program, &match_mode);
-                let query_description = describe_window_query(&match_target, match_value, &query);
-
-                let poll_interval = Duration::from_millis(poll_ms.max(10));
-                let deadline = Duration::from_millis(timeout_ms);
-                let started = tokio::time::Instant::now();
-                let matched_window = loop {
-                    if should_cancel() {
-                        return Err(CommandFlowError::Canceled);
-                    }
-
-                    let matched = window::foreground_window_matches(&query)?;
-
-                    if let Some(window) = matched {
-                        break window;
-                    }
-
-                    if started.elapsed() >= deadline {
-                        return Err(CommandFlowError::Automation(format!(
-                            "window trigger timed out after {} ms waiting for foreground window {}",
-                            timeout_ms, query_description
-                        )));
-                    }
-
-                    interruptible_sleep(poll_interval, should_cancel).await?;
-                };
-
-                set_node_output(ctx, node, "title", Value::String(matched_window.title));
-                set_node_output(ctx, node, "program", Value::String(matched_window.program_name));
-                set_node_output(ctx, node, "programPath", Value::String(matched_window.program_path));
-                set_node_output(ctx, node, "className", Value::String(matched_window.class_name));
-                set_node_output(ctx, node, "processId", value_from_u64(matched_window.process_id as u64));
-
-                Ok(NextDirective::Default)
-            }
+            NodeKind::Trigger => execute_trigger_node(node, ctx, should_cancel, None).await,
+            NodeKind::HotkeyTrigger => execute_trigger_node(node, ctx, should_cancel, Some("hotkey")).await,
+            NodeKind::TimerTrigger => execute_trigger_node(node, ctx, should_cancel, Some("timer")).await,
+            NodeKind::ManualTrigger => execute_trigger_node(node, ctx, should_cancel, Some("manual")).await,
+            NodeKind::WindowTrigger => execute_trigger_node(node, ctx, should_cancel, Some("window")).await,
             NodeKind::MouseOperation => execute_mouse_operation(node, ctx, None),
             NodeKind::MouseClick => {
                 execute_mouse_operation(node, ctx, Some("click"))
@@ -1273,10 +1207,11 @@ impl WorkflowExecutor {
     }
 }
 
-fn is_trigger(kind: &NodeKind) -> bool {
+fn is_trigger_node(node: &WorkflowNode) -> bool {
     matches!(
-        kind,
-        NodeKind::HotkeyTrigger
+        node.kind,
+        NodeKind::Trigger
+            | NodeKind::HotkeyTrigger
             | NodeKind::TimerTrigger
             | NodeKind::ManualTrigger
             | NodeKind::WindowTrigger
@@ -1772,8 +1707,110 @@ fn emit_process_output(
     }
 }
 
-fn is_manual_trigger(kind: &NodeKind) -> bool {
-    matches!(kind, NodeKind::ManualTrigger)
+fn is_manual_trigger_node(node: &WorkflowNode) -> bool {
+    match node.kind {
+        NodeKind::Trigger => normalize_trigger_mode_name(&get_string(node, "triggerType", "manual")) == "manual",
+        NodeKind::ManualTrigger => true,
+        _ => false,
+    }
+}
+
+fn normalize_trigger_mode_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| *ch != '-' && *ch != '_' && !ch.is_whitespace())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+async fn execute_trigger_node(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    should_cancel: &impl Fn() -> bool,
+    trigger_mode_override: Option<&str>,
+) -> CommandResult<NextDirective> {
+    let requested = trigger_mode_override
+        .map(ToString::to_string)
+        .unwrap_or_else(|| get_string(node, "triggerType", "manual"));
+    let trigger_mode = normalize_trigger_mode_name(&requested);
+
+    match trigger_mode.as_str() {
+        "hotkey" => {
+            let hotkey = get_string(node, "hotkey", "Ctrl+Shift+R");
+            let timeout_ms = get_u64(node, "timeoutMs", 30_000);
+            let poll_ms = get_u64(node, "pollMs", 50);
+            keyboard::wait_for_hotkey(&hotkey, timeout_ms, poll_ms).await?;
+            Ok(NextDirective::Default)
+        }
+        "timer" => {
+            let interval_ms = get_u64(node, "intervalMs", 1000);
+            interruptible_sleep(Duration::from_millis(interval_ms), should_cancel).await?;
+            Ok(NextDirective::Default)
+        }
+        "manual" => Ok(NextDirective::Default),
+        "window" => {
+            let match_target = get_string(node, "matchTarget", "title");
+            let title = get_string(node, "title", "");
+            let program = get_string(node, "program", "");
+            let match_mode = get_string(node, "matchMode", "contains");
+            let timeout_ms = get_u64(node, "timeoutMs", 30_000);
+            let poll_ms = get_u64(node, "pollMs", 250);
+
+            let waiting_for_program = match_target.eq_ignore_ascii_case("program");
+            let match_value = if waiting_for_program {
+                program.trim()
+            } else {
+                title.trim()
+            };
+
+            if match_value.is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' window trigger {} is empty",
+                    node.id,
+                    if waiting_for_program { "program" } else { "title" }
+                )));
+            }
+
+            let query = build_window_match_query(node, &match_target, &title, &program, &match_mode);
+            let query_description = describe_window_query(&match_target, match_value, &query);
+
+            let poll_interval = Duration::from_millis(poll_ms.max(10));
+            let deadline = Duration::from_millis(timeout_ms);
+            let started = tokio::time::Instant::now();
+            let matched_window = loop {
+                if should_cancel() {
+                    return Err(CommandFlowError::Canceled);
+                }
+
+                let matched = window::foreground_window_matches(&query)?;
+
+                if let Some(window) = matched {
+                    break window;
+                }
+
+                if started.elapsed() >= deadline {
+                    return Err(CommandFlowError::Automation(format!(
+                        "window trigger timed out after {} ms waiting for foreground window {}",
+                        timeout_ms, query_description
+                    )));
+                }
+
+                interruptible_sleep(poll_interval, should_cancel).await?;
+            };
+
+            set_node_output(ctx, node, "title", Value::String(matched_window.title));
+            set_node_output(ctx, node, "program", Value::String(matched_window.program_name));
+            set_node_output(ctx, node, "programPath", Value::String(matched_window.program_path));
+            set_node_output(ctx, node, "className", Value::String(matched_window.class_name));
+            set_node_output(ctx, node, "processId", value_from_u64(matched_window.process_id as u64));
+
+            Ok(NextDirective::Default)
+        }
+        _ => Err(CommandFlowError::Validation(format!(
+            "node '{}' has unsupported trigger type '{}'",
+            node.id, requested
+        ))),
+    }
 }
 
 fn normalize_system_operation_name(value: &str) -> String {

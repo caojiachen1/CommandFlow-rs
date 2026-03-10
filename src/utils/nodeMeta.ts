@@ -4,6 +4,8 @@ export type ParamFieldType = 'string' | 'number' | 'boolean' | 'select' | 'json'
 
 const WINDOW_ADVANCED_FIELD_KEYS = ['programPath', 'className', 'processId']
 
+export type TriggerMode = 'manual' | 'hotkey' | 'timer' | 'window'
+
 export type SystemOperationKind =
   | 'shutdown'
   | 'restart'
@@ -99,6 +101,20 @@ export const LAUNCH_APPLICATION_MODE_OPTIONS: Array<{ label: string; value: Laun
   { label: 'Shell API 启动（兼容性更高）', value: 'shell' },
 ]
 
+export const TRIGGER_MODE_OPTIONS: Array<{ label: string; value: TriggerMode }> = [
+  { label: '手动触发', value: 'manual' },
+  { label: '热键触发', value: 'hotkey' },
+  { label: '定时触发', value: 'timer' },
+  { label: '窗口触发', value: 'window' },
+]
+
+const TRIGGER_FIELD_KEYS: Record<TriggerMode, string[]> = {
+  manual: [],
+  hotkey: ['hotkey'],
+  timer: ['intervalMs'],
+  window: ['matchTarget', 'title', 'program', 'programPath', 'className', 'processId', 'matchMode'],
+}
+
 const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
   shutdown: ['timeoutSec', 'force'],
   restart: ['timeoutSec', 'force'],
@@ -193,6 +209,16 @@ export const getLaunchApplicationMode = (
     : defaultMode
 }
 
+export const getTriggerMode = (
+  params: Record<string, unknown>,
+  defaultMode: TriggerMode = 'manual',
+): TriggerMode => {
+  const mode = String(params.triggerType ?? defaultMode)
+  return TRIGGER_MODE_OPTIONS.some((item) => item.value === mode)
+    ? (mode as TriggerMode)
+    : defaultMode
+}
+
 export const getSystemOperationLabel = (
   params: Record<string, unknown>,
   defaultOperation: SystemOperationKind = 'shutdown',
@@ -225,11 +251,23 @@ export const getKeyboardOperationLabel = (
   return KEYBOARD_OPERATION_OPTIONS.find((item) => item.value === operation)?.label ?? '键盘操作'
 }
 
+export const getTriggerModeLabel = (
+  params: Record<string, unknown>,
+  defaultMode: TriggerMode = 'manual',
+): string => {
+  const mode = getTriggerMode(params, defaultMode)
+  return TRIGGER_MODE_OPTIONS.find((item) => item.value === mode)?.label ?? '触发器'
+}
+
 export const getNodeDisplayLabel = (
   kind: NodeKind,
   params: Record<string, unknown> = {},
   fallbackLabel?: string,
 ): string => {
+  if (kind === 'trigger') {
+    return getTriggerModeLabel(params, getTriggerMode(getNodeMeta(kind).defaultParams))
+  }
+
   if (kind === 'launchApplication') {
     const appName = String(params.appName ?? '').trim()
     return appName ? `启动应用 · ${appName}` : (fallbackLabel ?? getNodeMeta(kind).label)
@@ -260,6 +298,31 @@ export const isNodeFieldVisible = (
   params: Record<string, unknown>,
   defaultParams: Record<string, unknown> = {},
 ) => {
+  if (kind === 'trigger') {
+    if (field.key === 'triggerType') return true
+
+    const triggerMode = getTriggerMode(
+      params,
+      getTriggerMode(defaultParams, 'manual'),
+    )
+
+    if (!TRIGGER_FIELD_KEYS[triggerMode].includes(field.key)) {
+      return false
+    }
+
+    if (triggerMode === 'window') {
+      const target = String(params.matchTarget ?? defaultParams.matchTarget ?? 'title')
+      if (target === 'title') {
+        return field.key !== 'program'
+      }
+      if (target === 'program') {
+        return field.key !== 'title'
+      }
+    }
+
+    return true
+  }
+
   if (kind === 'systemOperation') {
     if (field.key === 'operation') return true
     const operation = getSystemOperationKind(
@@ -335,16 +398,6 @@ export const isNodeFieldVisible = (
     }
     if (mode === 'shortcut') {
       return !['title', 'program', 'matchMode', ...WINDOW_ADVANCED_FIELD_KEYS].includes(field.key)
-    }
-  }
-
-  if (kind === 'windowTrigger') {
-    const target = String(params.matchTarget ?? defaultParams.matchTarget ?? 'title')
-    if (target === 'title') {
-      return field.key !== 'program'
-    }
-    if (target === 'program') {
-      return field.key !== 'title'
     }
   }
 
@@ -650,28 +703,13 @@ export const getNodeFields = (
 }
 
 const metas: Record<NodeKind, NodeMeta> = {
-  hotkeyTrigger: {
-    label: '热键触发',
-    description: '按下设定热键时触发工作流。',
-    defaultParams: { hotkey: 'Ctrl+Shift+R' },
-    fields: [{ key: 'hotkey', label: '热键', type: 'string', placeholder: 'Ctrl+Shift+R' }],
-  },
-  timerTrigger: {
-    label: '定时触发',
-    description: '按时间间隔触发后续节点。',
-    defaultParams: { intervalMs: 1000 },
-    fields: [{ key: 'intervalMs', label: '等待毫秒', type: 'number', min: 0, step: 100 }],
-  },
-  manualTrigger: {
-    label: '手动触发',
-    description: '点击运行按钮后触发工作流。',
-    defaultParams: {},
-    fields: [],
-  },
-  windowTrigger: {
-    label: '窗口触发',
-    description: '检测到指定前台窗口标题或程序时触发。',
+  trigger: {
+    label: '触发器',
+    description: '统一的触发节点；选择触发方式后动态显示对应参数与输出。',
     defaultParams: {
+      triggerType: 'manual',
+      hotkey: 'Ctrl+Shift+R',
+      intervalMs: 1000,
       matchTarget: 'title',
       title: 'Untitled - Notepad',
       program: 'notepad.exe',
@@ -681,6 +719,14 @@ const metas: Record<NodeKind, NodeMeta> = {
       processId: 0,
     },
     fields: [
+      {
+        key: 'triggerType',
+        label: '触发方式',
+        type: 'select',
+        options: TRIGGER_MODE_OPTIONS,
+      },
+      { key: 'hotkey', label: '热键', type: 'string', placeholder: 'Ctrl+Shift+R' },
+      { key: 'intervalMs', label: '等待毫秒', type: 'number', min: 0, step: 100 },
       {
         key: 'matchTarget',
         label: '匹配目标',

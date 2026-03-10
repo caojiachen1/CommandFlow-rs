@@ -2,7 +2,7 @@ import { Handle, Position } from '@xyflow/react'
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
-import { getNodeFields, getNodeMeta, getSystemOperationKind, type ParamField } from '../utils/nodeMeta'
+import { getNodeFields, getNodeMeta, getSystemOperationKind, getTriggerMode, type ParamField } from '../utils/nodeMeta'
 import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../utils/execution'
 import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../utils/refresh'
 import { buildLaunchApplicationParams, filterStartMenuApps, getStartMenuAppDisplayName } from '../utils/startMenuApp'
@@ -75,23 +75,26 @@ const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
 const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'clipboardRead' || kind === 'fileOperation') && fieldKey === 'outputVar'
 
-const isWindowTitleField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'title'
+const isWindowLookupNode = (kind: NodeKind, params: Record<string, unknown> = {}) =>
+  kind === 'windowActivate' || (kind === 'trigger' && getTriggerMode(params) === 'window')
 
-const isWindowProgramField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'program'
+const isWindowTitleField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
+  isWindowLookupNode(kind, params) && fieldKey === 'title'
 
-const isWindowProgramPathField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'programPath'
+const isWindowProgramField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
+  isWindowLookupNode(kind, params) && fieldKey === 'program'
 
-const isWindowClassField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'className'
+const isWindowProgramPathField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
+  isWindowLookupNode(kind, params) && fieldKey === 'programPath'
 
-const isWindowPidField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'windowTrigger' || kind === 'windowActivate') && fieldKey === 'processId'
+const isWindowClassField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
+  isWindowLookupNode(kind, params) && fieldKey === 'className'
 
-const isWindowLookupField = (kind: NodeKind, fieldKey: string) =>
-  (kind === 'windowTrigger' || kind === 'windowActivate') && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
+const isWindowPidField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
+  isWindowLookupNode(kind, params) && fieldKey === 'processId'
+
+const isWindowLookupField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
+  isWindowLookupNode(kind, params) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
 
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
   const isSelected = selected
@@ -104,6 +107,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   )
   const meta = getNodeMeta(data.kind)
   const params = data.params ?? {}
+  const triggerMode = data.kind === 'trigger' ? getTriggerMode(params) : null
   const visibleFields = getNodeFields(data.kind, params, meta.defaultParams)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -168,7 +172,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   )
 
   const refreshWindowEntries = () => {
-    if (data.kind !== 'windowTrigger' && data.kind !== 'windowActivate') return
+    if (!isWindowLookupNode(data.kind, params)) return
 
     void listOpenWindowEntries()
       .then((entries) => {
@@ -180,7 +184,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   }
 
   useEffect(() => {
-    if (data.kind !== 'windowTrigger' && data.kind !== 'windowActivate') {
+    if (!isWindowLookupNode(data.kind, params)) {
       setOpenWindows([])
       return
     }
@@ -199,7 +203,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     return () => {
       cancelled = true
     }
-  }, [data.kind])
+  }, [data.kind, params, triggerMode])
 
   useEffect(() => {
     if (data.kind !== 'launchApplication') {
@@ -225,7 +229,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
   useEffect(() => {
     const handleGlobalRefresh = () => {
-      if (data.kind === 'windowTrigger' || data.kind === 'windowActivate') {
+      if (isWindowLookupNode(data.kind, params)) {
         void listOpenWindowEntries()
           .then((entries) => {
             setOpenWindows(entries)
@@ -250,28 +254,28 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     return () => {
       window.removeEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
     }
-  }, [data.kind])
+  }, [data.kind, params, triggerMode])
 
   const getStringSuggestions = (field: ParamField): string[] => {
     const kind = data.kind
 
-    if (isWindowTitleField(kind, field.key)) {
+    if (isWindowTitleField(kind, params, field.key)) {
       return windowTitles
     }
 
-    if (isWindowProgramField(kind, field.key)) {
+    if (isWindowProgramField(kind, params, field.key)) {
       return windowPrograms
     }
 
-    if (isWindowProgramPathField(kind, field.key)) {
+    if (isWindowProgramPathField(kind, params, field.key)) {
       return windowProgramPaths
     }
 
-    if (isWindowClassField(kind, field.key)) {
+    if (isWindowClassField(kind, params, field.key)) {
       return windowClassNames
     }
 
-    if (isWindowPidField(kind, field.key)) {
+    if (isWindowPidField(kind, params, field.key)) {
       return windowPids
     }
 
@@ -306,7 +310,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   }
 
   const applyWindowEntrySelection = (fieldKey: string, value: string) => {
-    if (!isWindowLookupField(data.kind, fieldKey)) {
+    if (!isWindowLookupField(data.kind, params, fieldKey)) {
       return false
     }
 
@@ -567,7 +571,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const currentValue = params[field.key] ?? meta.defaultParams[field.key]
     const isBoolean = field.type === 'boolean'
     const isNumber = field.type === 'number'
-    const isWindowPidSuggestionField = isWindowPidField(data.kind, field.key)
+    const isWindowPidSuggestionField = isWindowPidField(data.kind, params, field.key)
     const isSelect = field.type === 'select'
     const isJson = field.type === 'json'
     const isSensitiveField = data.kind === 'guiAgent' && field.key === 'apiKey'
@@ -864,10 +868,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       (isVariableOperandField(data.kind, field.key) &&
         (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var'))
 
-    const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, field.key)
-    const supportsWindowProgramSuggestions = isWindowProgramField(data.kind, field.key)
-    const supportsWindowProgramPathSuggestions = isWindowProgramPathField(data.kind, field.key)
-    const supportsWindowClassSuggestions = isWindowClassField(data.kind, field.key)
+    const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, params, field.key)
+    const supportsWindowProgramSuggestions = isWindowProgramField(data.kind, params, field.key)
+    const supportsWindowProgramPathSuggestions = isWindowProgramPathField(data.kind, params, field.key)
+    const supportsWindowClassSuggestions = isWindowClassField(data.kind, params, field.key)
     const supportsWindowPidSuggestions = isWindowPidSuggestionField
     const supportsGuiModelSuggestions = false
     const supportsWindowSuggestions =
