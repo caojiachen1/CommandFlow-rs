@@ -16,12 +16,17 @@ use std::ptr;
 #[cfg(target_os = "windows")]
 use std::slice;
 #[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::LocalFree;
+#[cfg(target_os = "windows")]
 use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, BITMAPINFO,
     BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, RGBQUAD,
 };
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::Shell::{ExtractIconExW, ShellExecuteW, SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+use windows_sys::Win32::UI::Shell::{
+    CommandLineToArgvW, ExtractIconExW, ShellExecuteW, SHGetFileInfoW, SHFILEINFOW,
+    SHGFI_ICON, SHGFI_LARGEICON,
+};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, PrivateExtractIconsW, HICON, DI_NORMAL, SW_SHOWNORMAL};
 
@@ -47,6 +52,21 @@ pub struct StartMenuAppEntry {
 struct IconLocation {
     path: String,
     index: i32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ShortcutLaunchProfile {
+    target_path: String,
+    icon_path: String,
+    launch_arguments: String,
+    working_directory: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DirectLaunchRequest {
+    target_path: PathBuf,
+    launch_arguments: String,
+    working_directory: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,6 +203,8 @@ pub fn launch_application(
     entry: &StartMenuAppEntry,
     mode: ApplicationLaunchMode,
 ) -> CommandResult<Option<u32>> {
+    let direct_launch = resolve_direct_launch_request(entry);
+
     #[cfg(target_os = "windows")]
     {
         if mode == ApplicationLaunchMode::Shell {
@@ -192,14 +214,17 @@ pub fn launch_application(
         }
 
         let source_path = PathBuf::from(&entry.source_path);
-        if mode == ApplicationLaunchMode::Auto && should_launch_shortcut_via_shell(entry, &source_path) {
+        if mode == ApplicationLaunchMode::Auto
+            && source_path.is_file()
+            && is_shortcut_file(&source_path)
+            && !is_valid_launch_target(&direct_launch.target_path)
+        {
             open_path_via_shell_execute(&source_path)?;
             return Ok(None);
         }
     }
 
-    let target_path = PathBuf::from(&entry.target_path);
-    if !is_valid_launch_target(&target_path) {
+    if !is_valid_launch_target(&direct_launch.target_path) {
         let reason = if mode == ApplicationLaunchMode::Direct {
             "当前启动方式为直接启动，请改为自动或 Shell API 启动。"
         } else {
@@ -207,13 +232,14 @@ pub fn launch_application(
         };
         return Err(CommandFlowError::Validation(format!(
             "应用目标不可执行或不存在：{}{}{}",
-            entry.target_path,
+            direct_launch.target_path.display(),
             if reason.is_empty() { "" } else { "；" },
             reason
         )));
     }
 
-    let extension = target_path
+    let extension = direct_launch
+        .target_path
         .extension()
         .and_then(|value| value.to_str())
         .map(|value| value.to_ascii_lowercase())
@@ -221,16 +247,18 @@ pub fn launch_application(
 
     let mut command = if extension == "bat" || extension == "cmd" {
         let mut cmd = std::process::Command::new("cmd");
-        cmd.arg("/C").arg(&entry.target_path);
+        cmd.arg("/C").arg(&direct_launch.target_path);
         cmd
     } else {
-        std::process::Command::new(&entry.target_path)
+        std::process::Command::new(&direct_launch.target_path)
     };
+
+    apply_direct_launch_request(&mut command, &direct_launch)?;
 
     let child = command.spawn().map_err(|error| {
         CommandFlowError::Automation(format!(
             "启动应用失败 '{}': {}",
-            entry.target_path, error
+            direct_launch.target_path.display(), error
         ))
     })?;
 
@@ -255,7 +283,7 @@ fn resolve_shell_launch_path(entry: &StartMenuAppEntry) -> CommandResult<PathBuf
     )))
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", test))]
 fn should_launch_shortcut_via_shell(entry: &StartMenuAppEntry, source_path: &Path) -> bool {
     if !(source_path.is_file() && is_shortcut_file(source_path)) {
         return false;
@@ -263,6 +291,73 @@ fn should_launch_shortcut_via_shell(entry: &StartMenuAppEntry, source_path: &Pat
 
     let target_path = PathBuf::from(&entry.target_path);
     !is_valid_launch_target(&target_path)
+}
+
+fn resolve_direct_launch_request(entry: &StartMenuAppEntry) -> DirectLaunchRequest {
+    let source_path = PathBuf::from(&entry.source_path);
+    let shortcut_profile = if source_path.is_file() && is_shortcut_file(&source_path) {
+        parse_shortcut_launch_profile(&source_path)
+    } else {
+        None
+    };
+
+    let target_path = shortcut_profile
+        .as_ref()
+        .and_then(|profile| sanitize_path_string(&profile.target_path))
+        .or_else(|| sanitize_path_string(&entry.target_path))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(&entry.target_path));
+
+    let launch_arguments = shortcut_profile
+        .as_ref()
+        .map(|profile| profile.launch_arguments.clone())
+        .unwrap_or_default();
+
+    let working_directory = shortcut_profile
+        .as_ref()
+        .and_then(|profile| resolve_working_directory(&profile.working_directory))
+        .or_else(|| target_path.parent().map(PathBuf::from))
+        .or_else(|| source_path.parent().map(PathBuf::from))
+        .filter(|path| path.is_dir());
+
+    DirectLaunchRequest {
+        target_path,
+        launch_arguments,
+        working_directory,
+    }
+}
+
+fn resolve_working_directory(raw: &str) -> Option<PathBuf> {
+    sanitize_path_string(raw)
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+}
+
+fn apply_direct_launch_request(
+    command: &mut std::process::Command,
+    request: &DirectLaunchRequest,
+) -> CommandResult<()> {
+    if let Some(working_directory) = &request.working_directory {
+        command.current_dir(working_directory);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if !request.launch_arguments.trim().is_empty() {
+            for argument in split_windows_command_line_arguments(&request.launch_arguments)? {
+                command.arg(argument);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if !request.launch_arguments.trim().is_empty() {
+            command.args(request.launch_arguments.split_whitespace());
+        }
+    }
+
+    Ok(())
 }
 
 pub fn resolve_app_icon_data_url(
@@ -361,13 +456,7 @@ fn is_shortcut_file(path: &Path) -> bool {
 }
 
 fn parse_shortcut_entry(path: &Path) -> Option<StartMenuAppEntry> {
-    let parser = LNKParser::from_path(path.to_str()?).ok()?;
-
-    let target_path = parser
-        .get_target_full_path()
-        .as_deref()
-        .and_then(sanitize_path_string)
-        .unwrap_or_default();
+    let profile = parse_shortcut_launch_profile(path)?;
 
     let source_path = normalize_display_path(path);
     let app_name = path
@@ -377,17 +466,38 @@ fn parse_shortcut_entry(path: &Path) -> Option<StartMenuAppEntry> {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)?;
 
-    let icon_path = parser
-        .get_icon_location()
-        .as_ref()
-        .and_then(|value| sanitize_optional_metadata(&value.string))
-        .unwrap_or_default();
-
     Some(StartMenuAppEntry {
         app_name,
-        target_path,
-        icon_path,
+        target_path: profile.target_path,
+        icon_path: profile.icon_path,
         source_path,
+    })
+}
+
+fn parse_shortcut_launch_profile(path: &Path) -> Option<ShortcutLaunchProfile> {
+    let parser = LNKParser::from_path(path.to_str()?).ok()?;
+
+    Some(ShortcutLaunchProfile {
+        target_path: parser
+            .get_target_full_path()
+            .as_deref()
+            .and_then(sanitize_path_string)
+            .unwrap_or_default(),
+        icon_path: parser
+            .get_icon_location()
+            .as_ref()
+            .and_then(|value| sanitize_optional_metadata(&value.string))
+            .unwrap_or_default(),
+        launch_arguments: parser
+            .get_command_line_arguments()
+            .as_ref()
+            .and_then(|value| sanitize_optional_metadata(&value.string))
+            .unwrap_or_default(),
+        working_directory: parser
+            .get_working_dir()
+            .as_ref()
+            .and_then(|value| sanitize_path_string(&value.string))
+            .unwrap_or_default(),
     })
 }
 
@@ -654,6 +764,46 @@ fn to_wide_null(value: &str) -> Vec<u16> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn split_windows_command_line_arguments(raw: &str) -> CommandResult<Vec<String>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let command_line = format!("commandflow-shortcut {}", trimmed);
+    let wide_command_line = to_wide_null(&command_line);
+    let mut argument_count = 0;
+    let argument_vector = unsafe { CommandLineToArgvW(wide_command_line.as_ptr(), &mut argument_count) };
+
+    if argument_vector.is_null() || argument_count <= 0 {
+        return Err(CommandFlowError::Automation(format!(
+            "解析快捷方式命令行参数失败：{}",
+            raw
+        )));
+    }
+
+    let arguments = unsafe {
+        slice::from_raw_parts(argument_vector, argument_count as usize)
+            .iter()
+            .skip(1)
+            .map(|argument| {
+                let mut len = 0usize;
+                while *argument.add(len) != 0 {
+                    len += 1;
+                }
+                String::from_utf16_lossy(slice::from_raw_parts(*argument, len))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    unsafe {
+        LocalFree(argument_vector as *mut core::ffi::c_void);
+    }
+
+    Ok(arguments)
 }
 
 #[cfg(target_os = "windows")]
@@ -962,8 +1112,9 @@ fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<
 mod tests {
     use super::{
         bitmap_has_visible_pixels, compare_entries, is_valid_launch_target,
-        normalize_path_key, parse_icon_location, resolve_launch_application_entry,
-        ApplicationLaunchMode, StartMenuAppEntry,
+        normalize_path_key, parse_icon_location, resolve_direct_launch_request,
+        resolve_launch_application_entry, ApplicationLaunchMode, DirectLaunchRequest,
+        StartMenuAppEntry,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1105,5 +1256,70 @@ mod tests {
         assert_eq!(ApplicationLaunchMode::from_param("shell"), ApplicationLaunchMode::Shell);
         assert_eq!(ApplicationLaunchMode::from_param("shell_api"), ApplicationLaunchMode::Shell);
         assert_eq!(ApplicationLaunchMode::from_param("unknown"), ApplicationLaunchMode::Auto);
+    }
+
+    #[test]
+    fn direct_launch_request_uses_target_parent_as_working_directory_when_shortcut_metadata_is_missing() {
+        let executable = unique_temp_path("cwd-fallback.exe");
+        fs::write(&executable, b"MZ").expect("create test executable placeholder");
+
+        let entry = StartMenuAppEntry {
+            app_name: "Fallback App".to_string(),
+            target_path: executable.to_string_lossy().into_owned(),
+            icon_path: String::new(),
+            source_path: String::new(),
+        };
+
+        let request = resolve_direct_launch_request(&entry);
+        assert_eq!(request.target_path, executable);
+        assert_eq!(request.working_directory, executable.parent().map(PathBuf::from));
+        assert!(request.launch_arguments.is_empty());
+
+        let _ = fs::remove_file(&executable);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn splits_windows_shortcut_arguments_like_command_line_parser() {
+        let arguments = super::split_windows_command_line_arguments(
+            r#"--profile "D:\Apps\Demo User" --flag value"#,
+        )
+        .expect("split shortcut arguments");
+
+        assert_eq!(
+            arguments,
+            vec![
+                "--profile".to_string(),
+                r#"D:\Apps\Demo User"#.to_string(),
+                "--flag".to_string(),
+                "value".to_string(),
+            ]
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn applies_direct_launch_request_to_command() {
+        let executable = unique_temp_path("apply-launch.exe");
+        fs::write(&executable, b"MZ").expect("create test executable placeholder");
+        let working_directory = executable.parent().map(PathBuf::from).expect("working dir");
+
+        let request = DirectLaunchRequest {
+            target_path: executable.clone(),
+            launch_arguments: r#"--mode direct "hello world""#.to_string(),
+            working_directory: Some(working_directory.clone()),
+        };
+
+        let mut command = std::process::Command::new(&request.target_path);
+        super::apply_direct_launch_request(&mut command, &request).expect("apply direct launch request");
+
+        assert_eq!(command.get_current_dir(), Some(working_directory.as_path()));
+        let args = command
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(args, vec!["--mode", "direct", "hello world"]);
+
+        let _ = fs::remove_file(&executable);
     }
 }
