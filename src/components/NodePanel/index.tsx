@@ -113,7 +113,6 @@ export default function NodePanel() {
                       onDragStart={(event) => handleDragStart(event, item.kind)}
                       className="group flex cursor-grab items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:border-cyan-500 hover:shadow-xl hover:shadow-cyan-500/10 active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-900/50 dark:hover:border-cyan-500"
                     >
-                      <div className={`h-2.5 w-2.5 rounded-full ${item.color} shadow-sm transition-transform group-hover:scale-125`} />
                       <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 group-hover:text-cyan-600 dark:group-hover:text-cyan-400">
                         {item.label}
                       </span>
