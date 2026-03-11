@@ -264,9 +264,9 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                 </div>
 
                 {/* Recording options */}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-neutral-700 dark:bg-neutral-800/40">
-                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200">录制内容</h4>
-                  <div className="mt-3 space-y-2.5 text-sm">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-2 dark:border-neutral-700 dark:bg-neutral-800/40">
+                  <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 ml-2 mt-1">录制内容</h4>
+                  <div className="mt-1 space-y-1 text-sm">
                     {(
                       [
                         ['recordKeyboard', '记录键盘操作', '记录按键按下与松开，用于还原快捷键与组合键。'],
@@ -276,7 +276,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                     ).map(([key, label, hint]) => (
                       <label
                         key={key}
-                        className="flex items-start gap-3 rounded-xl border border-transparent bg-white/70 px-3 py-2.5 dark:bg-neutral-900/60"
+                        className="flex items-start gap-1 rounded-xl border border-transparent px-1 py-1 pl-2"
                       >
                         <input
                           type="checkbox"
