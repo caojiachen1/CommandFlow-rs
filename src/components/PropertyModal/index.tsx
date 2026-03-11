@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, getTriggerMode, type ParamField } from '../../utils/nodeMeta'
 import { fetchLlmModels, listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
 import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../../utils/refresh'
@@ -150,6 +151,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
   const [openWindows, setOpenWindows] = useState<OpenWindowEntryPayload[]>([])
   const [guiModelNames, setGuiModelNames] = useState<string[]>([])
   const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
+  const inputRecordingPresets = useSettingsStore((state) => state.inputRecordingPresets)
 
   const variableNames = useMemo(
     () => dedupe(
@@ -504,6 +506,25 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     }
 
     if (field.type === 'select') {
+      if (selectedNode.data.kind === 'inputPresetReplay' && field.key === 'presetId') {
+        return (
+          <StyledSelect
+            value={String(currentValue ?? '')}
+            options={inputRecordingPresets.map((preset) => ({ label: preset.name, value: preset.id }))}
+            onChange={(nextValue) => {
+              const matched = inputRecordingPresets.find((preset) => preset.id === nextValue)
+              updateNodeParams(selectedNode.id, {
+                ...selectedNode.data.params,
+                presetId: nextValue,
+                presetName: matched?.name ?? '',
+              })
+            }}
+            onEnter={handleClose}
+            placeholder={inputRecordingPresets.length > 0 ? '请选择键鼠预设' : '请先在设置中新增键鼠预设'}
+          />
+        )
+      }
+
       if (selectedNode.data.kind === 'launchApplication' && field.key === 'selectedApp') {
         return (
           <StartMenuAppSelect

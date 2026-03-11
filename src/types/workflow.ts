@@ -4,6 +4,7 @@ export type TriggerNodeKind = 'trigger'
 export type ActionNodeKind =
   | 'mouseOperation'
   | 'keyboardOperation'
+  | 'inputPresetReplay'
   | 'screenshot'
   | 'windowActivate'
   | 'launchApplication'

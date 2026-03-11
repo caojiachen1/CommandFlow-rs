@@ -23,6 +23,7 @@ pub enum NodeKind {
     KeyboardDown,
     KeyboardUp,
     Shortcut,
+    InputPresetReplay,
     Screenshot,
     WindowActivate,
     LaunchApplication,

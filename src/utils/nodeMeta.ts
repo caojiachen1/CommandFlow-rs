@@ -30,6 +30,7 @@ export type FileOperationKind = 'copy' | 'move' | 'delete' | 'readText' | 'write
 export type MouseOperationKind = 'click' | 'move' | 'drag' | 'wheel' | 'down' | 'up'
 
 export type KeyboardOperationKind = 'key' | 'input' | 'down' | 'up' | 'shortcut'
+export type InputPresetReplayMode = 'originalTiming' | 'compressed' | 'step'
 
 export type LaunchApplicationMode = 'auto' | 'direct' | 'shell'
 
@@ -116,6 +117,12 @@ export const KEYBOARD_OPERATION_OPTIONS: Array<{ label: string; value: KeyboardO
   { label: '键盘按下', value: 'down' },
   { label: '键盘松开', value: 'up' },
   { label: '组合键', value: 'shortcut' },
+]
+
+export const INPUT_PRESET_REPLAY_MODE_OPTIONS: Array<{ label: string; value: InputPresetReplayMode }> = [
+  { label: '按原始节奏回放', value: 'originalTiming' },
+  { label: '压缩间隔回放', value: 'compressed' },
+  { label: '逐条快速回放', value: 'step' },
 ]
 
 export const LAUNCH_APPLICATION_MODE_OPTIONS: Array<{ label: string; value: LaunchApplicationMode }> = [
@@ -341,6 +348,11 @@ export const getNodeDisplayLabel = (
 
   if (kind === 'keyboardOperation') {
     return getKeyboardOperationLabel(params, getKeyboardOperationKind(getNodeMeta(kind).defaultParams))
+  }
+
+  if (kind === 'inputPresetReplay') {
+    const presetName = String(params.presetName ?? '').trim()
+    return presetName ? `回放预设 · ${presetName}` : (fallbackLabel ?? getNodeMeta(kind).label)
   }
 
   return fallbackLabel ?? getNodeMeta(kind).label
@@ -922,6 +934,56 @@ const metas: Record<NodeKind, NodeMeta> = {
         label: '修饰键(JSON数组)',
         type: 'json',
         description: '例如 ["Ctrl", "Shift"]',
+      },
+    ],
+  },
+  inputPresetReplay: {
+    label: '回放键鼠预设',
+    description: '从已保存的键鼠录制预设中选择一份动作并按设定节奏回放。',
+    defaultParams: {
+      presetId: '',
+      presetName: '',
+      replayMode: 'originalTiming',
+      delayScale: 1,
+      minDelayMs: 8,
+      maxDelayMs: 250,
+    },
+    fields: [
+      {
+        key: 'presetId',
+        label: '键鼠预设',
+        type: 'select',
+        options: [],
+        description: '下拉列表来自设置中的键鼠录制预设。',
+      },
+      {
+        key: 'replayMode',
+        label: '回放节奏',
+        type: 'select',
+        options: INPUT_PRESET_REPLAY_MODE_OPTIONS,
+      },
+      {
+        key: 'delayScale',
+        label: '延时倍率',
+        type: 'number',
+        min: 0.1,
+        max: 4,
+        step: 0.1,
+        description: '仅在“按原始节奏回放 / 压缩间隔回放”时生效。',
+      },
+      {
+        key: 'minDelayMs',
+        label: '最小间隔(ms)',
+        type: 'number',
+        min: 0,
+        step: 1,
+      },
+      {
+        key: 'maxDelayMs',
+        label: '最大间隔(ms)',
+        type: 'number',
+        min: 0,
+        step: 1,
       },
     ],
   },

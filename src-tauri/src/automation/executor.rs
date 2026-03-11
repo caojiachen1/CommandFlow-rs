@@ -1,4 +1,5 @@
 use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, start_menu, system_settings, window};
+use crate::secure_settings::{load_input_recording_presets, InputRecordingAction, InputRecordingPreset, RecordedCursorPoint};
 use arboard::{Clipboard, ImageData};
 use base64::Engine as _;
 use base64::engine::general_purpose;
@@ -499,6 +500,9 @@ impl WorkflowExecutor {
             }
             NodeKind::Shortcut => {
                 execute_keyboard_operation(node, ctx, should_cancel, Some("shortcut")).await
+            }
+            NodeKind::InputPresetReplay => {
+                execute_input_preset_replay(node, ctx, should_cancel).await
             }
             NodeKind::Screenshot => {
                 let output_path = resolve_screenshot_output_path(node)?;
@@ -2406,6 +2410,228 @@ async fn execute_keyboard_operation(
     }
 
     Ok(NextDirective::Default)
+}
+
+async fn execute_input_preset_replay(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<NextDirective> {
+    let preset_id = get_string(node, "presetId", "").trim().to_string();
+    if preset_id.is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' 尚未选择要回放的键鼠预设",
+            node.id
+        )));
+    }
+
+    let replay_mode_raw = get_string(node, "replayMode", "originalTiming");
+    let replay_mode = normalize_system_operation_name(&replay_mode_raw);
+    let delay_scale = get_f64(node, "delayScale", 1.0).clamp(0.0, 10.0);
+    let min_delay_ms = get_u64(node, "minDelayMs", 8);
+    let max_delay_ms = get_u64(node, "maxDelayMs", 250).max(min_delay_ms.max(1));
+
+    let presets = load_input_recording_presets()
+        .map_err(|error| CommandFlowError::Automation(format!("加载键鼠预设失败：{}", error)))?;
+    let preset = presets
+        .into_iter()
+        .find(|item| item.id == preset_id)
+        .ok_or_else(|| {
+            CommandFlowError::Automation(format!(
+                "未找到键鼠预设 '{}'，请确认该预设仍然存在。",
+                preset_id
+            ))
+        })?;
+
+    if preset.actions.is_empty() {
+        return Err(CommandFlowError::Automation(format!(
+            "键鼠预设 '{}' 暂无可回放的操作。",
+            preset.name
+        )));
+    }
+
+    replay_input_preset_actions(
+        &preset,
+        replay_mode.as_str(),
+        delay_scale,
+        min_delay_ms,
+        max_delay_ms,
+        should_cancel,
+    )
+    .await?;
+
+    set_node_output(ctx, node, "presetName", Value::String(preset.name.clone()));
+    set_node_output(ctx, node, "operationCount", value_from_u64(preset.actions.len() as u64));
+
+    Ok(NextDirective::Default)
+}
+
+async fn replay_input_preset_actions(
+    preset: &InputRecordingPreset,
+    replay_mode: &str,
+    delay_scale: f64,
+    min_delay_ms: u64,
+    max_delay_ms: u64,
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<()> {
+    let mut previous_end_timestamp = None;
+
+    for action in &preset.actions {
+        let wait_ms = previous_end_timestamp
+            .map(|prev_end| {
+                compute_replay_delay_ms(
+                    action_start_timestamp(action).saturating_sub(prev_end),
+                    replay_mode,
+                    delay_scale,
+                    min_delay_ms,
+                    max_delay_ms,
+                )
+            })
+            .unwrap_or(0);
+
+        if wait_ms > 0 {
+            interruptible_sleep(Duration::from_millis(wait_ms), should_cancel).await?;
+        }
+
+        replay_input_action(action, replay_mode, delay_scale, min_delay_ms, max_delay_ms, should_cancel).await?;
+        previous_end_timestamp = Some(action_end_timestamp(action));
+    }
+
+    Ok(())
+}
+
+fn action_start_timestamp(action: &InputRecordingAction) -> u64 {
+    match action {
+        InputRecordingAction::KeyDown { timestamp_ms, .. }
+        | InputRecordingAction::KeyUp { timestamp_ms, .. }
+        | InputRecordingAction::MouseDown { timestamp_ms, .. }
+        | InputRecordingAction::MouseUp { timestamp_ms, .. }
+        | InputRecordingAction::MouseMovePath { timestamp_ms, .. } => *timestamp_ms,
+    }
+}
+
+fn action_end_timestamp(action: &InputRecordingAction) -> u64 {
+    match action {
+        InputRecordingAction::MouseMovePath {
+            points,
+            duration_ms,
+            timestamp_ms,
+            ..
+        } => points
+            .last()
+            .map(|point| point.timestamp_ms)
+            .unwrap_or_else(|| timestamp_ms.saturating_add(*duration_ms)),
+        _ => action_start_timestamp(action),
+    }
+}
+
+fn compute_replay_delay_ms(
+    raw_delay_ms: u64,
+    replay_mode: &str,
+    delay_scale: f64,
+    min_delay_ms: u64,
+    max_delay_ms: u64,
+) -> u64 {
+    if raw_delay_ms == 0 {
+        return 0;
+    }
+
+    let scaled = match replay_mode {
+        "step" => min_delay_ms.max(1) as f64,
+        "compressed" => raw_delay_ms.min(max_delay_ms.saturating_mul(3).max(1)) as f64 * delay_scale,
+        _ => raw_delay_ms as f64 * delay_scale,
+    };
+
+    let clamped = scaled.round() as u64;
+    clamped.clamp(min_delay_ms.min(max_delay_ms), max_delay_ms.max(min_delay_ms))
+}
+
+async fn replay_input_action(
+    action: &InputRecordingAction,
+    replay_mode: &str,
+    delay_scale: f64,
+    min_delay_ms: u64,
+    max_delay_ms: u64,
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<()> {
+    match action {
+        InputRecordingAction::KeyDown { key, .. } => keyboard::key_down_by_name(key)?,
+        InputRecordingAction::KeyUp { key, .. } => keyboard::key_up_by_name(key)?,
+        InputRecordingAction::MouseDown { button, x, y, .. } => mouse::button_down(*x, *y, button)?,
+        InputRecordingAction::MouseUp { button, x, y, .. } => mouse::button_up(*x, *y, button)?,
+        InputRecordingAction::MouseMovePath {
+            points,
+            duration_ms,
+            ..
+        } => {
+            replay_mouse_move_path(
+                points,
+                *duration_ms,
+                replay_mode,
+                delay_scale,
+                min_delay_ms,
+                max_delay_ms,
+                should_cancel,
+            )
+            .await?
+        }
+    }
+
+    Ok(())
+}
+
+async fn replay_mouse_move_path(
+    points: &[RecordedCursorPoint],
+    duration_ms: u64,
+    replay_mode: &str,
+    delay_scale: f64,
+    min_delay_ms: u64,
+    max_delay_ms: u64,
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<()> {
+    let Some(first) = points.first() else {
+        return Ok(());
+    };
+
+    mouse::move_to(first.x, first.y)?;
+    if points.len() == 1 {
+        return Ok(());
+    }
+
+    let total_span = points
+        .last()
+        .map(|point| point.timestamp_ms.saturating_sub(first.timestamp_ms))
+        .unwrap_or(duration_ms);
+    let segment_fallback = if points.len() > 1 {
+        total_span / (points.len() as u64 - 1)
+    } else {
+        duration_ms
+    };
+
+    for pair in points.windows(2) {
+        if should_cancel() {
+            return Err(CommandFlowError::Canceled);
+        }
+
+        let current = &pair[0];
+        let next = &pair[1];
+        let raw_delay = next
+            .timestamp_ms
+            .saturating_sub(current.timestamp_ms)
+            .max(segment_fallback.min(1));
+        let wait_ms = if replay_mode == "step" {
+            0
+        } else {
+            compute_replay_delay_ms(raw_delay, replay_mode, delay_scale, min_delay_ms, max_delay_ms)
+        };
+
+        if wait_ms > 0 {
+            interruptible_sleep(Duration::from_millis(wait_ms), should_cancel).await?;
+        }
+        mouse::move_to(next.x, next.y)?;
+    }
+
+    Ok(())
 }
 
 async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<CommandExecutionResult> {

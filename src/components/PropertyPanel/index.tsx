@@ -142,6 +142,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     [selectedMeta, selectedNode],
   )
   const llmPresets = useSettingsStore((state) => state.llmPresets)
+  const inputRecordingPresets = useSettingsStore((state) => state.inputRecordingPresets)
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [openWindows, setOpenWindows] = useState<OpenWindowEntryPayload[]>([])
@@ -478,6 +479,24 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
             options={llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))}
             onChange={(nextValue) => updateParam(field.key, nextValue)}
             placeholder={llmPresets.length > 0 ? '请选择 LLM 预设' : '请先在设置中新增预设'}
+          />
+        )
+      }
+
+      if (selectedNode.data.kind === 'inputPresetReplay' && field.key === 'presetId') {
+        return (
+          <StyledSelect
+            value={String(currentValue ?? '')}
+            options={inputRecordingPresets.map((preset) => ({ label: preset.name, value: preset.id }))}
+            onChange={(nextValue) => {
+              const matched = inputRecordingPresets.find((preset) => preset.id === nextValue)
+              updateNodeParams(selectedNode.id, {
+                ...selectedNode.data.params,
+                presetId: nextValue,
+                presetName: matched?.name ?? '',
+              })
+            }}
+            placeholder={inputRecordingPresets.length > 0 ? '请选择键鼠预设' : '请先在设置中新增键鼠预设'}
           />
         )
       }

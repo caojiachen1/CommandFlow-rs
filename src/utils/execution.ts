@@ -10,6 +10,57 @@ export interface LlmPresetPayload {
   model: string
 }
 
+export interface InputRecordingOptionsPayload {
+  recordKeyboard: boolean
+  recordMouseClicks: boolean
+  recordMouseMoves: boolean
+}
+
+export interface RecordedCursorPointPayload {
+  x: number
+  y: number
+  timestampMs: number
+}
+
+export type InputRecordingActionPayload =
+  | {
+      kind: 'keyDown' | 'keyUp'
+      key: string
+      timestampMs: number
+    }
+  | {
+      kind: 'mouseDown' | 'mouseUp'
+      button: string
+      x: number
+      y: number
+      timestampMs: number
+    }
+  | {
+      kind: 'mouseMovePath'
+      points: RecordedCursorPointPayload[]
+      durationMs: number
+      distancePx: number
+      simplifiedFrom: number
+      timestampMs: number
+    }
+
+export interface InputRecordingPresetPayload {
+  id: string
+  name: string
+  options: InputRecordingOptionsPayload
+  actions: InputRecordingActionPayload[]
+  updatedAt: number
+}
+
+export interface InputRecordingStopResultPayload {
+  message: string
+  actions: InputRecordingActionPayload[]
+  operationCount: number
+  startedAtMs: number
+  endedAtMs: number
+  options: InputRecordingOptionsPayload
+}
+
 export interface StartMenuAppPayload {
   appName: string
   targetPath: string
@@ -215,4 +266,43 @@ export const saveLlmPresets = async (presets: LlmPresetPayload[]): Promise<void>
     return
   }
   await invoke('save_llm_presets', { presets })
+}
+
+export const loadInputRecordingPresets = async (): Promise<InputRecordingPresetPayload[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+  return invoke<InputRecordingPresetPayload[]>('load_input_recording_presets')
+}
+
+export const saveInputRecordingPresets = async (presets: InputRecordingPresetPayload[]): Promise<void> => {
+  if (!isTauriRuntime()) {
+    return
+  }
+  await invoke('save_input_recording_presets', { presets })
+}
+
+export const startInputRecording = async (options: InputRecordingOptionsPayload): Promise<string> => {
+  if (!isTauriRuntime()) {
+    return '当前为浏览器预览模式，未连接 Tauri 后端，无法进行真实录制。'
+  }
+  return invoke<string>('start_input_recording', { options })
+}
+
+export const stopInputRecording = async (): Promise<InputRecordingStopResultPayload> => {
+  if (!isTauriRuntime()) {
+    return {
+      message: '当前为浏览器预览模式，未连接 Tauri 后端。',
+      actions: [],
+      operationCount: 0,
+      startedAtMs: Date.now(),
+      endedAtMs: Date.now(),
+      options: {
+        recordKeyboard: true,
+        recordMouseClicks: true,
+        recordMouseMoves: true,
+      },
+    }
+  }
+  return invoke<InputRecordingStopResultPayload>('stop_input_recording')
 }

@@ -2,6 +2,7 @@ use crate::automation::executor::WorkflowExecutor;
 use crate::automation::screenshot;
 use crate::automation::start_menu;
 use crate::automation::window;
+use crate::input_recorder;
 use crate::workflow::graph::WorkflowGraph;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
@@ -560,6 +561,31 @@ pub async fn load_llm_presets() -> Result<Vec<crate::secure_settings::LlmPreset>
 #[tauri::command]
 pub async fn save_llm_presets(presets: Vec<crate::secure_settings::LlmPreset>) -> Result<(), String> {
     crate::secure_settings::save_llm_presets(presets)
+}
+
+#[tauri::command]
+pub async fn load_input_recording_presets() -> Result<Vec<crate::secure_settings::InputRecordingPreset>, String> {
+    crate::secure_settings::load_input_recording_presets()
+}
+
+#[tauri::command]
+pub async fn save_input_recording_presets(
+    presets: Vec<crate::secure_settings::InputRecordingPreset>,
+) -> Result<(), String> {
+    crate::secure_settings::save_input_recording_presets(presets)
+}
+
+#[tauri::command]
+pub async fn start_input_recording(
+    app: AppHandle,
+    options: crate::input_recorder::InputRecordingOptions,
+) -> Result<String, String> {
+    input_recorder::start_recording(app, options).await
+}
+
+#[tauri::command]
+pub async fn stop_input_recording(app: AppHandle) -> Result<crate::input_recorder::InputRecordingStopResult, String> {
+    input_recorder::stop_recording(app).await
 }
 
 #[tauri::command]

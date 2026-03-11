@@ -8,13 +8,24 @@ import StatusBar from './components/StatusBar'
 import VariablePanel from './components/VariablePanel'
 import ExecutionLog from './components/ExecutionLog'
 import CoordinatePicker from './components/CoordinatePicker'
+import InputRecorderCompactPanel from './components/InputRecorderCompactPanel'
+import InputRecordingSettingsModal from './components/InputRecordingSettingsModal'
 import LlmSettingsModal from './components/LlmSettingsModal'
 import { useWorkflowStore } from './stores/workflowStore'
-import { useExecutionStore } from './stores/executionStore'
-import { useSettingsStore } from './stores/settingsStore'
+import { useExecutionStore, type ExecutionLogItem } from './stores/executionStore'
+import { useSettingsStore, type InputRecordingOptions } from './stores/settingsStore'
 import { useShortcutBindings } from './hooks/useShortcutBindings'
 import { listen } from '@tauri-apps/api/event'
-import { getCursorPosition, pickCoordinate, playCompletionBeep, runWorkflow, setBackgroundMode, stopWorkflow } from './utils/execution'
+import {
+  getCursorPosition,
+  pickCoordinate,
+  playCompletionBeep,
+  runWorkflow,
+  setBackgroundMode,
+  startInputRecording,
+  stopInputRecording,
+  stopWorkflow,
+} from './utils/execution'
 import { getNodePortSpec } from './utils/nodePorts'
 import { getTriggerMode } from './utils/nodeMeta'
 import { toBackendGraph } from './utils/workflowBridge'
@@ -27,7 +38,7 @@ const menuGroups = {
   编辑: ['撤销', '重做', '复制', '粘贴'],
   视图: ['放大', '缩小', '重置缩放', '后台模式'],
   运行: ['运行', '停止', '单步', '拾取坐标'],
-  设置: ['LLM 预设'],
+  设置: ['LLM 预设', '键鼠预设'],
   帮助: ['文档', '快捷键'],
 }
 
@@ -68,6 +79,7 @@ const workflowNodeKinds = [
   'trigger',
   'mouseOperation',
   'keyboardOperation',
+  'inputPresetReplay',
   'screenshot',
   'windowActivate',
   'launchApplication',
@@ -239,14 +251,36 @@ function App() {
   } = useWorkflowStore()
   const { running, setRunning, addLog, setVariables, clearVariables } = useExecutionStore()
   const loadSecureLlmPresets = useSettingsStore((state) => state.loadLlmPresets)
+  const loadSecureInputRecordingPresets = useSettingsStore((state) => state.loadInputRecordingPresets)
+  const inputRecordingPresets = useSettingsStore((state) => state.inputRecordingPresets)
+  const updateInputRecordingPreset = useSettingsStore((state) => state.updateInputRecordingPreset)
+  const saveRecordedActionsToPreset = useSettingsStore((state) => state.saveRecordedActionsToPreset)
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [lastFileName, setLastFileName] = useState<string>('workflow.json')
   const [lastFilePath, setLastFilePath] = useState<string | null>(null)
   const [helpModalOpen, setHelpModalOpen] = useState(false)
   const [helpType, setHelpType] = useState<'docs' | 'shortcuts'>('docs')
   const [llmSettingsOpen, setLlmSettingsOpen] = useState(false)
+  const [inputRecordingSettingsOpen, setInputRecordingSettingsOpen] = useState(false)
   const [backgroundMode, setBackgroundModeState] = useState(false)
+  const [compactView, setCompactView] = useState<'background' | 'recorder'>('background')
   const [coordinatePicking, setCoordinatePicking] = useState(false)
+  const [activeInputRecordingPresetId, setActiveInputRecordingPresetId] = useState('')
+  const [inputRecorderRecording, setInputRecorderRecording] = useState(false)
+  const [inputRecorderOperationCount, setInputRecorderOperationCount] = useState(0)
+  const [inputRecorderDraftOptions, setInputRecorderDraftOptions] = useState<InputRecordingOptions>({
+    recordKeyboard: true,
+    recordMouseClicks: true,
+    recordMouseMoves: true,
+  })
+  const [inputRecorderLogs, setInputRecorderLogs] = useState<ExecutionLogItem[]>([
+    {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      message: '键鼠录制器已就绪，请先选择预设并开始录制。',
+    },
+  ])
   const [rightPaneTopRatio, setRightPaneTopRatio] = useState(() => {
     try {
       const raw = localStorage.getItem(RIGHT_PANE_RATIO_STORAGE_KEY)
@@ -277,15 +311,186 @@ function App() {
   const addLogRef = useRef(addLog)
   const lastGlobalStepTriggerAtRef = useRef(0)
   const backgroundModeRef = useRef(false)
+  const compactViewRef = useRef<'background' | 'recorder'>('background')
+  const inputRecorderRecordingRef = useRef(false)
+  const activeInputRecordingPresetIdRef = useRef('')
+  const inputRecorderDraftOptionsRef = useRef<InputRecordingOptions>({
+    recordKeyboard: true,
+    recordMouseClicks: true,
+    recordMouseMoves: true,
+  })
 
   useShortcutBindings()
 
   const menu = useMemo(() => Object.entries(menuGroups), [])
   const isTauriRuntime = '__TAURI_INTERNALS__' in window
+  const activeInputRecordingPreset = useMemo(
+    () => inputRecordingPresets.find((item) => item.id === activeInputRecordingPresetId) ?? null,
+    [activeInputRecordingPresetId, inputRecordingPresets],
+  )
+
+  const addInputRecorderLog = useCallback((level: ExecutionLogItem['level'], message: string) => {
+    setInputRecorderLogs((state) => [
+      ...state,
+      {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+      },
+    ].slice(-1000))
+  }, [])
+
+  const enterCompactMode = useCallback(
+    async (view: 'background' | 'recorder') => {
+      setCompactView(view)
+      compactViewRef.current = view
+
+      if (backgroundModeRef.current) {
+        return true
+      }
+
+      const previous = backgroundModeRef.current
+      backgroundModeRef.current = true
+      setBackgroundModeState(true)
+      setHelpModalOpen(false)
+
+      try {
+        const message = await setBackgroundMode(true)
+        addLog('info', message)
+        return true
+      } catch (error) {
+        backgroundModeRef.current = previous
+        setBackgroundModeState(previous)
+        addLog('error', `切换紧凑窗口失败：${String(error)}`)
+        return false
+      }
+    },
+    [addLog],
+  )
+
+  const exitCompactMode = useCallback(async () => {
+    try {
+      const message = await setBackgroundMode(false)
+      await new Promise((resolve) => window.setTimeout(resolve, 80))
+      backgroundModeRef.current = false
+      setBackgroundModeState(false)
+      setCompactView('background')
+      compactViewRef.current = 'background'
+      addLog('info', message)
+    } catch (error) {
+      addLog('error', `切换紧凑窗口失败：${String(error)}`)
+    }
+  }, [addLog])
+
+  const stopInputRecorderSession = useCallback(async () => {
+    if (!inputRecorderRecordingRef.current) {
+      return
+    }
+
+    try {
+      const result = await stopInputRecording()
+      setInputRecorderRecording(false)
+      inputRecorderRecordingRef.current = false
+      setInputRecorderOperationCount(result.operationCount)
+
+      const presetId = activeInputRecordingPresetIdRef.current
+      if (presetId) {
+        saveRecordedActionsToPreset(presetId, result.actions, result.options)
+        addInputRecorderLog('success', `${result.message} 已自动保存到当前预设。`)
+      } else {
+        addInputRecorderLog('warn', `${result.message} 但当前没有可保存的预设。`)
+      }
+    } catch (error) {
+      addInputRecorderLog('error', `停止录制失败：${String(error)}`)
+    }
+  }, [addInputRecorderLog, saveRecordedActionsToPreset])
+
+  const startInputRecorderSession = useCallback(async () => {
+    const presetId = activeInputRecordingPresetIdRef.current
+    if (!presetId) {
+      addInputRecorderLog('warn', '请先在设置中选择一个键鼠预设。')
+      return
+    }
+
+    if (inputRecorderRecordingRef.current) {
+      addInputRecorderLog('warn', '当前已经在录制中。')
+      return
+    }
+
+    updateInputRecordingPreset(presetId, {
+      options: inputRecorderDraftOptionsRef.current,
+    })
+
+    setInputRecorderLogs([
+      {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: `已进入录制会话：${activeInputRecordingPreset?.name ?? '未命名预设'}`,
+      },
+    ])
+    setInputRecorderOperationCount(0)
+
+    try {
+      const message = await startInputRecording(inputRecorderDraftOptionsRef.current)
+      setInputRecorderRecording(true)
+      inputRecorderRecordingRef.current = true
+      addInputRecorderLog('info', message)
+    } catch (error) {
+      addInputRecorderLog('error', `开始录制失败：${String(error)}`)
+    }
+  }, [activeInputRecordingPreset?.name, addInputRecorderLog, updateInputRecordingPreset])
+
+  const openInputRecorderMode = useCallback(
+    async (presetId: string, options: InputRecordingOptions) => {
+      setActiveInputRecordingPresetId(presetId)
+      activeInputRecordingPresetIdRef.current = presetId
+      setInputRecorderDraftOptions(options)
+      inputRecorderDraftOptionsRef.current = options
+      setInputRecordingSettingsOpen(false)
+      setInputRecorderLogs([
+        {
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          message: '已打开键鼠录制窗口，请点击“开始录制”或按 Scroll Lock。',
+        },
+      ])
+      setInputRecorderOperationCount(0)
+      await enterCompactMode('recorder')
+    },
+    [enterCompactMode],
+  )
+
+  const exitInputRecorderMode = useCallback(async () => {
+    if (inputRecorderRecordingRef.current) {
+      await stopInputRecorderSession()
+    }
+    await exitCompactMode()
+  }, [exitCompactMode, stopInputRecorderSession])
 
   useEffect(() => {
     void loadSecureLlmPresets()
   }, [loadSecureLlmPresets])
+
+  useEffect(() => {
+    void loadSecureInputRecordingPresets()
+  }, [loadSecureInputRecordingPresets])
+
+  useEffect(() => {
+    if (inputRecordingPresets.length === 0) {
+      setActiveInputRecordingPresetId('')
+      activeInputRecordingPresetIdRef.current = ''
+      return
+    }
+
+    const current = inputRecordingPresets.find((item) => item.id === activeInputRecordingPresetIdRef.current) ?? inputRecordingPresets[0]
+    setActiveInputRecordingPresetId(current.id)
+    activeInputRecordingPresetIdRef.current = current.id
+    setInputRecorderDraftOptions(current.options)
+    inputRecorderDraftOptionsRef.current = current.options
+  }, [inputRecordingPresets])
 
   useEffect(() => {
     if (isTauriRuntime) {
@@ -536,44 +741,24 @@ function App() {
 
   const applyBackgroundMode = useCallback(
     async (enabled: boolean) => {
-      const previous = backgroundModeRef.current
-      if (previous === enabled) {
-        return
-      }
-
       setActiveMenu(null)
-
       if (enabled) {
-        backgroundModeRef.current = true
-        setBackgroundModeState(true)
-        setHelpModalOpen(false)
-
-        try {
-          const message = await setBackgroundMode(true)
-          addLog('info', message)
-        } catch (error) {
-          backgroundModeRef.current = previous
-          setBackgroundModeState(previous)
-          addLog('error', `切换后台模式失败：${String(error)}`)
-        }
+        await enterCompactMode('background')
         return
       }
-
-      try {
-        const message = await setBackgroundMode(false)
-        await new Promise((resolve) => window.setTimeout(resolve, 80))
-        backgroundModeRef.current = false
-        setBackgroundModeState(false)
-        addLog('info', message)
-      } catch (error) {
-        addLog('error', `切换后台模式失败：${String(error)}`)
-      }
+      await exitCompactMode()
     },
-    [addLog],
+    [enterCompactMode, exitCompactMode],
   )
 
   const toggleBackgroundMode = useCallback(async () => {
-    await applyBackgroundMode(!backgroundModeRef.current)
+    if (backgroundModeRef.current) {
+      await applyBackgroundMode(false)
+      return
+    }
+    setCompactView('background')
+    compactViewRef.current = 'background'
+    await applyBackgroundMode(true)
   }, [applyBackgroundMode])
 
   const toDisplayFileName = (path: string) => {
@@ -833,6 +1018,22 @@ function App() {
   useEffect(() => {
     backgroundModeRef.current = backgroundMode
   }, [backgroundMode])
+
+  useEffect(() => {
+    compactViewRef.current = compactView
+  }, [compactView])
+
+  useEffect(() => {
+    inputRecorderRecordingRef.current = inputRecorderRecording
+  }, [inputRecorderRecording])
+
+  useEffect(() => {
+    activeInputRecordingPresetIdRef.current = activeInputRecordingPresetId
+  }, [activeInputRecordingPresetId])
+
+  useEffect(() => {
+    inputRecorderDraftOptionsRef.current = inputRecorderDraftOptions
+  }, [inputRecorderDraftOptions])
 
   const startCoordinatePicking = useCallback(async () => {
     if (coordinatePicking) return
@@ -1210,6 +1411,83 @@ function App() {
     }
   }, [toggleBackgroundMode])
 
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) {
+      return
+    }
+
+    let disposed = false
+    let unlistenRecorderState: (() => void) | null = null
+    let unlistenRecorderLog: (() => void) | null = null
+    let unlistenGlobalStart: (() => void) | null = null
+    let unlistenGlobalStop: (() => void) | null = null
+
+    void listen<{
+      recording: boolean
+      operationCount: number
+      startedAtMs?: number | null
+      options: InputRecordingOptions
+    }>('input-recorder-state', (event) => {
+      if (disposed) return
+      setInputRecorderRecording(event.payload?.recording ?? false)
+      inputRecorderRecordingRef.current = event.payload?.recording ?? false
+      setInputRecorderOperationCount(event.payload?.operationCount ?? 0)
+    })
+      .then((cleanup) => {
+        unlistenRecorderState = cleanup
+      })
+      .catch((error) => {
+        addLogRef.current('warn', `监听键鼠录制状态失败：${String(error)}`)
+      })
+
+    void listen<{ level: ExecutionLogItem['level']; message: string; operationCount: number }>('input-recorder-log', (event) => {
+      if (disposed) return
+      if (!event.payload?.message) return
+      setInputRecorderOperationCount(event.payload.operationCount ?? 0)
+      addInputRecorderLog(event.payload.level ?? 'info', event.payload.message)
+    })
+      .then((cleanup) => {
+        unlistenRecorderLog = cleanup
+      })
+      .catch((error) => {
+        addLogRef.current('warn', `监听键鼠录制日志失败：${String(error)}`)
+      })
+
+    void listen('commandflow-global-start-input-recording', () => {
+      if (disposed || compactViewRef.current !== 'recorder') {
+        return
+      }
+      void startInputRecorderSession()
+    })
+      .then((cleanup) => {
+        unlistenGlobalStart = cleanup
+      })
+      .catch((error) => {
+        addLogRef.current('warn', `监听全局开始录制快捷键失败：${String(error)}`)
+      })
+
+    void listen('commandflow-global-stop-input-recording', () => {
+      if (disposed || compactViewRef.current !== 'recorder' || !inputRecorderRecordingRef.current) {
+        return
+      }
+      void stopInputRecorderSession()
+    })
+      .then((cleanup) => {
+        unlistenGlobalStop = cleanup
+      })
+      .catch((error) => {
+        addLogRef.current('warn', `监听全局停止录制快捷键失败：${String(error)}`)
+      })
+
+    return () => {
+      disposed = true
+      unlistenRecorderState?.()
+      unlistenRecorderLog?.()
+      unlistenGlobalStart?.()
+      unlistenGlobalStop?.()
+    }
+  }, [addInputRecorderLog, startInputRecorderSession, stopInputRecorderSession])
+
   const handleMenuAction = async (item: string) => {
     setActiveMenu(null)
     switch (item) {
@@ -1322,6 +1600,9 @@ function App() {
         break
       case 'LLM 预设':
         setLlmSettingsOpen(true)
+        break
+      case '键鼠预设':
+        setInputRecordingSettingsOpen(true)
         break
       default:
         console.log(`点击了 ${item}`)
@@ -1460,6 +1741,8 @@ function App() {
                     ['后台模式', 'F8'],
                     ['连续单步', 'F9'],
                     ['单步执行', 'F10'],
+                    ['开始键鼠录制', 'Scroll Lock'],
+                    ['停止键鼠录制', 'Alt + Scroll Lock'],
                     ['全局刷新', 'R'],
                     ['放大画布', 'Ctrl + ='],
                     ['缩小画布', 'Ctrl + -'],
@@ -1478,51 +1761,75 @@ function App() {
       )}
 
       <LlmSettingsModal open={llmSettingsOpen} onClose={() => setLlmSettingsOpen(false)} />
+      <InputRecordingSettingsModal
+        open={inputRecordingSettingsOpen}
+        onClose={() => setInputRecordingSettingsOpen(false)}
+        onStartRecording={(presetId, options) => {
+          void openInputRecorderMode(presetId, options)
+        }}
+      />
 
       {backgroundMode ? (
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50/40 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
-            <button
-              type="button"
-              disabled={running}
-              onClick={() => void handleMenuAction('运行')}
-              className="rounded-md bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              启动
-            </button>
-            <button
-              type="button"
-              disabled={running}
-              onClick={() => void handleMenuAction('单步')}
-              className="rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              单步
-            </button>
-            <button
-              type="button"
-              disabled={!running}
-              onClick={() => void handleMenuAction('停止')}
-              className="rounded-md bg-rose-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              停止
-            </button>
-            <CoordinatePicker
-              picking={coordinatePicking}
-              onPick={startCoordinatePicking}
-              compact
-            />
-            <button
-              type="button"
-              onClick={() => void handleMenuAction('后台模式')}
-              className="ml-auto rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500"
-            >
-              退出后台模式
-            </button>
-          </div>
-          <div className="min-h-0 flex-1">
-            <ExecutionLog />
-          </div>
-        </main>
+        compactView === 'recorder' ? (
+          <InputRecorderCompactPanel
+            logs={inputRecorderLogs}
+            recording={inputRecorderRecording}
+            operationCount={inputRecorderOperationCount}
+            onStart={() => {
+              void startInputRecorderSession()
+            }}
+            onStop={() => {
+              void stopInputRecorderSession()
+            }}
+            onExit={() => {
+              void exitInputRecorderMode()
+            }}
+          />
+        ) : (
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50/40 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => void handleMenuAction('运行')}
+                className="rounded-md bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                启动
+              </button>
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => void handleMenuAction('单步')}
+                className="rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                单步
+              </button>
+              <button
+                type="button"
+                disabled={!running}
+                onClick={() => void handleMenuAction('停止')}
+                className="rounded-md bg-rose-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                停止
+              </button>
+              <CoordinatePicker
+                picking={coordinatePicking}
+                onPick={startCoordinatePicking}
+                compact
+              />
+              <button
+                type="button"
+                onClick={() => void handleMenuAction('后台模式')}
+                className="ml-auto rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500"
+              >
+                退出后台模式
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <ExecutionLog />
+            </div>
+          </main>
+        )
       ) : (
         <>
           <div className="shrink-0 flex flex-col">

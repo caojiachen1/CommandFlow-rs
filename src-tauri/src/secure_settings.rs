@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SETTINGS_KEY_LLM_PRESETS: &str = "llm_presets.v1";
+const SETTINGS_KEY_INPUT_RECORDING_PRESETS: &str = "input_recording_presets.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,6 +14,64 @@ pub struct LlmPreset {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputRecordingOptions {
+    pub record_keyboard: bool,
+    pub record_mouse_clicks: bool,
+    pub record_mouse_moves: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordedCursorPoint {
+    pub x: i32,
+    pub y: i32,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum InputRecordingAction {
+    KeyDown {
+        key: String,
+        timestamp_ms: u64,
+    },
+    KeyUp {
+        key: String,
+        timestamp_ms: u64,
+    },
+    MouseDown {
+        button: String,
+        x: i32,
+        y: i32,
+        timestamp_ms: u64,
+    },
+    MouseUp {
+        button: String,
+        x: i32,
+        y: i32,
+        timestamp_ms: u64,
+    },
+    MouseMovePath {
+        points: Vec<RecordedCursorPoint>,
+        duration_ms: u64,
+        distance_px: f64,
+        simplified_from: usize,
+        timestamp_ms: u64,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputRecordingPreset {
+    pub id: String,
+    pub name: String,
+    pub options: InputRecordingOptions,
+    pub actions: Vec<InputRecordingAction>,
+    pub updated_at: u64,
 }
 
 fn now_millis() -> u128 {
@@ -29,6 +88,24 @@ fn default_preset() -> LlmPreset {
         base_url: "https://api.openai.com".to_string(),
         api_key: String::new(),
         model: "gpt-5".to_string(),
+    }
+}
+
+fn default_input_recording_options() -> InputRecordingOptions {
+    InputRecordingOptions {
+        record_keyboard: true,
+        record_mouse_clicks: true,
+        record_mouse_moves: true,
+    }
+}
+
+fn default_input_recording_preset() -> InputRecordingPreset {
+    InputRecordingPreset {
+        id: format!("input-preset-{}", now_millis()),
+        name: "默认键鼠预设".to_string(),
+        options: default_input_recording_options(),
+        actions: Vec::new(),
+        updated_at: now_millis() as u64,
     }
 }
 
@@ -63,6 +140,41 @@ fn normalize_presets(input: Vec<LlmPreset>) -> Vec<LlmPreset> {
 
     if output.is_empty() {
         output.push(default_preset());
+    }
+
+    output
+}
+
+fn sanitize_input_recording_preset(mut item: InputRecordingPreset) -> InputRecordingPreset {
+    if item.id.trim().is_empty() {
+        item.id = format!("input-preset-{}", now_millis());
+    } else {
+        item.id = item.id.trim().to_string();
+    }
+
+    item.name = if item.name.trim().is_empty() {
+        "未命名键鼠预设".to_string()
+    } else {
+        item.name.trim().to_string()
+    };
+
+    item.updated_at = if item.updated_at == 0 {
+        now_millis() as u64
+    } else {
+        item.updated_at
+    };
+
+    item
+}
+
+fn normalize_input_recording_presets(input: Vec<InputRecordingPreset>) -> Vec<InputRecordingPreset> {
+    let mut output = input
+        .into_iter()
+        .map(sanitize_input_recording_preset)
+        .collect::<Vec<_>>();
+
+    if output.is_empty() {
+        output.push(default_input_recording_preset());
     }
 
     output
@@ -264,4 +376,46 @@ pub fn load_llm_presets() -> Result<Vec<LlmPreset>, String> {
         .map_err(|error| format!("解析已保存 LLM 预设失败：{}", error))?;
 
     Ok(normalize_presets(parsed))
+}
+
+pub fn save_input_recording_presets(presets: Vec<InputRecordingPreset>) -> Result<(), String> {
+    let normalized = normalize_input_recording_presets(presets);
+    let serialized = serde_json::to_vec(&normalized).map_err(|error| format!("序列化键鼠预设失败：{}", error))?;
+    let encrypted = encrypt_for_windows(&serialized)?;
+
+    let conn = open_connection()?;
+    conn.execute(
+        "
+        INSERT INTO secure_settings (setting_key, encrypted_value, updated_at)
+        VALUES (?1, ?2, CURRENT_TIMESTAMP)
+        ON CONFLICT(setting_key)
+        DO UPDATE SET encrypted_value = excluded.encrypted_value, updated_at = CURRENT_TIMESTAMP
+        ",
+        params![SETTINGS_KEY_INPUT_RECORDING_PRESETS, encrypted],
+    )
+    .map_err(|error| format!("保存键鼠预设失败：{}", error))?;
+
+    Ok(())
+}
+
+pub fn load_input_recording_presets() -> Result<Vec<InputRecordingPreset>, String> {
+    let conn = open_connection()?;
+    let encrypted = conn
+        .query_row(
+            "SELECT encrypted_value FROM secure_settings WHERE setting_key = ?1",
+            params![SETTINGS_KEY_INPUT_RECORDING_PRESETS],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()
+        .map_err(|error| format!("读取键鼠预设失败：{}", error))?;
+
+    let Some(encrypted) = encrypted else {
+        return Ok(vec![default_input_recording_preset()]);
+    };
+
+    let plain = decrypt_for_windows(&encrypted)?;
+    let parsed = serde_json::from_slice::<Vec<InputRecordingPreset>>(&plain)
+        .map_err(|error| format!("解析键鼠预设失败：{}", error))?;
+
+    Ok(normalize_input_recording_presets(parsed))
 }

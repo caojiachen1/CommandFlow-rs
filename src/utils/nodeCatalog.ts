@@ -28,6 +28,7 @@ const categories: NodePaletteCategory[] = [
     items: [
       { label: '鼠标操作', kind: 'mouseOperation', color: 'bg-cyan-500', category: '输入控制' },
       { label: '键盘操作', kind: 'keyboardOperation', color: 'bg-sky-600', category: '输入控制' },
+      { label: '回放键鼠预设', kind: 'inputPresetReplay', color: 'bg-cyan-600', category: '输入控制' },
     ],
   },
   {

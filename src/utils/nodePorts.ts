@@ -235,6 +235,10 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  inputPresetReplay: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   screenshot: {
     inputs: singleIn(),
     outputs: [

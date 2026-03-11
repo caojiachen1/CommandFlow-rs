@@ -122,6 +122,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [openWindows, setOpenWindows] = useState<OpenWindowEntryPayload[]>([])
   const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
   const llmPresets = useSettingsStore((state) => state.llmPresets)
+  const inputRecordingPresets = useSettingsStore((state) => state.inputRecordingPresets)
   const [pathEditor, setPathEditor] = useState<{
     fieldKey: string
     value: string
@@ -767,6 +768,8 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
     const selectOptions = data.kind === 'guiAgent' && field.key === 'llmPresetId'
       ? llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))
+      : data.kind === 'inputPresetReplay' && field.key === 'presetId'
+        ? inputRecordingPresets.map((preset) => ({ label: preset.name, value: preset.id }))
       : data.kind === 'launchApplication' && field.key === 'selectedApp'
         ? startMenuApps.map((app) => ({ label: app.appName, value: app.sourcePath }))
         : (field.options ?? [])
@@ -821,6 +824,13 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                       } else {
                         updateParam(field.key, option.value)
                       }
+                    } else if (data.kind === 'inputPresetReplay' && field.key === 'presetId') {
+                      const matchedPreset = inputRecordingPresets.find((preset) => preset.id === option.value)
+                      updateNodeParams(id, {
+                        ...params,
+                        presetId: option.value,
+                        presetName: matchedPreset?.name ?? '',
+                      })
                     } else {
                       updateParam(field.key, option.value)
                     }
