@@ -2450,7 +2450,7 @@ async fn execute_input_preset_replay(
         )));
     }
 
-    replay_input_preset_actions(
+    let replay_result = replay_input_preset_actions(
         &preset,
         replay_mode.as_str(),
         delay_scale,
@@ -2458,7 +2458,11 @@ async fn execute_input_preset_replay(
         max_delay_ms,
         should_cancel,
     )
-    .await?;
+    .await;
+
+    let reset_result = keyboard::reset_state();
+    replay_result?;
+    reset_result?;
 
     set_node_output(ctx, node, "presetName", Value::String(preset.name.clone()));
     set_node_output(ctx, node, "operationCount", value_from_u64(preset.actions.len() as u64));

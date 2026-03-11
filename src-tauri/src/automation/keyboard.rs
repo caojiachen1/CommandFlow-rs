@@ -1,5 +1,6 @@
 use crate::error::{CommandFlowError, CommandResult};
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use std::sync::{Mutex, OnceLock};
 use tokio::time::{sleep, Duration, Instant};
 
 #[cfg(target_os = "windows")]
@@ -11,20 +12,54 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_RIGHT, VK_SHIFT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP, VK_MENU,
 };
 
-pub fn key_press(key: Key) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    enigo
-        .key(key, Direction::Click)
-        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+fn keyboard_store() -> &'static Mutex<Option<Enigo>> {
+    static ENIGO: OnceLock<Mutex<Option<Enigo>>> = OnceLock::new();
+    ENIGO.get_or_init(|| Mutex::new(None))
+}
+
+fn with_enigo<T>(f: impl FnOnce(&mut Enigo) -> CommandResult<T>) -> CommandResult<T> {
+    let mut guard = keyboard_store()
+        .lock()
+        .map_err(|_| CommandFlowError::Automation("keyboard state lock is poisoned".to_string()))?;
+
+    if guard.is_none() {
+        *guard = Some(
+            Enigo::new(&Settings::default())
+                .map_err(|error| CommandFlowError::Automation(error.to_string()))?,
+        );
+    }
+
+    let enigo = guard
+        .as_mut()
+        .ok_or_else(|| CommandFlowError::Automation("keyboard controller is unavailable".to_string()))?;
+
+    f(enigo)
+}
+
+pub fn reset_state() -> CommandResult<()> {
+    let mut guard = keyboard_store()
+        .lock()
+        .map_err(|_| CommandFlowError::Automation("keyboard state lock is poisoned".to_string()))?;
+    *guard = None;
     Ok(())
 }
 
+pub fn key_press(key: Key) -> CommandResult<()> {
+    with_enigo(|enigo| {
+        enigo
+            .key(key, Direction::Click)
+            .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+        Ok(())
+    })
+}
+
 pub fn text_input(text: &str) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    enigo
-        .text(text)
-        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    Ok(())
+    with_enigo(|enigo| {
+        enigo
+            .text(text)
+            .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+        Ok(())
+    })
 }
 
 pub fn key_tap_by_name(name: &str) -> CommandResult<()> {
@@ -33,40 +68,43 @@ pub fn key_tap_by_name(name: &str) -> CommandResult<()> {
 }
 
 pub fn key_down_by_name(name: &str) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    enigo
-        .key(parse_key(name), Direction::Press)
-        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    Ok(())
+    with_enigo(|enigo| {
+        enigo
+            .key(parse_key(name), Direction::Press)
+            .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+        Ok(())
+    })
 }
 
 pub fn key_up_by_name(name: &str) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    enigo
-        .key(parse_key(name), Direction::Release)
-        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    Ok(())
+    with_enigo(|enigo| {
+        enigo
+            .key(parse_key(name), Direction::Release)
+            .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+        Ok(())
+    })
 }
 
 pub fn shortcut(modifiers: &[String], key: &str) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    for modifier in modifiers {
+    with_enigo(|enigo| {
+        for modifier in modifiers {
+            enigo
+                .key(parse_key(modifier), Direction::Press)
+                .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+        }
+
         enigo
-            .key(parse_key(modifier), Direction::Press)
-            .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    }
+            .key(parse_key(key), Direction::Click)
+            .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
 
-    enigo
-        .key(parse_key(key), Direction::Click)
-        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+        for modifier in modifiers.iter().rev() {
+            enigo
+                .key(parse_key(modifier), Direction::Release)
+                .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+        }
 
-    for modifier in modifiers.iter().rev() {
-        enigo
-            .key(parse_key(modifier), Direction::Release)
-            .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn shortcut_by_hotkey(hotkey: &str) -> CommandResult<()> {
