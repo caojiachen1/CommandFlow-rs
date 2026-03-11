@@ -2510,6 +2510,7 @@ fn action_start_timestamp(action: &InputRecordingAction) -> u64 {
         | InputRecordingAction::KeyUp { timestamp_ms, .. }
         | InputRecordingAction::MouseDown { timestamp_ms, .. }
         | InputRecordingAction::MouseUp { timestamp_ms, .. }
+        | InputRecordingAction::MouseWheel { timestamp_ms, .. }
         | InputRecordingAction::MouseMovePath { timestamp_ms, .. } => *timestamp_ms,
     }
 }
@@ -2563,6 +2564,7 @@ async fn replay_input_action(
         InputRecordingAction::KeyUp { key, .. } => keyboard::key_up_by_name(key)?,
         InputRecordingAction::MouseDown { button, x, y, .. } => mouse::button_down(*x, *y, button)?,
         InputRecordingAction::MouseUp { button, x, y, .. } => mouse::button_up(*x, *y, button)?,
+        InputRecordingAction::MouseWheel { x, y, vertical, .. } => mouse::wheel_exact_at(*x, *y, *vertical)?,
         InputRecordingAction::MouseMovePath {
             points,
             duration_ms,

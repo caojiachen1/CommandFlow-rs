@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -20,7 +21,13 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_TAB, VK_UP,
 };
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, DispatchMessageW, GetCursorPos, GetMessageW, PostThreadMessageW,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, MSG,
+    MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MOUSEWHEEL,
+};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::{Foundation::{LPARAM, LRESULT, WPARAM}, System::Threading::GetCurrentThreadId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +78,12 @@ pub enum InputRecordingAction {
         y: i32,
         timestamp_ms: u64,
     },
+    MouseWheel {
+        x: i32,
+        y: i32,
+        vertical: i32,
+        timestamp_ms: u64,
+    },
     MouseMovePath {
         points: Vec<RecordedCursorPoint>,
         duration_ms: u64,
@@ -116,9 +129,31 @@ struct RecorderRunState {
     started_at_ms: u64,
 }
 
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone)]
+struct MouseWheelRawEvent {
+    x: i32,
+    y: i32,
+    vertical: i32,
+    occurred_at: Instant,
+}
+
+#[cfg(target_os = "windows")]
+struct MouseWheelHook {
+    receiver: Receiver<MouseWheelRawEvent>,
+    thread_id: u32,
+    join_handle: Option<std::thread::JoinHandle<()>>,
+}
+
 fn recorder_store() -> &'static Mutex<Option<RecorderRunState>> {
     static RECORDER: OnceLock<Mutex<Option<RecorderRunState>>> = OnceLock::new();
     RECORDER.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(target_os = "windows")]
+fn mouse_wheel_sender_store() -> &'static Mutex<Option<Sender<MouseWheelRawEvent>>> {
+    static STORE: OnceLock<Mutex<Option<Sender<MouseWheelRawEvent>>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(None))
 }
 
 fn now_ms() -> u64 {
@@ -160,6 +195,10 @@ fn action_summary(action: &InputRecordingAction) -> String {
         }
         InputRecordingAction::MouseUp { button, x, y, .. } => {
             format!("鼠标松开：{} @ ({}, {})", button, x, y)
+        }
+        InputRecordingAction::MouseWheel { x, y, vertical, .. } => {
+            let direction = if *vertical > 0 { "上滚" } else { "下滚" };
+            format!("鼠标滚轮：{} {} @ ({}, {})", direction, vertical.abs(), x, y)
         }
         InputRecordingAction::MouseMovePath {
             points,
@@ -203,6 +242,96 @@ fn get_cursor() -> Result<(i32, i32), String> {
 #[cfg(not(target_os = "windows"))]
 fn get_cursor() -> Result<(i32, i32), String> {
     Err("当前平台暂不支持键鼠录制。".to_string())
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn mouse_wheel_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION as i32 && wparam == WM_MOUSEWHEEL as usize {
+        let info = &*(lparam as *const MSLLHOOKSTRUCT);
+        let vertical = ((info.mouseData >> 16) as i16) as i32;
+        if vertical != 0 {
+            if let Ok(guard) = mouse_wheel_sender_store().lock() {
+                if let Some(sender) = guard.as_ref() {
+                    let _ = sender.send(MouseWheelRawEvent {
+                        x: info.pt.x,
+                        y: info.pt.y,
+                        vertical,
+                        occurred_at: Instant::now(),
+                    });
+                }
+            }
+        }
+    }
+
+    CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+fn start_mouse_wheel_hook() -> Result<MouseWheelHook, String> {
+    let (event_tx, event_rx) = mpsc::channel::<MouseWheelRawEvent>();
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
+
+    let join_handle = std::thread::spawn(move || {
+        if let Ok(mut guard) = mouse_wheel_sender_store().lock() {
+            *guard = Some(event_tx.clone());
+        }
+
+        let thread_id = unsafe { GetCurrentThreadId() };
+        let hook = unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_wheel_hook_proc), std::ptr::null_mut(), 0) };
+        if hook.is_null() {
+            if let Ok(mut guard) = mouse_wheel_sender_store().lock() {
+                *guard = None;
+            }
+            let _ = ready_tx.send(Err(format!(
+                "安装鼠标滚轮钩子失败：{}",
+                std::io::Error::last_os_error()
+            )));
+            return;
+        }
+
+        let _ = ready_tx.send(Ok(thread_id));
+
+        let mut msg: MSG = unsafe { std::mem::zeroed() };
+        loop {
+            let result = unsafe { GetMessageW(&mut msg as *mut MSG, std::ptr::null_mut(), 0, 0) };
+            if result <= 0 {
+                break;
+            }
+            unsafe {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+
+        unsafe {
+            let _ = UnhookWindowsHookEx(hook);
+        }
+        if let Ok(mut guard) = mouse_wheel_sender_store().lock() {
+            *guard = None;
+        }
+    });
+
+    let thread_id = ready_rx
+        .recv()
+        .map_err(|_| "鼠标滚轮钩子初始化线程异常退出。".to_string())??;
+
+    Ok(MouseWheelHook {
+        receiver: event_rx,
+        thread_id,
+        join_handle: Some(join_handle),
+    })
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for MouseWheelHook {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = PostThreadMessageW(self.thread_id, windows_sys::Win32::UI::WindowsAndMessaging::WM_QUIT, 0, 0);
+        }
+        if let Some(handle) = self.join_handle.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -467,6 +596,13 @@ async fn run_recording_loop(
     let start_instant = Instant::now();
     let mut last_mouse_path = Vec::<RecordedCursorPoint>::new();
     let mut last_mouse_change_at = Instant::now();
+    let mut mouse_wheel_hook = match start_mouse_wheel_hook() {
+        Ok(hook) => Some(hook),
+        Err(error) => {
+            emit_log(&app, "warn", format!("鼠标滚轮录制初始化失败，将继续录制其它操作：{}", error), 0);
+            None
+        }
+    };
 
     let ignored_keys = ["ScrollLock", "LAlt", "RAlt", "Alt"]
         .into_iter()
@@ -552,6 +688,27 @@ async fn run_recording_loop(
                     y,
                     timestamp_ms: elapsed_ms,
                 });
+            }
+        }
+
+        if let Some(hook) = mouse_wheel_hook.as_mut() {
+            while let Ok(event) = hook.receiver.try_recv() {
+                if options.record_mouse_moves {
+                    flush_mouse_path(&app, &mut actions, &mut last_mouse_path);
+                }
+
+                let timestamp_ms = event.occurred_at.duration_since(start_instant).as_millis() as u64;
+                push_action(
+                    &app,
+                    &mut actions,
+                    InputRecordingAction::MouseWheel {
+                        x: event.x,
+                        y: event.y,
+                        vertical: event.vertical,
+                        timestamp_ms,
+                    },
+                );
+                emit_state(&app, true, actions.len(), Some(started_at_ms), options.clone());
             }
         }
 

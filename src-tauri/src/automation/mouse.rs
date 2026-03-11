@@ -1,6 +1,11 @@
 use crate::error::{CommandFlowError, CommandResult};
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Mouse, Settings};
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+};
+
 fn parse_button(name: &str) -> Button {
     match name.to_lowercase().as_str() {
         "right" => Button::Right,
@@ -38,6 +43,66 @@ pub fn wheel(vertical: i32) -> CommandResult<()> {
         .scroll(vertical, Axis::Vertical)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     Ok(())
+}
+
+pub fn wheel_at(x: i32, y: i32, vertical: i32) -> CommandResult<()> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .move_mouse(x, y, Coordinate::Abs)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .scroll(vertical, Axis::Vertical)
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn send_native_wheel_delta(delta: i32, horizontal: bool) -> CommandResult<()> {
+    let mut input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: delta as u32,
+                dwFlags: if horizontal { MOUSEEVENTF_HWHEEL } else { MOUSEEVENTF_WHEEL },
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+
+    let sent = unsafe { SendInput(1, &mut input as *mut INPUT, std::mem::size_of::<INPUT>() as i32) };
+    if sent == 0 {
+        return Err(CommandFlowError::Automation(format!(
+            "发送原生滚轮输入失败：{}",
+            std::io::Error::last_os_error()
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn send_native_wheel_delta(delta: i32, horizontal: bool) -> CommandResult<()> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    enigo
+        .scroll(delta, if horizontal { Axis::Horizontal } else { Axis::Vertical })
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    Ok(())
+}
+
+pub fn wheel_exact(vertical_delta: i32) -> CommandResult<()> {
+    send_native_wheel_delta(vertical_delta, false)
+}
+
+pub fn wheel_exact_at(x: i32, y: i32, vertical_delta: i32) -> CommandResult<()> {
+    move_to(x, y)?;
+    wheel_exact(vertical_delta)
+}
+
+pub fn wheel_horizontal_exact(horizontal_delta: i32) -> CommandResult<()> {
+    send_native_wheel_delta(horizontal_delta, true)
 }
 
 pub fn wheel_horizontal(horizontal: i32) -> CommandResult<()> {

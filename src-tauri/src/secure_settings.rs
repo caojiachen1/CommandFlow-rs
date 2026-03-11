@@ -55,6 +55,12 @@ pub enum InputRecordingAction {
         y: i32,
         timestamp_ms: u64,
     },
+    MouseWheel {
+        x: i32,
+        y: i32,
+        vertical: i32,
+        timestamp_ms: u64,
+    },
     MouseMovePath {
         points: Vec<RecordedCursorPoint>,
         duration_ms: u64,

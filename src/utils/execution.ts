@@ -36,6 +36,13 @@ export type InputRecordingActionPayload =
       timestampMs: number
     }
   | {
+      kind: 'mouseWheel'
+      x: number
+      y: number
+      vertical: number
+      timestampMs: number
+    }
+  | {
       kind: 'mouseMovePath'
       points: RecordedCursorPointPayload[]
       durationMs: number

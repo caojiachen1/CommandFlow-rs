@@ -11,6 +11,9 @@ function computeCoordBbox(actions: InputRecordingAction[]): BBox {
     if (a.kind === 'mouseDown' || a.kind === 'mouseUp') {
       if (a.x < minX) minX = a.x; if (a.y < minY) minY = a.y
       if (a.x > maxX) maxX = a.x; if (a.y > maxY) maxY = a.y
+    } else if (a.kind === 'mouseWheel') {
+      if (a.x < minX) minX = a.x; if (a.y < minY) minY = a.y
+      if (a.x > maxX) maxX = a.x; if (a.y > maxY) maxY = a.y
     } else if (a.kind === 'mouseMovePath') {
       for (const p of a.points) {
         if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y
@@ -112,6 +115,8 @@ function getStateAt(actions: InputRecordingAction[], startMs: number, relMs: num
       cursorX = a.x; cursorY = a.y
     } else if (a.kind === 'mouseUp') {
       mouseState.delete(a.button)
+      cursorX = a.x; cursorY = a.y
+    } else if (a.kind === 'mouseWheel') {
       cursorX = a.x; cursorY = a.y
     } else if (a.kind === 'mouseMovePath') {
       let bestPt = a.points[0] ?? null
@@ -220,6 +225,12 @@ function Timeline({ durationMs, clipStartMs, clipEndMs, currentMs, actions, reco
       return [{ key: `k${i}`, rel, name: abbreviateKey(a.key), fullName: a.key }]
     }), [actions, recordingStartMs])
 
+  const wheelMarks = useMemo(() =>
+    actions.flatMap((a, i) => {
+      if (a.kind !== 'mouseWheel') return []
+      return [{ key: `w${i}`, rel: getActionTs(a) - recordingStartMs, up: a.vertical > 0 }]
+    }), [actions, recordingStartMs])
+
   return (
     <div className="space-y-1.5">
       {/* Track */}
@@ -250,6 +261,13 @@ function Timeline({ durationMs, clipStartMs, clipEndMs, currentMs, actions, reco
             key={key}
             className="pointer-events-none absolute inset-y-0 w-px"
             style={{ left: toPercent(rel), background: color, opacity: 0.75 }}
+          />
+        ))}
+        {wheelMarks.map(({ key, rel, up }) => (
+          <div
+            key={key}
+            className="pointer-events-none absolute inset-y-0 w-px"
+            style={{ left: toPercent(rel), background: up ? '#d946ef' : '#a855f7', opacity: 0.72 }}
           />
         ))}
         {/* Clip start handle */}
@@ -328,6 +346,7 @@ function Timeline({ durationMs, clipStartMs, clipEndMs, currentMs, actions, reco
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 text-[10px] text-slate-400 dark:text-slate-500">
           <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-0.5 rounded-full bg-cyan-400 opacity-75" />鼠标点击</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-0.5 rounded-full bg-fuchsia-500 opacity-75" />滚轮</span>
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-0.5 rounded-full bg-violet-400 opacity-65" />键盘按键</span>
         </div>
         <div className="flex items-center gap-3 text-[10px] font-medium">
@@ -470,6 +489,24 @@ export default function InputRecordingVisualizer({ actions, clipStartMs, clipEnd
       ctx.fill()
       ctx.shadowBlur = 0
     }
+
+    for (const a of actions) {
+      if (a.kind !== 'mouseWheel') continue
+      const { cx, cy } = worldToCanvas(a.x, a.y, bbox, W, H)
+      const relTs = getActionTs(a) - bounds.startMs
+      const inClip = relTs >= clipStartMs && relTs <= clipEndMs
+      const color = a.vertical > 0 ? 'rgba(217,70,239,0.95)' : 'rgba(168,85,247,0.95)'
+      ctx.strokeStyle = inClip ? color : color.replace('0.95', '0.35')
+      ctx.lineWidth = inClip ? 2 : 1.25
+      ctx.beginPath()
+      ctx.arc(cx, cy, inClip ? 7.5 : 6, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(cx - 3, cy + (a.vertical > 0 ? 2 : -2))
+      ctx.lineTo(cx, cy + (a.vertical > 0 ? -3 : 3))
+      ctx.lineTo(cx + 3, cy + (a.vertical > 0 ? 2 : -2))
+      ctx.stroke()
+    }
   }, [actions, bbox, bounds, clipStartMs, clipEndMs])
 
   // ─── Canvas: overlay (playback cursor) ───────────────────────────────────────
@@ -604,7 +641,7 @@ export default function InputRecordingVisualizer({ actions, clipStartMs, clipEnd
     [actions, bounds.startMs, currentMs],
   )
 
-  const hasMouseData = actions.some((a) => a.kind === 'mouseDown' || a.kind === 'mouseMovePath')
+  const hasMouseData = actions.some((a) => a.kind === 'mouseDown' || a.kind === 'mouseMovePath' || a.kind === 'mouseWheel')
   const hasData = actions.length > 0
 
   return (
@@ -641,6 +678,9 @@ export default function InputRecordingVisualizer({ actions, clipStartMs, clipEnd
             </div>
             <div className="flex items-center gap-1.5">
               <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />中键
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full bg-fuchsia-400" />滚轮
             </div>
             <div className="flex items-center gap-1.5">
               <span

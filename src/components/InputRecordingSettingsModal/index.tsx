@@ -43,6 +43,13 @@ const describeAction = (action: InputRecordingAction): { label: string; cls: str
       const btn = action.button === 'right' ? '右键' : action.button === 'middle' ? '中键' : '左键'
       return { label: `↑ ${btn} @ (${action.x}, ${action.y})`, cls: 'text-slate-400 dark:text-slate-500' }
     }
+    case 'mouseWheel': {
+      const direction = action.vertical > 0 ? '上滚' : '下滚'
+      return {
+        label: `⇵ ${direction} ${Math.abs(action.vertical)} @ (${action.x}, ${action.y})`,
+        cls: 'text-fuchsia-600 dark:text-fuchsia-400',
+      }
+    }
     case 'mouseMovePath': {
       const raw = action as any
       const pts: unknown[] = raw.points ?? []
