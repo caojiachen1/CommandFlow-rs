@@ -2,6 +2,7 @@ import { useExecutionStore } from '../../stores/executionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { runWorkflow, stopWorkflow } from '../../utils/execution'
+import { announceWorkflowCompleted } from '../../utils/workflowCompletion'
 import { toBackendGraph } from '../../utils/workflowBridge'
 import { useState } from 'react'
 import CoordinatePicker from '../CoordinatePicker'
@@ -32,6 +33,9 @@ export default function Toolbar({ backgroundMode, onToggleBackgroundMode, onPick
     try {
       const message = await runWorkflow(graph)
       addLog('success', message)
+      announceWorkflowCompleted({
+        body: `${workflowFile.graph.name} 已执行完成。`,
+      })
     } catch (error) {
       addLog('error', `执行失败：${String(error)}`)
     } finally {

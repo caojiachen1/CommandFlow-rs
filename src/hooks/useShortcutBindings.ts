@@ -3,6 +3,7 @@ import { useExecutionStore } from '../stores/executionStore'
 import { useWorkflowStore } from '../stores/workflowStore'
 import { triggerGlobalRefresh } from '../utils/refresh'
 import { runWorkflow } from '../utils/execution'
+import { announceWorkflowCompleted } from '../utils/workflowCompletion'
 import { toBackendGraph } from '../utils/workflowBridge'
 
 const isEditableTarget = (target: EventTarget | null): boolean => {
@@ -126,7 +127,12 @@ export const useShortcutBindings = () => {
         setRunning(true)
         addLog('info', `开始执行工作流：${workflowFile.graph.name}`)
         void runWorkflow(graph)
-          .then((message) => addLog('success', message))
+          .then((message) => {
+            addLog('success', message)
+            announceWorkflowCompleted({
+              body: `${workflowFile.graph.name} 已执行完成。`,
+            })
+          })
           .catch((error) => addLog('error', `执行失败：${String(error)}`))
           .finally(() => setRunning(false))
       } else if (event.key === 'F6') {
