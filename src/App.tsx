@@ -44,9 +44,13 @@ import { getTriggerMode } from "./utils/nodeMeta";
 import {
   announceWorkflowCompleted,
   sendWorkflowCompletionSystemNotification,
+  sendWorkflowFailureSystemNotification,
   toWorkflowCompletionContent,
+  toWorkflowFailureContent,
   WORKFLOW_COMPLETED_EVENT,
+  WORKFLOW_FAILED_EVENT,
   type WorkflowCompletedEventDetail,
+  type WorkflowFailedEventDetail,
 } from "./utils/workflowCompletion";
 import { toBackendGraph } from "./utils/workflowBridge";
 import type { WorkflowFile, WorkflowNode } from "./types/workflow";
@@ -559,13 +563,23 @@ function App() {
       void sendWorkflowCompletionSystemNotification(content);
     };
 
+    const handleWorkflowFailed = (event: Event) => {
+      const detail = (event as CustomEvent<WorkflowFailedEventDetail>).detail;
+      const content = toWorkflowFailureContent(detail);
+
+      playWorkflowCompletedTone();
+      void sendWorkflowFailureSystemNotification(content);
+    };
+
     window.addEventListener(WORKFLOW_COMPLETED_EVENT, handleWorkflowCompleted);
+    window.addEventListener(WORKFLOW_FAILED_EVENT, handleWorkflowFailed);
 
     return () => {
       window.removeEventListener(
         WORKFLOW_COMPLETED_EVENT,
         handleWorkflowCompleted,
       );
+      window.removeEventListener(WORKFLOW_FAILED_EVENT, handleWorkflowFailed);
     };
   }, []);
 
@@ -1143,8 +1157,17 @@ function App() {
         addLog("warn", "单步完成，但下一节点不存在，请检查连线。");
       }
     } catch (error) {
+      const message = String(error);
       resetStepSession();
-      addLog("error", `单步失败：${String(error)}`);
+      addLog("error", `单步失败：${message}`);
+      window.dispatchEvent(
+        new CustomEvent<WorkflowFailedEventDetail>(WORKFLOW_FAILED_EVENT, {
+          detail: {
+            title: "单步执行失败",
+            body: `单步执行失败：${message}`,
+          },
+        }),
+      );
     } finally {
       setRunning(false);
     }
@@ -1477,7 +1500,16 @@ function App() {
         addLog("warn", "连续单步已停止。");
       }
     } catch (error) {
-      addLog("error", `连续单步失败：${String(error)}`);
+      const message = String(error);
+      addLog("error", `连续单步失败：${message}`);
+      window.dispatchEvent(
+        new CustomEvent<WorkflowFailedEventDetail>(WORKFLOW_FAILED_EVENT, {
+          detail: {
+            title: "连续单步失败",
+            body: `连续单步失败：${message}`,
+          },
+        }),
+      );
     } finally {
       continuousStepRunningRef.current = false;
       continuousStepStopRef.current = false;
@@ -1511,7 +1543,16 @@ function App() {
       const message = await stopWorkflow();
       addLog("warn", message);
     } catch (error) {
-      addLog("error", `停止失败：${String(error)}`);
+      const message = String(error);
+      addLog("error", `停止失败：${message}`);
+      window.dispatchEvent(
+        new CustomEvent<WorkflowFailedEventDetail>(WORKFLOW_FAILED_EVENT, {
+          detail: {
+            title: "停止执行失败",
+            body: `停止执行失败：${message}`,
+          },
+        }),
+      );
     } finally {
       setRunning(false);
     }
@@ -1848,7 +1889,16 @@ function App() {
             body: `${workflowFile.graph.name} 已执行完成。`,
           });
         } catch (error) {
-          addLog("error", `执行失败：${String(error)}`);
+          const message = String(error);
+          addLog("error", `执行失败：${message}`);
+          window.dispatchEvent(
+            new CustomEvent<WorkflowFailedEventDetail>(WORKFLOW_FAILED_EVENT, {
+              detail: {
+                title: "工作流执行失败",
+                body: `工作流执行失败：${message}`,
+              },
+            }),
+          );
         } finally {
           setRunning(false);
         }
