@@ -31,3 +31,5 @@ dist-ssr
 
 # ignore tauri generated schemas
 src-tauri/gen/
+
+*.md
