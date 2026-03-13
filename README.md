@@ -1,8 +1,10 @@
 # CommandFlow-rs
 
-A cross-platform desktop automation workflow editor built with **Tauri v2, Rust, React 19, and React Flow v12**.
+A **Windows-only** desktop automation workflow editor built with **Tauri v2, Rust, React 19, and React Flow v12**.
 
 > ⚠️ This project is intended for office automation and test automation; it is not suitable for game automation scenarios.
+> 
+> ⚠️ **Only Windows is supported at this time.** Other operating systems are not supported.
 
 ## Implemented core features
 
