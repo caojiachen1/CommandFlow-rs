@@ -19,7 +19,7 @@ A **Windows-only** desktop automation workflow editor built with **Tauri v2, Rus
 ### 1. Element Identification
 - [ ] UI object/control recognition (Accessibility APIs: UIA/MSAA/Java Access Bridge)
 - [x] Image matching (template matching + similarity threshold; real-time polling via xcap stream)
-- [ ] OCR (screen text recognition; not implemented)
+- [x] OCR (screen text recognition)
 
 ### 2. Input Simulation
 - [x] Mouse: move/click/double-click/drag/scroll (enigo + SendInput)
@@ -36,7 +36,7 @@ A **Windows-only** desktop automation workflow editor built with **Tauri v2, Rus
 
 ### 4. Data Scraping & Manipulation
 - [ ] Structured data extraction (tables/Excel/Web table)
-- [ ] OCR + regex extraction (text parsing from screenshots)
+- [x] OCR + regex extraction (text parsing from screenshots)
 - [x] Regex/text parsing (LLM output parsing, etc.)
 - [x] Clipboard read/write and variable transfer
 
