@@ -25,6 +25,7 @@ use tokio::time::{sleep, Duration};
 
 const DEFAULT_POST_DELAY_MS: u64 = 50;
 const IMAGE_MATCH_DEBUG_SAVE_EVERY: u64 = 15;
+const OCR_MATCH_DEBUG_SAVE_EVERY: u64 = 5;
 const GUI_AGENT_MAX_SCREENSHOTS: usize = 5;
 const GUI_AGENT_DEFAULT_MAX_STEPS: u64 = 20;
 const GUI_AGENT_ACTION_PARSE_RETRIES: u64 = 3;
@@ -2029,6 +2030,16 @@ async fn execute_ocr_match(
     let confirm_frames = get_u64(node, "confirmFrames", 2).max(1);
     let click_on_match = get_bool(node, "clickOnMatch", false);
     let click_times = get_u64(node, "clickTimes", 1).max(1) as usize;
+    let debug_dir = prepare_ocr_match_debug_dir(node)?;
+
+    on_log(
+        "info",
+        format!(
+            "OCR 匹配节点 '{}' 调试文件将写入：{}",
+            node.label,
+            debug_dir.display()
+        ),
+    );
 
     if !source_path.trim().is_empty() {
         let evaluation = evaluate_ocr_path_blocking(
@@ -2040,6 +2051,23 @@ async fn execute_ocr_match(
             min_confidence,
         )
         .await?;
+
+        if let Err(error) = save_ocr_static_debug_artifacts(
+            &debug_dir,
+            &source_path,
+            &evaluation,
+            &target_text,
+            &match_mode,
+            case_sensitive,
+            use_regex,
+            min_confidence,
+            node,
+        ) {
+            on_log(
+                "warn",
+                format!("OCR 匹配节点 '{}' 写入调试文件失败：{}", node.label, error),
+            );
+        }
 
         set_node_output(
             ctx,
@@ -2099,6 +2127,7 @@ async fn execute_ocr_match(
 
         let (rgba, width, height) = screenshot::capture_fullscreen_rgba()?;
         attempts += 1;
+        let debug_rgba = rgba.clone();
 
         let evaluation = evaluate_ocr_rgba_blocking(
             rgba,
@@ -2123,6 +2152,33 @@ async fn execute_ocr_match(
             "confidence",
             value_from_f64(evaluation.peak_confidence as f64),
         );
+
+        let is_timeout_now = started.elapsed() >= deadline;
+        let should_save_debug = attempts == 1
+            || attempts % OCR_MATCH_DEBUG_SAVE_EVERY == 0
+            || evaluation.matched.is_some()
+            || is_timeout_now;
+        if should_save_debug {
+            if let Err(error) = save_ocr_frame_debug_artifacts(
+                &debug_dir,
+                attempts,
+                &debug_rgba,
+                width,
+                height,
+                &evaluation,
+                &target_text,
+                &match_mode,
+                case_sensitive,
+                use_regex,
+                min_confidence,
+                node,
+            ) {
+                on_log(
+                    "warn",
+                    format!("OCR 匹配节点 '{}' 写入调试文件失败：{}", node.label, error),
+                );
+            }
+        }
 
         if let Some(candidate) = evaluation.matched {
             matched_streak += 1;
@@ -2174,7 +2230,7 @@ async fn execute_ocr_match(
             matched_streak = 0;
         }
 
-        if started.elapsed() >= deadline {
+        if is_timeout_now {
             on_log(
                 "warn",
                 format!(
@@ -3461,6 +3517,237 @@ async fn interruptible_sleep(
         let remaining = deadline.saturating_duration_since(now);
         sleep(remaining.min(SLEEP_SLICE)).await;
     }
+}
+
+fn prepare_ocr_match_debug_dir(node: &WorkflowNode) -> CommandResult<PathBuf> {
+    let mut base = std::env::temp_dir();
+    base.push("commandflow-ocr-match-debug");
+
+    fs::create_dir_all(&base).map_err(|error| CommandFlowError::Io(error.to_string()))?;
+
+    let unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let safe_label = node
+        .label
+        .chars()
+        .map(|ch| if ch.is_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    let run_dir = base.join(format!("{}-{}-{}", safe_label, node.id, unix_ms));
+    fs::create_dir_all(&run_dir).map_err(|error| CommandFlowError::Io(error.to_string()))?;
+
+    Ok(run_dir)
+}
+
+fn save_ocr_static_debug_artifacts(
+    debug_dir: &Path,
+    source_path: &str,
+    evaluation: &ocr_match::OcrMatchEvaluation,
+    target_text: &str,
+    match_mode: &str,
+    case_sensitive: bool,
+    use_regex: bool,
+    min_confidence: f32,
+    node: &WorkflowNode,
+) -> CommandResult<()> {
+    let source = Path::new(source_path);
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!(".{}", value))
+        .unwrap_or_else(|| ".png".to_string());
+    let input_path = debug_dir.join(format!("static-input{}", extension));
+
+    fs::copy(source, &input_path)
+        .map_err(|error| CommandFlowError::Io(format!("复制 OCR 静态源图到 debug 目录失败: {}", error)))?;
+
+    if let Ok(decoded) = image::open(source_path) {
+        let rgba = decoded.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let overlay = render_ocr_debug_overlay(rgba.into_raw(), width, height, evaluation)?;
+        let overlay_path = debug_dir.join("static-overlay.png");
+        overlay
+            .save(&overlay_path)
+            .map_err(|error| CommandFlowError::Automation(format!("保存 OCR 静态标注图失败: {}", error)))?;
+    }
+
+    let metadata_path = debug_dir.join("static-metadata.json");
+    write_ocr_debug_metadata(
+        &metadata_path,
+        evaluation,
+        target_text,
+        match_mode,
+        case_sensitive,
+        use_regex,
+        min_confidence,
+        node,
+    )
+}
+
+fn save_ocr_frame_debug_artifacts(
+    debug_dir: &Path,
+    frame: u64,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    evaluation: &ocr_match::OcrMatchEvaluation,
+    target_text: &str,
+    match_mode: &str,
+    case_sensitive: bool,
+    use_regex: bool,
+    min_confidence: f32,
+    node: &WorkflowNode,
+) -> CommandResult<()> {
+    let input_path = debug_dir.join(format!("frame-{:04}-input.png", frame));
+    screenshot::save_rgba_image(path_to_string(&input_path)?, rgba.to_vec(), width, height)?;
+
+    let overlay = render_ocr_debug_overlay(rgba.to_vec(), width, height, evaluation)?;
+    let overlay_path = debug_dir.join(format!("frame-{:04}-overlay.png", frame));
+    overlay
+        .save(&overlay_path)
+        .map_err(|error| CommandFlowError::Automation(format!("保存 OCR 帧标注图失败: {}", error)))?;
+
+    let metadata_path = debug_dir.join(format!("frame-{:04}-metadata.json", frame));
+    write_ocr_debug_metadata(
+        &metadata_path,
+        evaluation,
+        target_text,
+        match_mode,
+        case_sensitive,
+        use_regex,
+        min_confidence,
+        node,
+    )
+}
+
+fn render_ocr_debug_overlay(
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+    evaluation: &ocr_match::OcrMatchEvaluation,
+) -> CommandResult<RgbaImage> {
+    let mut image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba)
+        .ok_or_else(|| CommandFlowError::Automation("failed to build OCR debug overlay image".to_string()))?;
+
+    draw_border(&mut image, Rgba([64, 180, 255, 255]));
+
+    for entry in &evaluation.debug_entries {
+        let stroke = if entry.is_text_match && entry.is_confidence_passed {
+            Rgba([64, 255, 96, 255])
+        } else if entry.is_text_match {
+            Rgba([255, 200, 0, 255])
+        } else {
+            Rgba([255, 80, 80, 220])
+        };
+
+        if let Some(quad) = entry.quad {
+            let points = [
+                (quad[0][0].round() as i32, quad[0][1].round() as i32),
+                (quad[1][0].round() as i32, quad[1][1].round() as i32),
+                (quad[2][0].round() as i32, quad[2][1].round() as i32),
+                (quad[3][0].round() as i32, quad[3][1].round() as i32),
+            ];
+            for i in 0..4 {
+                let start = points[i];
+                let end = points[(i + 1) % 4];
+                draw_line(&mut image, start.0, start.1, end.0, end.1, stroke);
+            }
+        }
+
+        if entry.center_x >= 0 && entry.center_y >= 0 {
+            draw_crosshair(&mut image, entry.center_x, entry.center_y, 8, stroke);
+        }
+    }
+
+    if let Some(matched) = evaluation.matched.as_ref() {
+        if matched.x >= 0 && matched.y >= 0 {
+            draw_circle_outline(&mut image, matched.x, matched.y, 16, Rgba([255, 255, 0, 255]));
+            draw_crosshair(&mut image, matched.x, matched.y, 18, Rgba([255, 255, 0, 255]));
+        }
+    }
+
+    Ok(image)
+}
+
+fn write_ocr_debug_metadata(
+    output_path: &Path,
+    evaluation: &ocr_match::OcrMatchEvaluation,
+    target_text: &str,
+    match_mode: &str,
+    case_sensitive: bool,
+    use_regex: bool,
+    min_confidence: f32,
+    node: &WorkflowNode,
+) -> CommandResult<()> {
+    let entries = evaluation
+        .debug_entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let quad = entry.quad.map(|points| {
+                points
+                    .iter()
+                    .map(|point| {
+                        serde_json::json!({
+                            "x": point[0],
+                            "y": point[1],
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+            serde_json::json!({
+                "index": index,
+                "text": &entry.text,
+                "confidence": entry.confidence,
+                "center": {
+                    "x": entry.center_x,
+                    "y": entry.center_y,
+                },
+                "quad": quad,
+                "isTextMatch": entry.is_text_match,
+                "isConfidencePassed": entry.is_confidence_passed,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let matched = evaluation.matched.as_ref().map(|item| {
+        serde_json::json!({
+            "x": item.x,
+            "y": item.y,
+            "text": &item.text,
+            "confidence": item.confidence,
+        })
+    });
+
+    let payload = serde_json::json!({
+        "node": {
+            "id": &node.id,
+            "label": &node.label,
+            "kind": "ocrMatch",
+        },
+        "query": {
+            "targetText": target_text,
+            "matchMode": match_mode,
+            "caseSensitive": case_sensitive,
+            "useRegex": use_regex,
+            "minConfidence": min_confidence,
+        },
+        "summary": {
+            "peakText": &evaluation.peak_text,
+            "peakConfidence": evaluation.peak_confidence,
+            "entryCount": entries.len(),
+            "matched": matched,
+        },
+        "entries": entries,
+    });
+
+    let text = serde_json::to_string_pretty(&payload)
+        .map_err(|error| CommandFlowError::Automation(format!("序列化 OCR debug metadata 失败: {}", error)))?;
+    fs::write(output_path, text)
+        .map_err(|error| CommandFlowError::Io(format!("写入 OCR debug metadata 失败: {}", error)))
 }
 
 fn prepare_image_match_debug_dir(node: &WorkflowNode) -> CommandResult<PathBuf> {

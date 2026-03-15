@@ -16,6 +16,18 @@ pub struct OcrMatchEvaluation {
     pub matched: Option<OcrMatchCandidate>,
     pub peak_text: String,
     pub peak_confidence: f32,
+    pub debug_entries: Vec<OcrDebugEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OcrDebugEntry {
+    pub text: String,
+    pub confidence: f32,
+    pub center_x: i32,
+    pub center_y: i32,
+    pub quad: Option<[[f32; 2]; 4]>,
+    pub is_text_match: bool,
+    pub is_confidence_passed: bool,
 }
 
 static OCR_ENGINE: OnceLock<Mutex<RapidOcrEngine>> = OnceLock::new();
@@ -133,6 +145,7 @@ fn find_match(
     let mut matched: Option<OcrMatchCandidate> = None;
     let mut peak_confidence = 0.0_f32;
     let mut peak_text = String::new();
+    let mut debug_entries = Vec::<OcrDebugEntry>::new();
 
     let regex = if use_regex {
         let pattern = if case_sensitive {
@@ -161,15 +174,28 @@ fn find_match(
                     peak_text = text.clone();
                 }
 
-                if score < min_confidence {
-                    continue;
-                }
-
-                if !text_matches(text, target_text, match_mode, case_sensitive, regex.as_ref()) {
-                    continue;
-                }
-
+                let is_text_match = text_matches(text, target_text, match_mode, case_sensitive, regex.as_ref());
+                let is_confidence_passed = score >= min_confidence;
                 let (x, y) = quad_center(quad);
+
+                debug_entries.push(OcrDebugEntry {
+                    text: text.to_string(),
+                    confidence: score,
+                    center_x: x,
+                    center_y: y,
+                    quad: Some(*quad),
+                    is_text_match,
+                    is_confidence_passed,
+                });
+
+                if !is_confidence_passed {
+                    continue;
+                }
+
+                if !is_text_match {
+                    continue;
+                }
+
                 let candidate = OcrMatchCandidate {
                     x,
                     y,
@@ -193,11 +219,23 @@ fn find_match(
                     peak_text = text.clone();
                 }
 
-                if score < min_confidence {
+                let is_text_match = text_matches(text, target_text, match_mode, case_sensitive, regex.as_ref());
+                let is_confidence_passed = score >= min_confidence;
+                debug_entries.push(OcrDebugEntry {
+                    text: text.to_string(),
+                    confidence: score,
+                    center_x: -1,
+                    center_y: -1,
+                    quad: None,
+                    is_text_match,
+                    is_confidence_passed,
+                });
+
+                if !is_confidence_passed {
                     continue;
                 }
 
-                if !text_matches(text, target_text, match_mode, case_sensitive, regex.as_ref()) {
+                if !is_text_match {
                     continue;
                 }
 
@@ -223,6 +261,7 @@ fn find_match(
         matched,
         peak_text,
         peak_confidence,
+        debug_entries,
     })
 }
 
