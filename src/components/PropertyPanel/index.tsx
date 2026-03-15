@@ -97,6 +97,9 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if (kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')) {
     return true
   }
+  if (kind === 'ocrMatch' && fieldKey === 'sourcePath') {
+    return true
+  }
   if (kind === 'screenshot' && fieldKey === 'saveDir') {
     return true
   }
@@ -108,6 +111,8 @@ const isFilePathField = (kind: NodeKind, fieldKey: string) => {
 
 const isImageMatchImageField = (kind: NodeKind, fieldKey: string) =>
   kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')
+
+const isOcrMatchImageField = (kind: NodeKind, fieldKey: string) => kind === 'ocrMatch' && fieldKey === 'sourcePath'
 
 const isTextFilePathField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
   kind === 'fileOperation' && fieldKey === 'path' && (params.operation === 'readText' || params.operation === 'writeText')
@@ -620,6 +625,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                       ? 'directory'
                       : (
                     isImageMatchImageField(selectedNode.data.kind, field.key) ||
+                    isOcrMatchImageField(selectedNode.data.kind, field.key) ||
                     isTextFilePathField(selectedNode.data.kind, field.key, selectedNode.data.params) ||
                     isClipboardImagePathField(selectedNode.data.kind, field.key)
                       ? 'file'
@@ -627,7 +633,9 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                       )
                   }
                   filters={
-                    isImageMatchImageField(selectedNode.data.kind, field.key) || isClipboardImagePathField(selectedNode.data.kind, field.key)
+                    isImageMatchImageField(selectedNode.data.kind, field.key) ||
+                    isOcrMatchImageField(selectedNode.data.kind, field.key) ||
+                    isClipboardImagePathField(selectedNode.data.kind, field.key)
                       ? IMAGE_FILE_FILTERS
                       : undefined
                   }

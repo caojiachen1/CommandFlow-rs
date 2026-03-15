@@ -43,6 +43,7 @@ const categories: NodePaletteCategory[] = [
       { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500', icon: Repeat, category: '触发与流程' },
       { label: 'while 循环', kind: 'whileLoop', color: 'bg-purple-600', icon: Repeat, category: '触发与流程' },
       { label: '图像匹配', kind: 'imageMatch', color: 'bg-teal-500', icon: Search, category: '触发与流程' },
+      { label: 'OCR 文字匹配', kind: 'ocrMatch', color: 'bg-emerald-500', icon: Search, category: '触发与流程' },
     ],
   },
   {

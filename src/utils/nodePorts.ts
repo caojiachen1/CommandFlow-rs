@@ -343,6 +343,17 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'similarity', label: 'similarity', maxConnections: MANY, valueType: 'number' },
     ],
   },
+  ocrMatch: {
+    inputs: singleIn(),
+    outputs: [
+      { id: 'true', label: 'true', maxConnections: ONE, valueType: 'control' },
+      { id: 'false', label: 'false', maxConnections: ONE, valueType: 'control' },
+      { id: 'matchX', label: 'matchX', maxConnections: MANY, valueType: 'number' },
+      { id: 'matchY', label: 'matchY', maxConnections: MANY, valueType: 'number' },
+      { id: 'matchedText', label: 'matchedText', maxConnections: MANY, valueType: 'string' },
+      { id: 'confidence', label: 'confidence', maxConnections: MANY, valueType: 'number' },
+    ],
+  },
   varDefine: {
     inputs: singleIn(),
     outputs: [...singleOut(), { id: 'value', label: 'value', maxConnections: MANY, valueType: 'any' }],

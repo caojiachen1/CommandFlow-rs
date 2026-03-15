@@ -62,6 +62,7 @@ pub enum NodeKind {
     Loop,
     WhileLoop,
     ImageMatch,
+    OcrMatch,
     VarDefine,
     VarSet,
     VarMath,

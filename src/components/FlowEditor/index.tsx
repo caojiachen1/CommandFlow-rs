@@ -34,6 +34,7 @@ import { ALL_NODE_KINDS, getNodePaletteItem } from '../../utils/nodeCatalog'
 import ClickNode from '../../nodes/ClickNode'
 import ConditionNode from '../../nodes/ConditionNode'
 import ImageMatchNode from '../../nodes/ImageMatchNode'
+import OcrMatchNode from '../../nodes/OcrMatchNode'
 import InputPresetReplayNode from '../../nodes/InputPresetReplayNode'
 import KeyPressNode from '../../nodes/KeyPressNode'
 import LoopNode from '../../nodes/LoopNode'
@@ -227,6 +228,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       keyboardOperation: KeyPressNode,
       inputPresetReplay: InputPresetReplayNode,
       imageMatch: ImageMatchNode,
+      ocrMatch: OcrMatchNode,
       condition: ConditionNode,
       loop: LoopNode,
       whileLoop: LoopNode,

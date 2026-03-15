@@ -3,6 +3,7 @@ pub mod file_ops;
 pub mod image_match;
 pub mod keyboard;
 pub mod mouse;
+pub mod ocr_match;
 pub mod power;
 pub mod screenshot;
 pub mod start_menu;

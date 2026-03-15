@@ -1,4 +1,4 @@
-use crate::automation::{file_ops, image_match, keyboard, mouse, power, screenshot, start_menu, system_settings, window};
+use crate::automation::{file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu, system_settings, window};
 use crate::secure_settings::{load_input_recording_presets, InputRecordingAction, InputRecordingPreset, RecordedCursorPoint};
 use arboard::{Clipboard, ImageData};
 use base64::Engine as _;
@@ -1122,6 +1122,7 @@ impl WorkflowExecutor {
                     }
                 }
             }
+            NodeKind::OcrMatch => execute_ocr_match(node, ctx, on_log, should_cancel).await,
             NodeKind::VarDefine => {
                 let name = get_string(node, "name", "");
                 if !name.trim().is_empty() {
@@ -2002,6 +2003,245 @@ fn execute_launch_application(
     );
 
     Ok(NextDirective::Default)
+}
+
+async fn execute_ocr_match(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    on_log: &mut impl FnMut(&str, String),
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<NextDirective> {
+    let target_text = get_string(node, "targetText", "");
+    if target_text.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' targetText cannot be empty",
+            node.id
+        )));
+    }
+
+    let source_path = get_string(node, "sourcePath", "");
+    let match_mode = get_string(node, "matchMode", "contains");
+    let case_sensitive = get_bool(node, "caseSensitive", false);
+    let use_regex = get_bool(node, "useRegex", false);
+    let min_confidence = get_f32(node, "minConfidence", 0.5).clamp(0.0, 1.0);
+    let timeout_ms = get_u64(node, "timeoutMs", 10_000);
+    let poll_ms = get_u64(node, "pollMs", 120).max(1);
+    let confirm_frames = get_u64(node, "confirmFrames", 2).max(1);
+    let click_on_match = get_bool(node, "clickOnMatch", false);
+    let click_times = get_u64(node, "clickTimes", 1).max(1) as usize;
+
+    if !source_path.trim().is_empty() {
+        let evaluation = evaluate_ocr_path_blocking(
+            &source_path,
+            &target_text,
+            &match_mode,
+            case_sensitive,
+            use_regex,
+            min_confidence,
+        )
+        .await?;
+
+        set_node_output(
+            ctx,
+            node,
+            "confidence",
+            value_from_f64(evaluation.peak_confidence as f64),
+        );
+
+        if let Some(candidate) = evaluation.matched {
+            set_node_output(ctx, node, "matchX", value_from_i32(candidate.x));
+            set_node_output(ctx, node, "matchY", value_from_i32(candidate.y));
+            set_node_output(ctx, node, "matchedText", Value::String(candidate.text.clone()));
+            set_node_output(
+                ctx,
+                node,
+                "confidence",
+                value_from_f64(candidate.confidence as f64),
+            );
+
+            on_log(
+                "info",
+                format!(
+                    "OCR 匹配节点 '{}' 命中，text='{}'，confidence={:.4}，坐标=({}, {})。",
+                    node.label, candidate.text, candidate.confidence, candidate.x, candidate.y
+                ),
+            );
+
+            if click_on_match && candidate.x >= 0 && candidate.y >= 0 {
+                mouse::click(candidate.x, candidate.y, click_times)?;
+            }
+
+            return Ok(NextDirective::Branch("true"));
+        }
+
+        on_log(
+            "warn",
+            format!(
+                "OCR 匹配节点 '{}' 静态源图未命中（peakConfidence={:.4}，peakText='{}'），已走 false 分支。",
+                node.label, evaluation.peak_confidence, evaluation.peak_text
+            ),
+        );
+        return Ok(NextDirective::Branch("false"));
+    }
+
+    let started = tokio::time::Instant::now();
+    let deadline = Duration::from_millis(timeout_ms);
+    let poll_interval = Duration::from_millis(poll_ms);
+    let mut attempts: u64 = 0;
+    let mut matched_streak: u64 = 0;
+    let mut best_confidence_seen = 0.0_f32;
+    let mut best_text_seen = String::new();
+
+    loop {
+        if should_cancel() {
+            return Err(CommandFlowError::Canceled);
+        }
+
+        let (rgba, width, height) = screenshot::capture_fullscreen_rgba()?;
+        attempts += 1;
+
+        let evaluation = evaluate_ocr_rgba_blocking(
+            rgba,
+            width,
+            height,
+            &target_text,
+            &match_mode,
+            case_sensitive,
+            use_regex,
+            min_confidence,
+        )
+        .await?;
+
+        if evaluation.peak_confidence > best_confidence_seen {
+            best_confidence_seen = evaluation.peak_confidence;
+            best_text_seen = evaluation.peak_text.clone();
+        }
+
+        set_node_output(
+            ctx,
+            node,
+            "confidence",
+            value_from_f64(evaluation.peak_confidence as f64),
+        );
+
+        if let Some(candidate) = evaluation.matched {
+            matched_streak += 1;
+
+            on_log(
+                "info",
+                format!(
+                    "OCR 匹配节点 '{}' 第 {} 帧命中，text='{}'，confidence={:.4}，confirm={}/{}。",
+                    node.label,
+                    attempts,
+                    candidate.text,
+                    candidate.confidence,
+                    matched_streak,
+                    confirm_frames
+                ),
+            );
+
+            if matched_streak >= confirm_frames {
+                set_node_output(ctx, node, "matchX", value_from_i32(candidate.x));
+                set_node_output(ctx, node, "matchY", value_from_i32(candidate.y));
+                set_node_output(ctx, node, "matchedText", Value::String(candidate.text.clone()));
+                set_node_output(
+                    ctx,
+                    node,
+                    "confidence",
+                    value_from_f64(candidate.confidence as f64),
+                );
+
+                on_log(
+                    "info",
+                    format!(
+                        "OCR 匹配节点 '{}' 连续命中 {} 帧，text='{}'，坐标=({}, {})，置信度={:.4}。",
+                        node.label,
+                        confirm_frames,
+                        candidate.text,
+                        candidate.x,
+                        candidate.y,
+                        candidate.confidence
+                    ),
+                );
+
+                if click_on_match && candidate.x >= 0 && candidate.y >= 0 {
+                    mouse::click(candidate.x, candidate.y, click_times)?;
+                }
+
+                return Ok(NextDirective::Branch("true"));
+            }
+        } else {
+            matched_streak = 0;
+        }
+
+        if started.elapsed() >= deadline {
+            on_log(
+                "warn",
+                format!(
+                    "OCR 匹配节点 '{}' 在 {}ms 内未命中（peakConfidence={:.4}，peakText='{}'），已走 false 分支。",
+                    node.label, timeout_ms, best_confidence_seen, best_text_seen
+                ),
+            );
+            return Ok(NextDirective::Branch("false"));
+        }
+
+        interruptible_sleep(poll_interval, should_cancel).await?;
+    }
+}
+
+async fn evaluate_ocr_path_blocking(
+    source_path: &str,
+    target_text: &str,
+    match_mode: &str,
+    case_sensitive: bool,
+    use_regex: bool,
+    min_confidence: f32,
+) -> CommandResult<ocr_match::OcrMatchEvaluation> {
+    let source_path = source_path.to_string();
+    let target_text = target_text.to_string();
+    let match_mode = match_mode.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        ocr_match::evaluate_path(
+            &source_path,
+            &target_text,
+            &match_mode,
+            case_sensitive,
+            use_regex,
+            min_confidence,
+        )
+    })
+    .await
+    .map_err(|error| CommandFlowError::Automation(format!("OCR 任务线程执行失败：{}", error)))?
+}
+
+async fn evaluate_ocr_rgba_blocking(
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+    target_text: &str,
+    match_mode: &str,
+    case_sensitive: bool,
+    use_regex: bool,
+    min_confidence: f32,
+) -> CommandResult<ocr_match::OcrMatchEvaluation> {
+    let target_text = target_text.to_string();
+    let match_mode = match_mode.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        ocr_match::evaluate_rgba(
+            rgba,
+            width,
+            height,
+            &target_text,
+            &match_mode,
+            case_sensitive,
+            use_regex,
+            min_confidence,
+        )
+    })
+    .await
+    .map_err(|error| CommandFlowError::Automation(format!("OCR 任务线程执行失败：{}", error)))?
 }
 
 fn execute_file_operation(

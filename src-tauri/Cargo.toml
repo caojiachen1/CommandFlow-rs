@@ -23,8 +23,10 @@ chrono = { version = "0.4", features = ["serde"] }
 enigo = "0.2"
 ddc-hi = "0.4.1"
 image = "0.25"
+paddle-ocr-rs = { git = "https://github.com/caojiachen1/paddle-ocr-rs", package = "paddle-ocr-rs" }
 lnk_parser = "0.4.3"
 opencv = { version = "0.96", default-features = false, features = ["imgcodecs", "imgproc"], optional = true }
+ort = { version = "2.0.0-rc.10", default-features = false, features = ["ndarray", "std", "download-binaries", "copy-dylibs"] }
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
