@@ -8,4 +8,5 @@ pub mod power;
 pub mod screenshot;
 pub mod start_menu;
 pub mod system_settings;
+pub mod uia;
 pub mod window;

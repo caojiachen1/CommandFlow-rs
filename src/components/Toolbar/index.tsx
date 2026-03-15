@@ -14,14 +14,18 @@ interface ToolbarProps {
   backgroundMode: boolean;
   onToggleBackgroundMode: () => void;
   onPickCoordinate: () => void;
+  onPickElement: () => void;
   coordinatePicking: boolean;
+  elementPicking: boolean;
 }
 
 export default function Toolbar({
   backgroundMode,
   onToggleBackgroundMode,
   onPickCoordinate,
+  onPickElement,
   coordinatePicking,
+  elementPicking,
 }: ToolbarProps) {
   const { running, setRunning, addLog, clearVariables } = useExecutionStore();
   const { zoom } = useSettingsStore();
@@ -160,6 +164,8 @@ export default function Toolbar({
         <CoordinatePicker
           picking={coordinatePicking}
           onPick={onPickCoordinate}
+          elementPicking={elementPicking}
+          onPickElement={onPickElement}
           compact
         />
         <div className="rounded-full bg-slate-200/50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:bg-neutral-800/50 dark:text-slate-400">

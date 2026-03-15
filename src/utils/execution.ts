@@ -83,6 +83,45 @@ export interface OpenWindowEntryPayload {
   processId: number
 }
 
+export interface UiElementRectPayload {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+export interface UiElementLocatorPayload {
+  fingerprint: string
+  name?: string | null
+  className?: string | null
+  automationId?: string | null
+  controlType?: number | null
+  processId?: number | null
+  topLevelHwnd?: number | null
+  topLevelName?: string | null
+  topLevelClassName?: string | null
+  parentName?: string | null
+  parentClassName?: string | null
+  parentAutomationId?: string | null
+  parentControlType?: number | null
+  relativeIndex?: number | null
+  fallbackX?: number | null
+  fallbackY?: number | null
+}
+
+export interface UiElementPreviewPayload {
+  name: string
+  className: string
+  automationId: string
+  controlType: number
+  processId: number
+  rect: UiElementRectPayload
+  centerX: number
+  centerY: number
+  locator: UiElementLocatorPayload
+  summary: string
+}
+
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 let startMenuAppsCache: StartMenuAppPayload[] | null = null
 let startMenuAppsPromise: Promise<StartMenuAppPayload[]> | null = null
@@ -220,6 +259,22 @@ export const pickCoordinate = async (): Promise<CoordinatePoint> => {
     isPhysicalPixel: payload.is_physical_pixel,
     mode: payload.mode,
   }
+}
+
+export const pickUiElement = async (): Promise<UiElementPreviewPayload> => {
+  if (!isTauriRuntime()) {
+    throw new Error('当前为浏览器预览模式，未连接 Tauri 后端。')
+  }
+
+  return invoke<UiElementPreviewPayload>('pick_ui_element')
+}
+
+export const previewUiElementPick = async (): Promise<UiElementPreviewPayload | null> => {
+  if (!isTauriRuntime()) {
+    return null
+  }
+
+  return invoke<UiElementPreviewPayload | null>('preview_ui_element_pick')
 }
 
 export const getCursorPosition = async (): Promise<CoordinatePoint> => {

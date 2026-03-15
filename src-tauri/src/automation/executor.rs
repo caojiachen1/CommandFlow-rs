@@ -1,4 +1,4 @@
-use crate::automation::{file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu, system_settings, window};
+use crate::automation::{file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu, system_settings, uia, window};
 use crate::secure_settings::{load_input_recording_presets, InputRecordingAction, InputRecordingPreset, RecordedCursorPoint};
 use arboard::{Clipboard, ImageData};
 use base64::Engine as _;
@@ -2578,18 +2578,18 @@ fn execute_mouse_operation(
 
     set_node_output(ctx, node, "operation", Value::String(requested.clone()));
 
+    let target_mode = normalize_system_operation_name(&get_string(node, "targetMode", "coordinate"));
+
     match operation.as_str() {
         "click" => {
-            let x = get_i32(node, "x", 0);
-            let y = get_i32(node, "y", 0);
+            let (x, y) = resolve_mouse_target_point(node, &target_mode)?;
             let times = get_u64(node, "times", 1) as usize;
             mouse::click(x, y, times.max(1))?;
             set_node_output(ctx, node, "x", value_from_i32(x));
             set_node_output(ctx, node, "y", value_from_i32(y));
         }
         "move" => {
-            let x = get_i32(node, "x", 0);
-            let y = get_i32(node, "y", 0);
+            let (x, y) = resolve_mouse_target_point(node, &target_mode)?;
             mouse::move_to(x, y)?;
             set_node_output(ctx, node, "x", value_from_i32(x));
             set_node_output(ctx, node, "y", value_from_i32(y));
@@ -2609,8 +2609,7 @@ fn execute_mouse_operation(
             set_node_output(ctx, node, "vertical", value_from_i32(vertical));
         }
         "down" => {
-            let x = get_i32(node, "x", 0);
-            let y = get_i32(node, "y", 0);
+            let (x, y) = resolve_mouse_target_point(node, &target_mode)?;
             let button = get_string(node, "button", "left");
             mouse::button_down(x, y, &button)?;
             set_node_output(ctx, node, "x", value_from_i32(x));
@@ -2618,8 +2617,7 @@ fn execute_mouse_operation(
             set_node_output(ctx, node, "button", Value::String(button));
         }
         "up" => {
-            let x = get_i32(node, "x", 0);
-            let y = get_i32(node, "y", 0);
+            let (x, y) = resolve_mouse_target_point(node, &target_mode)?;
             let button = get_string(node, "button", "left");
             mouse::button_up(x, y, &button)?;
             set_node_output(ctx, node, "x", value_from_i32(x));
@@ -2635,6 +2633,53 @@ fn execute_mouse_operation(
     }
 
     Ok(NextDirective::Default)
+}
+
+fn resolve_mouse_target_point(node: &WorkflowNode, target_mode: &str) -> CommandResult<(i32, i32)> {
+    if target_mode == "uielement" {
+        let locator = parse_mouse_element_locator(node)?;
+        return uia::resolve_locator_center(&locator);
+    }
+
+    Ok((get_i32(node, "x", 0), get_i32(node, "y", 0)))
+}
+
+fn parse_mouse_element_locator(node: &WorkflowNode) -> CommandResult<uia::UiElementLocator> {
+    let value = node.params.get("elementLocator").ok_or_else(|| {
+        CommandFlowError::Validation(format!(
+            "node '{}' 缺少 elementLocator，无法按 UI 元素定位",
+            node.id
+        ))
+    })?;
+
+    match value {
+        Value::Object(_) => serde_json::from_value::<uia::UiElementLocator>(value.clone()).map_err(|error| {
+            CommandFlowError::Validation(format!(
+                "node '{}' elementLocator 格式无效：{}",
+                node.id, error
+            ))
+        }),
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' elementLocator 为空字符串",
+                    node.id
+                )));
+            }
+
+            serde_json::from_str::<uia::UiElementLocator>(trimmed).map_err(|error| {
+                CommandFlowError::Validation(format!(
+                    "node '{}' elementLocator JSON 解析失败：{}",
+                    node.id, error
+                ))
+            })
+        }
+        _ => Err(CommandFlowError::Validation(format!(
+            "node '{}' elementLocator 必须是对象或 JSON 字符串",
+            node.id
+        ))),
+    }
 }
 
 async fn execute_keyboard_operation(

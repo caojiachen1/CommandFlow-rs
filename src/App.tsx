@@ -31,6 +31,7 @@ import { useShortcutBindings } from "./hooks/useShortcutBindings";
 import { listen } from "@tauri-apps/api/event";
 import {
   getCursorPosition,
+  pickUiElement,
   pickCoordinate,
   playCompletionBeep,
   runWorkflow,
@@ -40,7 +41,7 @@ import {
   stopWorkflow,
 } from "./utils/execution";
 import { getNodePortSpec } from "./utils/nodePorts";
-import { getTriggerMode } from "./utils/nodeMeta";
+import { getNodeMeta, getTriggerMode } from "./utils/nodeMeta";
 import {
   announceWorkflowCompleted,
   sendWorkflowCompletionSystemNotification,
@@ -62,7 +63,7 @@ const menuGroups = {
   文件: ["新建", "打开", "保存", "另存为"],
   编辑: ["撤销", "重做", "复制", "粘贴"],
   视图: ["放大", "缩小", "重置缩放", "后台模式"],
-  运行: ["运行", "停止", "单步", "拾取坐标"],
+  运行: ["运行", "停止", "单步", "拾取坐标", "提取元素"],
   设置: ["LLM 预设", "键鼠预设"],
   帮助: ["文档", "快捷键"],
 };
@@ -289,6 +290,8 @@ function App() {
     selectedNodeId,
     nodes,
     edges,
+    addNode,
+    updateNodeParams,
     setSelectedNode,
     setCursor,
   } = useWorkflowStore();
@@ -322,6 +325,7 @@ function App() {
     "background",
   );
   const [coordinatePicking, setCoordinatePicking] = useState(false);
+  const [elementPicking, setElementPicking] = useState(false);
   const [activeInputRecordingPresetId, setActiveInputRecordingPresetId] =
     useState("");
   const [inputRecorderRecording, setInputRecorderRecording] = useState(false);
@@ -1239,6 +1243,66 @@ function App() {
     }
   }, [addLog, coordinatePicking]);
 
+  const startElementPicking = useCallback(async () => {
+    if (elementPicking) return;
+
+    setElementPicking(true);
+    addLog(
+      "info",
+      "进入元素提取（Accessibility）模式：请将鼠标悬停到目标元素后单击确认。",
+    );
+
+    try {
+      const picked = await pickUiElement();
+
+      const selectedNode =
+        nodes.find((node) => node.id === selectedNodeId) ?? null;
+      const position = selectedNode
+        ? {
+            x: selectedNode.position.x + 320,
+            y: selectedNode.position.y,
+          }
+        : {
+            x: 320 + (nodes.length % 4) * 36,
+            y: 160 + (nodes.length % 3) * 28,
+          };
+
+      const nodeId = addNode("mouseOperation", position);
+      const baseMeta = getNodeMeta("mouseOperation");
+      updateNodeParams(nodeId, {
+        ...baseMeta.defaultParams,
+        operation: "click",
+        targetMode: "uiElement",
+        x: picked.centerX,
+        y: picked.centerY,
+        elementLocator: picked.locator,
+      });
+      setSelectedNode(nodeId);
+
+      addLog(
+        "success",
+        `元素提取成功：${picked.summary}。已新增鼠标节点并写入稳定指纹。`,
+      );
+    } catch (error) {
+      const message = String(error);
+      if (message.includes("取消")) {
+        addLog("warn", "已取消元素提取。");
+      } else {
+        addLog("error", `元素提取失败：${message}`);
+      }
+    } finally {
+      setElementPicking(false);
+    }
+  }, [
+    addLog,
+    addNode,
+    elementPicking,
+    nodes,
+    selectedNodeId,
+    setSelectedNode,
+    updateNodeParams,
+  ]);
+
   const getParamString = (node: WorkflowNode, key: string, fallback = "") => {
     const value = node.data.params[key];
     return typeof value === "string" ? value : fallback;
@@ -1914,6 +1978,9 @@ function App() {
       case "拾取坐标":
         await startCoordinatePicking();
         break;
+      case "提取元素":
+        await startElementPicking();
+        break;
       case "文档":
         setHelpType("docs");
         setHelpModalOpen(true);
@@ -2187,6 +2254,8 @@ function App() {
               <CoordinatePicker
                 picking={coordinatePicking}
                 onPick={startCoordinatePicking}
+                elementPicking={elementPicking}
+                onPickElement={startElementPicking}
                 compact
               />
               <button
@@ -2208,7 +2277,9 @@ function App() {
             <Toolbar
               backgroundMode={backgroundMode}
               coordinatePicking={coordinatePicking}
+              elementPicking={elementPicking}
               onPickCoordinate={startCoordinatePicking}
+              onPickElement={startElementPicking}
               onToggleBackgroundMode={() => {
                 void handleMenuAction("后台模式");
               }}

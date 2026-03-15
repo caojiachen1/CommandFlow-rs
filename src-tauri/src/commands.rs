@@ -1,6 +1,7 @@
 use crate::automation::executor::WorkflowExecutor;
 use crate::automation::screenshot;
 use crate::automation::start_menu;
+use crate::automation::uia;
 use crate::automation::window;
 use crate::input_recorder;
 use crate::workflow::graph::WorkflowGraph;
@@ -18,6 +19,10 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Positio
 use windows_sys::Win32::Foundation::{POINT, RECT};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Diagnostics::Debug::Beep;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
+};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetSystemMetrics, SystemParametersInfoW,
@@ -82,6 +87,14 @@ fn coordinate_pick_sender_store(
     COORDINATE_PICK_SENDER.get_or_init(|| Mutex::new(None))
 }
 
+fn ui_element_pick_sender_store(
+) -> &'static Mutex<Option<oneshot::Sender<Result<uia::UiElementPreview, String>>>> {
+    static UI_ELEMENT_PICK_SENDER: OnceLock<
+        Mutex<Option<oneshot::Sender<Result<uia::UiElementPreview, String>>>>,
+    > = OnceLock::new();
+    UI_ELEMENT_PICK_SENDER.get_or_init(|| Mutex::new(None))
+}
+
 fn complete_coordinate_pick(result: Result<CoordinateInfo, String>) -> Result<(), String> {
     let sender_mutex = coordinate_pick_sender_store();
     let mut sender_guard = sender_mutex
@@ -95,6 +108,109 @@ fn complete_coordinate_pick(result: Result<CoordinateInfo, String>) -> Result<()
     sender
         .send(result)
         .map_err(|_| "坐标拾取结果发送失败。".to_string())
+}
+
+fn complete_ui_element_pick(result: Result<uia::UiElementPreview, String>) -> Result<(), String> {
+    let sender_mutex = ui_element_pick_sender_store();
+    let mut sender_guard = sender_mutex
+        .lock()
+        .map_err(|_| "元素提取状态锁已损坏。".to_string())?;
+
+    let sender = sender_guard
+        .take()
+        .ok_or_else(|| "当前没有进行中的元素提取。".to_string())?;
+
+    sender
+        .send(result)
+        .map_err(|_| "元素提取结果发送失败。".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn is_vk_pressed(vk: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
+fn has_pending_ui_element_pick() -> bool {
+    ui_element_pick_sender_store()
+        .lock()
+        .ok()
+        .map(|guard| guard.is_some())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+async fn run_ui_element_pick_clickthrough_loop(app: AppHandle) {
+    let start = std::time::Instant::now();
+    let mut left_armed = !is_vk_pressed(VK_LBUTTON as i32);
+    let mut prev_left = is_vk_pressed(VK_LBUTTON as i32);
+    let mut prev_right = is_vk_pressed(VK_RBUTTON as i32);
+    let mut prev_middle = is_vk_pressed(VK_MBUTTON as i32);
+    let mut prev_escape = is_vk_pressed(VK_ESCAPE as i32);
+
+    loop {
+        if !has_pending_ui_element_pick() {
+            break;
+        }
+
+        let left_pressed = is_vk_pressed(VK_LBUTTON as i32);
+        let right_pressed = is_vk_pressed(VK_RBUTTON as i32);
+        let middle_pressed = is_vk_pressed(VK_MBUTTON as i32);
+        let escape_pressed = is_vk_pressed(VK_ESCAPE as i32);
+
+        if !left_armed {
+            if !left_pressed && start.elapsed() >= Duration::from_millis(120) {
+                left_armed = true;
+            }
+        } else if left_pressed && !prev_left {
+            let confirm_result = read_cursor_virtual_screen_point()
+                .and_then(|(x, y)| {
+                    uia::inspect_element_at_point(x, y)
+                        .map_err(|error| error.to_string())?
+                        .ok_or_else(|| "当前鼠标位置未检测到可用元素。".to_string())
+                })
+                .and_then(|preview| complete_ui_element_pick(Ok(preview)));
+
+            if confirm_result.is_err() {
+                let _ = complete_ui_element_pick(Err("当前鼠标位置未检测到可用元素。".to_string()));
+            }
+
+            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+                let _ = overlay.close();
+            }
+            break;
+        }
+
+        if right_pressed && !prev_right {
+            let _ = complete_ui_element_pick(Err("用户取消元素提取（右键）。".to_string()));
+            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+                let _ = overlay.close();
+            }
+            break;
+        }
+
+        if middle_pressed && !prev_middle {
+            let _ = complete_ui_element_pick(Err("用户取消元素提取（中键）。".to_string()));
+            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+                let _ = overlay.close();
+            }
+            break;
+        }
+
+        if escape_pressed && !prev_escape {
+            let _ = complete_ui_element_pick(Err("用户取消元素提取（Esc）。".to_string()));
+            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+                let _ = overlay.close();
+            }
+            break;
+        }
+
+        prev_left = left_pressed;
+        prev_right = right_pressed;
+        prev_middle = middle_pressed;
+        prev_escape = escape_pressed;
+
+        tokio::time::sleep(Duration::from_millis(8)).await;
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -392,6 +508,108 @@ pub async fn pick_coordinate(app: AppHandle) -> Result<CoordinateInfo, String> {
 }
 
 #[tauri::command]
+pub async fn pick_ui_element(app: AppHandle) -> Result<uia::UiElementPreview, String> {
+    {
+        let sender_mutex = ui_element_pick_sender_store();
+        let sender_guard = sender_mutex
+            .lock()
+            .map_err(|_| "元素提取状态锁已损坏。".to_string())?;
+        if sender_guard.is_some() {
+            return Err("已有元素提取正在进行中。".to_string());
+        }
+    }
+
+    if let Some(existing) = app.get_webview_window("coordinate-overlay") {
+        let _ = existing.close();
+    }
+
+    let (tx, rx) = oneshot::channel::<Result<uia::UiElementPreview, String>>();
+    {
+        let sender_mutex = ui_element_pick_sender_store();
+        let mut sender_guard = sender_mutex
+            .lock()
+            .map_err(|_| "元素提取状态锁已损坏。".to_string())?;
+        *sender_guard = Some(tx);
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        "coordinate-overlay",
+        tauri::WebviewUrl::App("index.html?coordinateOverlay=1&pickMode=element".into()),
+    )
+    .title("UI Element Overlay")
+    .decorations(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(true)
+    .transparent(true)
+    .build()
+    .map_err(|error| {
+        let sender_mutex = ui_element_pick_sender_store();
+        if let Ok(mut sender_guard) = sender_mutex.lock() {
+            sender_guard.take();
+        }
+        format!("创建元素提取 Overlay 失败：{}", error)
+    })?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Err(fullscreen_error) = window.set_fullscreen(true) {
+            let (x, y, width, height) = get_virtual_screen_bounds();
+            window
+                .set_position(Position::Physical(PhysicalPosition { x, y }))
+                .map_err(|error| format!("设置 Overlay 位置失败：{}", error))?;
+            window
+                .set_size(Size::Physical(PhysicalSize { width, height }))
+                .map_err(|error| format!("设置 Overlay 尺寸失败：{}", error))?;
+            eprintln!(
+                "[ui-element-overlay] set_fullscreen failed on windows, fallback to virtual screen bounds: {}",
+                fullscreen_error
+            );
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_fullscreen(true)
+            .map_err(|error| format!("设置 Overlay 全屏失败：{}", error))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        window
+            .set_ignore_cursor_events(true)
+            .map_err(|error| format!("设置元素拾取 Overlay 鼠标穿透失败：{}", error))?;
+
+        let app_for_loop = app.clone();
+        tokio::spawn(async move {
+            run_ui_element_pick_clickthrough_loop(app_for_loop).await;
+        });
+    }
+
+    let output = match tokio::time::timeout(Duration::from_secs(300), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("元素提取流程异常中断。".to_string()),
+        Err(_) => Err("元素提取超时，已自动取消。".to_string()),
+    };
+
+    {
+        let sender_mutex = ui_element_pick_sender_store();
+        if let Ok(mut sender_guard) = sender_mutex.lock() {
+            sender_guard.take();
+        }
+    }
+
+    if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+        let _ = overlay.close();
+    }
+
+    output
+}
+
+#[tauri::command]
 pub async fn get_cursor_position() -> Result<CoordinateInfo, String> {
     #[cfg(target_os = "windows")]
     {
@@ -447,6 +665,58 @@ pub async fn cancel_coordinate_pick(app: AppHandle, reason: Option<String>) -> R
     }
 
     complete_coordinate_pick(Err(cancel_reason))
+}
+
+#[tauri::command]
+pub async fn preview_ui_element_pick() -> Result<Option<uia::UiElementPreview>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let (x, y) = read_cursor_virtual_screen_point()?;
+        uia::inspect_element_at_point(x, y).map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("当前平台尚未支持 UI 元素提取预览。".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn confirm_ui_element_pick(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let (x, y) = read_cursor_virtual_screen_point()?;
+        let preview = uia::inspect_element_at_point(x, y)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "当前鼠标位置未检测到可用元素。".to_string())?;
+
+        complete_ui_element_pick(Ok(preview))?;
+
+        if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+            let _ = overlay.close();
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+            let _ = overlay.close();
+        }
+        complete_ui_element_pick(Err("当前平台尚未支持 UI 元素提取。".to_string()))
+    }
+}
+
+#[tauri::command]
+pub async fn cancel_ui_element_pick(app: AppHandle, reason: Option<String>) -> Result<(), String> {
+    let cancel_reason = reason.unwrap_or_else(|| "已取消元素提取。".to_string());
+
+    if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+        let _ = overlay.close();
+    }
+
+    complete_ui_element_pick(Err(cancel_reason))
 }
 
 #[tauri::command]
