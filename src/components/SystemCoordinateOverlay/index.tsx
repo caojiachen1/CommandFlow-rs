@@ -10,8 +10,11 @@ export default function SystemCoordinateOverlay() {
   const [hoveredElement, setHoveredElement] = useState<UiElementPreviewPayload | null>(null)
   const [overlayOrigin, setOverlayOrigin] = useState({ x: 0, y: 0 })
   const [overlayScaleFactor, setOverlayScaleFactor] = useState(1)
+  const [detailPanelSize, setDetailPanelSize] = useState({ width: 420, height: 190 })
   const previewTimerRef = useRef<number | null>(null)
   const lastPreviewAtRef = useRef(0)
+  const previewInFlightRef = useRef(false)
+  const detailPanelRef = useRef<HTMLDivElement | null>(null)
 
   const pickMode = useMemo(() => {
     const search = new URLSearchParams(window.location.search)
@@ -51,6 +54,7 @@ export default function SystemCoordinateOverlay() {
 
   const refreshElementPreview = () => {
     if (!isElementMode || finishing) return
+    if (previewInFlightRef.current) return
 
     const now = Date.now()
     const delta = now - lastPreviewAtRef.current
@@ -67,12 +71,16 @@ export default function SystemCoordinateOverlay() {
     }
 
     lastPreviewAtRef.current = now
+    previewInFlightRef.current = true
     void previewUiElementPick()
       .then((payload) => {
         setHoveredElement(payload)
       })
       .catch(() => {
         setHoveredElement(null)
+      })
+      .finally(() => {
+        previewInFlightRef.current = false
       })
   }
 
@@ -122,6 +130,7 @@ export default function SystemCoordinateOverlay() {
   useEffect(() => {
     if (!isElementMode || finishing) {
       setHoveredElement(null)
+      previewInFlightRef.current = false
       return
     }
 
@@ -186,25 +195,47 @@ export default function SystemCoordinateOverlay() {
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
     const margin = 12
-    const panelWidth = 420
-    const panelHeight = 190
+    const panelWidth = Math.max(1, detailPanelSize.width)
+    const panelHeight = Math.max(1, detailPanelSize.height)
 
-    const rightCandidate = displayRect.right + margin
-    const leftCandidate = displayRect.left - panelWidth - margin
+    const sideGap = 12
+    const rightCandidate = displayRect.right + sideGap
+    const leftCandidate = displayRect.left - panelWidth - sideGap
+
+    const canPlaceRight = rightCandidate + panelWidth <= viewportWidth - margin
+    const canPlaceLeft = leftCandidate >= margin
 
     let left = rightCandidate
-    if (rightCandidate + panelWidth > viewportWidth - margin) {
-      if (leftCandidate >= margin) {
-        left = leftCandidate
-      } else {
-        left = Math.max(margin, Math.min(viewportWidth - panelWidth - margin, rightCandidate))
-      }
+    if (!canPlaceRight) {
+      left = canPlaceLeft
+        ? leftCandidate
+        : Math.max(margin, Math.min(viewportWidth - panelWidth - margin, rightCandidate))
     }
 
     const top = Math.max(margin, Math.min(viewportHeight - panelHeight - margin, displayRect.top))
 
     return { left, top }
-  }, [displayRect])
+  }, [detailPanelSize.height, detailPanelSize.width, displayRect])
+
+  useEffect(() => {
+    if (!isElementMode || !hoveredElement) return
+
+    const panel = detailPanelRef.current
+    if (!panel) return
+
+    const rect = panel.getBoundingClientRect()
+    const nextWidth = Math.round(rect.width)
+    const nextHeight = Math.round(rect.height)
+
+    if (nextWidth <= 0 || nextHeight <= 0) return
+
+    setDetailPanelSize((prev) => {
+      if (prev.width === nextWidth && prev.height === nextHeight) {
+        return prev
+      }
+      return { width: nextWidth, height: nextHeight }
+    })
+  }, [isElementMode, hoveredElement, detailPanelPosition?.left, detailPanelPosition?.top])
 
   return (
     <div
@@ -231,6 +262,7 @@ export default function SystemCoordinateOverlay() {
           />
 
           <div
+            ref={detailPanelRef}
             className="pointer-events-none absolute max-w-[680px] rounded-xl border border-cyan-300/50 bg-black/70 px-4 py-3 text-[11px] text-white shadow-2xl backdrop-blur"
             style={{
               left: detailPanelPosition.left,
