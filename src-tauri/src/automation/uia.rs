@@ -75,13 +75,21 @@ struct ElementSnapshot {
 
 pub fn inspect_element_at_point(x: i32, y: i32) -> CommandResult<Option<UiElementPreview>> {
     with_automation(|automation| {
-        let element = unsafe { automation.ElementFromPoint(POINT { x, y }) }
-            .map_err(|error| CommandFlowError::Automation(format!("UIA ElementFromPoint 失败：{}", error)))?;
-        let walker = unsafe { automation.ControlViewWalker() }
-            .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error)))?;
-        let snapshot = snapshot_element(automation, &walker, &element)?;
-        Ok(Some(to_preview(snapshot)))
+        inspect_element_at_point_with_automation(automation, x, y)
     })
+}
+
+fn inspect_element_at_point_with_automation(
+    automation: &IUIAutomation,
+    x: i32,
+    y: i32,
+) -> CommandResult<Option<UiElementPreview>> {
+    let element = unsafe { automation.ElementFromPoint(POINT { x, y }) }
+        .map_err(|error| CommandFlowError::Automation(format!("UIA ElementFromPoint 失败：{}", error)))?;
+    let walker = unsafe { automation.ControlViewWalker() }
+        .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error)))?;
+    let snapshot = snapshot_element(automation, &walker, &element)?;
+    Ok(Some(to_preview(snapshot)))
 }
 
 pub fn resolve_locator_center(locator: &UiElementLocator) -> CommandResult<(i32, i32)> {
@@ -91,6 +99,14 @@ pub fn resolve_locator_center(locator: &UiElementLocator) -> CommandResult<(i32,
 
 pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPreview> {
     with_automation(|automation| {
+        if let (Some(x), Some(y)) = (locator.fallback_x, locator.fallback_y) {
+            if let Some(preview) = inspect_element_at_point_with_automation(automation, x, y)? {
+                if fast_preview_matches_locator(locator, &preview) {
+                    return Ok(preview);
+                }
+            }
+        }
+
         let walker = unsafe { automation.ControlViewWalker() }
             .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error)))?;
         let expected_name = normalize_option(&locator.name);
@@ -113,12 +129,12 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
         };
 
         let candidates = collect_descendants(automation, &root)?;
-        let mut best: Option<(i32, ElementSnapshot)> = None;
-        let mut best_name_exact: Option<(i32, ElementSnapshot)> = None;
-        let mut best_name_contains: Option<(i32, ElementSnapshot)> = None;
+        let mut best: Option<(i32, IUIAutomationElement)> = None;
+        let mut best_name_exact: Option<(i32, IUIAutomationElement)> = None;
+        let mut best_name_contains: Option<(i32, IUIAutomationElement)> = None;
 
         for candidate in candidates {
-            let snapshot = snapshot_element(automation, &walker, &candidate)?;
+            let snapshot = snapshot_element_for_matching(automation, &walker, &candidate)?;
             if snapshot.rect.right <= snapshot.rect.left || snapshot.rect.bottom <= snapshot.rect.top {
                 continue;
             }
@@ -134,14 +150,14 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
                     match &best_name_exact {
                         Some((best_score, _)) if *best_score >= score => {}
                         _ => {
-                            best_name_exact = Some((score, snapshot.clone()));
+                            best_name_exact = Some((score, candidate.clone()));
                         }
                     }
                 } else if !actual.is_empty() && actual.contains(expected) {
                     match &best_name_contains {
                         Some((best_score, _)) if *best_score >= score => {}
                         _ => {
-                            best_name_contains = Some((score, snapshot.clone()));
+                            best_name_contains = Some((score, candidate.clone()));
                         }
                     }
                 }
@@ -150,25 +166,28 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
             match &best {
                 Some((best_score, _)) if *best_score >= score => {}
                 _ => {
-                    best = Some((score, snapshot));
+                    best = Some((score, candidate));
                 }
             }
         }
 
-        if let Some((_, snapshot)) = best_name_exact {
+        if let Some((_, element)) = best_name_exact {
+            let snapshot = snapshot_element(automation, &walker, &element)?;
             return Ok(to_preview(snapshot));
         }
 
-        if let Some((_, snapshot)) = best_name_contains {
+        if let Some((_, element)) = best_name_contains {
+            let snapshot = snapshot_element(automation, &walker, &element)?;
             return Ok(to_preview(snapshot));
         }
 
-        if let Some((_, snapshot)) = best {
+        if let Some((_, element)) = best {
+            let snapshot = snapshot_element(automation, &walker, &element)?;
             return Ok(to_preview(snapshot));
         }
 
         if let (Some(x), Some(y)) = (locator.fallback_x, locator.fallback_y) {
-            if let Some(preview) = inspect_element_at_point(x, y)? {
+            if let Some(preview) = inspect_element_at_point_with_automation(automation, x, y)? {
                 return Ok(preview);
             }
         }
@@ -255,6 +274,48 @@ fn snapshot_element(
         parent_automation_id,
         parent_control_type,
         relative_index,
+    })
+}
+
+fn snapshot_element_for_matching(
+    _automation: &IUIAutomation,
+    walker: &IUIAutomationTreeWalker,
+    element: &IUIAutomationElement,
+) -> CommandResult<ElementSnapshot> {
+    let name = safe_current_name(element);
+    let class_name = safe_current_class_name(element);
+    let automation_id = safe_current_automation_id(element);
+    let control_type = safe_current_control_type(element);
+    let process_id = safe_current_process_id(element);
+    let rect = safe_current_rect(element);
+
+    let parent = unsafe { walker.GetParentElement(element) }.ok();
+    let (parent_name, parent_class_name, parent_automation_id, parent_control_type) = if let Some(parent) = parent.as_ref() {
+        (
+            safe_current_name(parent),
+            safe_current_class_name(parent),
+            safe_current_automation_id(parent),
+            safe_current_control_type(parent),
+        )
+    } else {
+        (String::new(), String::new(), String::new(), 0)
+    };
+
+    Ok(ElementSnapshot {
+        name,
+        class_name,
+        automation_id,
+        control_type,
+        process_id,
+        rect,
+        top_level_hwnd: 0,
+        top_level_name: String::new(),
+        top_level_class_name: String::new(),
+        parent_name,
+        parent_class_name,
+        parent_automation_id,
+        parent_control_type,
+        relative_index: 0,
     })
 }
 
@@ -429,6 +490,83 @@ fn normalize_option(value: &Option<String>) -> Option<String> {
 
 fn normalize(value: &str) -> String {
     value.trim().to_lowercase()
+}
+
+fn fast_preview_matches_locator(locator: &UiElementLocator, preview: &UiElementPreview) -> bool {
+    let expected_automation_id = normalize_option(&locator.automation_id);
+    let expected_class_name = normalize_option(&locator.class_name);
+    let expected_name = normalize_option(&locator.name);
+
+    if let Some(expected) = expected_automation_id.as_ref() {
+        if normalize(&preview.automation_id) != *expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = expected_class_name.as_ref() {
+        if normalize(&preview.class_name) != *expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = locator.control_type {
+        if preview.control_type != expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = locator.process_id {
+        if preview.process_id != expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = locator.top_level_hwnd {
+        let actual = preview.locator.top_level_hwnd.unwrap_or_default();
+        if expected > 0 && actual != expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = normalize_option(&locator.parent_automation_id) {
+        let actual = normalize_option(&preview.locator.parent_automation_id).unwrap_or_default();
+        if actual != expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = normalize_option(&locator.parent_class_name) {
+        let actual = normalize_option(&preview.locator.parent_class_name).unwrap_or_default();
+        if actual != expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = locator.parent_control_type {
+        let actual = preview.locator.parent_control_type.unwrap_or_default();
+        if actual != expected {
+            return false;
+        }
+    }
+
+    if let Some(expected) = expected_name.as_ref() {
+        let actual = normalize(&preview.name);
+        if actual != *expected && (actual.is_empty() || !actual.contains(expected)) {
+            return false;
+        }
+    }
+
+    let has_strong_key = expected_automation_id.is_some()
+        || expected_class_name.is_some()
+        || locator.control_type.is_some()
+        || locator.process_id.is_some()
+        || locator.top_level_hwnd.is_some();
+
+    if has_strong_key {
+        return true;
+    }
+
+    expected_name.is_some()
 }
 
 fn to_preview(snapshot: ElementSnapshot) -> UiElementPreview {
