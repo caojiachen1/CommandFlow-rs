@@ -23,7 +23,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
-const DEFAULT_POST_DELAY_MS: u64 = 50;
+const DEFAULT_POST_DELAY_MS: u64 = 1000;
 const IMAGE_MATCH_DEBUG_SAVE_EVERY: u64 = 15;
 const OCR_MATCH_DEBUG_SAVE_EVERY: u64 = 5;
 const GUI_AGENT_MAX_SCREENSHOTS: usize = 5;

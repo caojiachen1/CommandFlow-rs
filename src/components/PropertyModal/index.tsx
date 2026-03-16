@@ -762,12 +762,12 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
                 type="number"
                 min={0}
                 step={1}
-                value={Number(selectedNode.data.params.postDelayMs ?? 50)}
+                value={Number(selectedNode.data.params.postDelayMs ?? 1000)}
                 onChange={(event) => updateParam('postDelayMs', Math.max(0, Number(event.target.value) || 0))}
                 onKeyDown={handleInputKeyDown}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
               />
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">每个节点执行完成后都会等待该时长再进入下个节点，默认 50ms。</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">每个节点执行完成后都会等待该时长再进入下个节点，默认 1000ms。</p>
             </div>
 
             {selectedFields.length ? (
