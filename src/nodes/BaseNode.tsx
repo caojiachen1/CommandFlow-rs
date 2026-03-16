@@ -1349,7 +1349,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                         setTextEditorError(null)
                       }
                     }}
-                    className="nodrag h-32 w-full resize-y rounded-lg border border-white/20 bg-[#23262d] px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400"
+                    className="nodrag w-full resize-y rounded-lg border border-white/20 bg-[#23262d] px-2.5 py-2 text-xs text-slate-100 outline-none focus:border-cyan-400 h-64"
                   />
 
                   {textEditorError ? <div className="mt-1 px-1 text-[10px] text-rose-300">{textEditorError}</div> : null}

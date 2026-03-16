@@ -598,7 +598,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 setErrors((state) => ({ ...state, [field.key]: 'JSON 格式不正确' }))
               }
             }}
-            className={`w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs shadow-inner transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900 ${isElementLocator ? 'h-48' : 'h-24'}`}
+            className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs shadow-inner transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900 !h-64"
           />
           {fieldError ? <p className="mt-1 text-[11px] text-rose-500">{fieldError}</p> : null}
         </>
