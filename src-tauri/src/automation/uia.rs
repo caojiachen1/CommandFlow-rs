@@ -93,6 +93,7 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
     with_automation(|automation| {
         let walker = unsafe { automation.ControlViewWalker() }
             .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error)))?;
+        let expected_name = normalize_option(&locator.name);
 
         let root = if let Some(hwnd_value) = locator.top_level_hwnd {
             if hwnd_value > 0 {
@@ -113,12 +114,37 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
 
         let candidates = collect_descendants(automation, &root)?;
         let mut best: Option<(i32, ElementSnapshot)> = None;
+        let mut best_name_exact: Option<(i32, ElementSnapshot)> = None;
+        let mut best_name_contains: Option<(i32, ElementSnapshot)> = None;
 
         for candidate in candidates {
             let snapshot = snapshot_element(automation, &walker, &candidate)?;
+            if snapshot.rect.right <= snapshot.rect.left || snapshot.rect.bottom <= snapshot.rect.top {
+                continue;
+            }
+
             let score = score_snapshot(locator, &snapshot);
             if score <= 0 {
                 continue;
+            }
+
+            if let Some(expected) = expected_name.as_ref() {
+                let actual = normalize(&snapshot.name);
+                if actual == *expected {
+                    match &best_name_exact {
+                        Some((best_score, _)) if *best_score >= score => {}
+                        _ => {
+                            best_name_exact = Some((score, snapshot.clone()));
+                        }
+                    }
+                } else if !actual.is_empty() && actual.contains(expected) {
+                    match &best_name_contains {
+                        Some((best_score, _)) if *best_score >= score => {}
+                        _ => {
+                            best_name_contains = Some((score, snapshot.clone()));
+                        }
+                    }
+                }
             }
 
             match &best {
@@ -127,6 +153,14 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
                     best = Some((score, snapshot));
                 }
             }
+        }
+
+        if let Some((_, snapshot)) = best_name_exact {
+            return Ok(to_preview(snapshot));
+        }
+
+        if let Some((_, snapshot)) = best_name_contains {
+            return Ok(to_preview(snapshot));
         }
 
         if let Some((_, snapshot)) = best {
@@ -296,12 +330,13 @@ fn sibling_index(
 
 fn score_snapshot(locator: &UiElementLocator, snapshot: &ElementSnapshot) -> i32 {
     let mut score = 0;
+    let has_expected_name = normalize_option(&locator.name).is_some();
 
     if let Some(expected) = normalize_option(&locator.automation_id) {
         if expected == normalize(&snapshot.automation_id) {
             score += 140;
         } else {
-            score -= 20;
+            score -= if has_expected_name { 4 } else { 10 };
         }
     }
 
@@ -309,17 +344,17 @@ fn score_snapshot(locator: &UiElementLocator, snapshot: &ElementSnapshot) -> i32
         if expected == normalize(&snapshot.class_name) {
             score += 55;
         } else {
-            score -= 15;
+            score -= if has_expected_name { 3 } else { 8 };
         }
     }
 
     if let Some(expected) = normalize_option(&locator.name) {
         if expected == normalize(&snapshot.name) {
-            score += 45;
+            score += 220;
         } else if normalize(&snapshot.name).contains(&expected) {
-            score += 20;
+            score += 120;
         } else {
-            score -= 10;
+            score -= 22;
         }
     }
 
@@ -332,6 +367,8 @@ fn score_snapshot(locator: &UiElementLocator, snapshot: &ElementSnapshot) -> i32
     if let Some(expected) = locator.process_id {
         if expected == snapshot.process_id {
             score += 16;
+        } else {
+            score -= if has_expected_name { 4 } else { 14 };
         }
     }
 
