@@ -17,8 +17,20 @@ interface PropertyModalProps {
   onClose: () => void
 }
 
-const toJsonDraft = (value: unknown): string => {
+const toJsonDraft = (value: unknown, fieldKey?: string): string => {
   try {
+    // Special handling for elementLocator - parse fingerprint if it's a JSON string
+    if (fieldKey === 'elementLocator' && value && typeof value === 'object') {
+      const locator = value as { fingerprint?: string }
+      if (locator.fingerprint) {
+        try {
+          const parsedFingerprint = JSON.parse(locator.fingerprint)
+          return JSON.stringify({ ...locator, fingerprint: parsedFingerprint }, null, 2)
+        } catch {
+          // If fingerprint is not valid JSON, return as-is
+        }
+      }
+    }
     return JSON.stringify(value ?? null, null, 2)
   } catch {
     return 'null'
@@ -29,7 +41,7 @@ const buildJsonDrafts = (params: Record<string, unknown>, fields: ParamField[]) 
   const drafts: Record<string, string> = {}
   for (const field of fields) {
     if (field.type === 'json') {
-      drafts[field.key] = toJsonDraft(params[field.key])
+      drafts[field.key] = toJsonDraft(params[field.key], field.key)
     }
   }
   return drafts
@@ -587,8 +599,9 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     }
 
     if (field.type === 'json') {
-      const draft = jsonDrafts[field.key] ?? toJsonDraft(currentValue)
+      const draft = jsonDrafts[field.key] ?? toJsonDraft(currentValue, field.key)
       const fieldError = errors[field.key]
+      const isElementLocator = field.key === 'elementLocator'
       return (
         <>
           <textarea
@@ -608,7 +621,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
                 setErrors((state) => ({ ...state, [field.key]: 'JSON 格式不正确' }))
               }
             }}
-            className="h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs shadow-inner transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900"
+            className={`w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs shadow-inner transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900 ${isElementLocator ? 'h-48' : 'h-24'}`}
           />
           {fieldError ? <p className="mt-1 text-[11px] text-rose-500">{fieldError}</p> : null}
         </>

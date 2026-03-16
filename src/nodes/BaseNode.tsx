@@ -866,8 +866,20 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         return matched?.label ?? String(currentValue ?? '')
       }
       if (isJson) {
+        // Special handling for elementLocator - parse fingerprint if it's a JSON string
+        if (field.key === 'elementLocator' && currentValue && typeof currentValue === 'object') {
+          const locator = currentValue as { fingerprint?: string }
+          if (locator.fingerprint) {
+            try {
+              const parsedFingerprint = JSON.parse(locator.fingerprint)
+              return JSON.stringify({ ...locator, fingerprint: parsedFingerprint }, null, 2)
+            } catch {
+              // If fingerprint is not valid JSON, fall through
+            }
+          }
+        }
         try {
-          return JSON.stringify(currentValue)
+          return JSON.stringify(currentValue, null, 2)
         } catch {
           return String(currentValue ?? '')
         }

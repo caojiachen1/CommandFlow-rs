@@ -637,7 +637,14 @@ fn to_preview(snapshot: ElementSnapshot) -> UiElementPreview {
 fn build_fingerprint(snapshot: &ElementSnapshot) -> String {
     if !snapshot.automation_id.trim().is_empty() {
         return format!(
-            "aid:{}|class:{}|name:{}|ctrl:{}|pid:{}|top:{}",
+            r#"{{
+            "aid": "{}",
+            "class": "{}",
+            "name": "{}",
+            "ctrl": {},
+            "pid": {},
+            "top": "{}"
+            }}"#,
             snapshot.automation_id,
             snapshot.class_name,
             snapshot.name,
@@ -648,7 +655,16 @@ fn build_fingerprint(snapshot: &ElementSnapshot) -> String {
     }
 
     format!(
-        "class:{}|name:{}|parentClass:{}|parentName:{}|idx:{}|ctrl:{}|pid:{}|topClass:{}",
+        r#"{{
+  "class": "{}",
+  "name": "{}",
+  "parentClass": "{}",
+  "parentName": "{}",
+  "idx": {},
+  "ctrl": {},
+  "pid": {},
+  "topClass": "{}"
+}}"#,
         snapshot.class_name,
         snapshot.name,
         snapshot.parent_class_name,
