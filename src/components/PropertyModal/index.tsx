@@ -601,7 +601,6 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     if (field.type === 'json') {
       const draft = jsonDrafts[field.key] ?? toJsonDraft(currentValue, field.key)
       const fieldError = errors[field.key]
-      const isElementLocator = field.key === 'elementLocator'
       return (
         <>
           <textarea

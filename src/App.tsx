@@ -103,6 +103,7 @@ type WorkflowNodeCompletedPayload = WorkflowNodeEventPayload & {
 
 const workflowNodeKinds = [
   "trigger",
+  "uiaElement",
   "mouseOperation",
   "keyboardOperation",
   "inputPresetReplay",
@@ -1267,21 +1268,17 @@ function App() {
             y: 160 + (nodes.length % 3) * 28,
           };
 
-      const nodeId = addNode("mouseOperation", position);
-      const baseMeta = getNodeMeta("mouseOperation");
+      const nodeId = addNode("uiaElement", position);
+      const baseMeta = getNodeMeta("uiaElement");
       updateNodeParams(nodeId, {
         ...baseMeta.defaultParams,
-        operation: "click",
-        targetMode: "uiElement",
-        x: picked.centerX,
-        y: picked.centerY,
         elementLocator: picked.locator,
       });
       setSelectedNode(nodeId);
 
       addLog(
         "success",
-        `元素提取成功：${picked.summary}。已新增鼠标节点并写入稳定指纹。`,
+        `元素提取成功：${picked.summary}。已新增 UIA 获取控件节点并写入稳定指纹。`,
       );
     } catch (error) {
       const message = String(error);

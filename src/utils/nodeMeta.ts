@@ -28,7 +28,6 @@ export type SystemOperationKind =
 export type FileOperationKind = 'copy' | 'move' | 'delete' | 'readText' | 'writeText'
 
 export type MouseOperationKind = 'click' | 'move' | 'drag' | 'wheel' | 'down' | 'up'
-export type MouseTargetMode = 'coordinate' | 'uiElement'
 
 export type KeyboardOperationKind = 'key' | 'input' | 'down' | 'up' | 'shortcut'
 export type InputPresetReplayMode = 'originalTiming' | 'compressed' | 'step'
@@ -112,11 +111,6 @@ export const MOUSE_OPERATION_OPTIONS: Array<{ label: string; value: MouseOperati
   { label: '鼠标松开', value: 'up' },
 ]
 
-export const MOUSE_TARGET_MODE_OPTIONS: Array<{ label: string; value: MouseTargetMode }> = [
-  { label: '坐标定位', value: 'coordinate' },
-  { label: 'UI 元素定位（Accessibility）', value: 'uiElement' },
-]
-
 export const KEYBOARD_OPERATION_OPTIONS: Array<{ label: string; value: KeyboardOperationKind }> = [
   { label: '键盘按键', value: 'key' },
   { label: '键盘输入', value: 'input' },
@@ -180,12 +174,12 @@ const FILE_OPERATION_FIELD_KEYS: Record<FileOperationKind, string[]> = {
 }
 
 const MOUSE_OPERATION_FIELD_KEYS: Record<MouseOperationKind, string[]> = {
-  click: ['targetMode', 'x', 'y', 'times', 'elementLocator'],
-  move: ['targetMode', 'x', 'y', 'elementLocator'],
+  click: ['x', 'y', 'times'],
+  move: ['x', 'y'],
   drag: ['fromX', 'fromY', 'toX', 'toY'],
   wheel: ['vertical'],
-  down: ['targetMode', 'x', 'y', 'button', 'elementLocator'],
-  up: ['targetMode', 'x', 'y', 'button', 'elementLocator'],
+  down: ['x', 'y', 'button'],
+  up: ['x', 'y', 'button'],
 }
 
 const KEYBOARD_OPERATION_FIELD_KEYS: Record<KeyboardOperationKind, string[]> = {
@@ -224,16 +218,6 @@ export const getMouseOperationKind = (
   return MOUSE_OPERATION_OPTIONS.some((item) => item.value === operation)
     ? (operation as MouseOperationKind)
     : defaultOperation
-}
-
-export const getMouseTargetMode = (
-  params: Record<string, unknown>,
-  defaultMode: MouseTargetMode = 'coordinate',
-): MouseTargetMode => {
-  const mode = String(params.targetMode ?? defaultMode)
-  return MOUSE_TARGET_MODE_OPTIONS.some((item) => item.value === mode)
-    ? (mode as MouseTargetMode)
-    : defaultMode
 }
 
 export const getKeyboardOperationKind = (
@@ -439,26 +423,7 @@ export const isNodeFieldVisible = (
       params,
       getMouseOperationKind(defaultParams, 'click'),
     )
-    if (!MOUSE_OPERATION_FIELD_KEYS[operation].includes(field.key)) {
-      return false
-    }
-
-    const targetMode = getMouseTargetMode(
-      params,
-      getMouseTargetMode(defaultParams, 'coordinate'),
-    )
-
-    if (field.key === 'x' || field.key === 'y') {
-      if (['click', 'move', 'down', 'up'].includes(operation)) {
-        return targetMode === 'coordinate'
-      }
-    }
-
-    if (field.key === 'elementLocator') {
-      return ['click', 'move', 'down', 'up'].includes(operation) && targetMode === 'uiElement'
-    }
-
-    return true
+    return MOUSE_OPERATION_FIELD_KEYS[operation].includes(field.key)
   }
 
   if (kind === 'keyboardOperation') {
@@ -789,22 +754,6 @@ const resolveMouseOperationField = (
     }
   }
 
-  if (field.key === 'targetMode') {
-    return {
-      ...field,
-      label: '定位方式',
-    }
-  }
-
-  if (field.key === 'elementLocator') {
-    return {
-      ...field,
-      label: '元素定位指纹(JSON)',
-      description: '由“提取元素”自动生成。无 automationId 时会使用类名/名称/父级相对序号等稳定指纹。',
-      placeholder: '{"fingerprint":"..."}',
-    }
-  }
-
   return field
 }
 
@@ -921,10 +870,9 @@ const metas: Record<NodeKind, NodeMeta> = {
   },
   mouseOperation: {
     label: '鼠标操作',
-    description: '统一的鼠标操作节点；选择操作类型后动态显示对应参数与输出。',
+    description: '统一的鼠标操作节点；使用坐标进行点击、移动、按下/松开、拖拽与滚轮。',
     defaultParams: {
       operation: 'click',
-      targetMode: 'coordinate',
       x: 0,
       y: 0,
       times: 1,
@@ -934,13 +882,9 @@ const metas: Record<NodeKind, NodeMeta> = {
       toY: 200,
       vertical: -1,
       button: 'left',
-      elementLocator: {
-        fingerprint: '',
-      },
     },
     fields: [
       { key: 'operation', label: '操作类型', type: 'select', options: MOUSE_OPERATION_OPTIONS },
-      { key: 'targetMode', label: '定位方式', type: 'select', options: MOUSE_TARGET_MODE_OPTIONS },
       { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
       { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
       { key: 'times', label: '点击次数', type: 'number', min: 1, step: 1 },
@@ -959,7 +903,23 @@ const metas: Record<NodeKind, NodeMeta> = {
           { label: '中键', value: 'middle' },
         ],
       },
-      { key: 'elementLocator', label: '元素定位指纹(JSON)', type: 'json' },
+    ],
+  },
+  uiaElement: {
+    label: 'UIA 获取控件',
+    description: '根据 UIA 元素定位指纹定位控件，并输出坐标与控件基础信息供后续节点复用。',
+    defaultParams: {
+      elementLocator: {
+        fingerprint: '',
+      },
+    },
+    fields: [
+      {
+        key: 'elementLocator',
+        label: '元素定位指纹(JSON)',
+        type: 'json',
+        description: '通常由“提取元素”自动生成并写入。',
+      },
     ],
   },
   keyboardOperation: {

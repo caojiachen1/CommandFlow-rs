@@ -223,6 +223,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
 
   const nodeTypes = useMemo(
     () => ({
+      uiaElement: ClickNode,
       mouseOperation: ClickNode,
       screenshot: ScreenshotNode,
       keyboardOperation: KeyPressNode,

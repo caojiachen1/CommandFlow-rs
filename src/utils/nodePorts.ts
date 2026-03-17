@@ -227,6 +227,23 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: [],
     outputs: singleOut(),
   },
+  uiaElement: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
+      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
+      { id: 'name', label: 'name', maxConnections: MANY, valueType: 'string' },
+      { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
+      { id: 'automationId', label: 'automationId', maxConnections: MANY, valueType: 'string' },
+      { id: 'controlType', label: 'controlType', maxConnections: MANY, valueType: 'number' },
+      { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
+      { id: 'rect', label: 'rect', maxConnections: MANY, valueType: 'json' },
+      { id: 'elementLocator', label: 'elementLocator', maxConnections: MANY, valueType: 'json' },
+      { id: 'summary', label: 'summary', maxConnections: MANY, valueType: 'string' },
+      { id: 'fingerprint', label: 'fingerprint', maxConnections: MANY, valueType: 'string' },
+    ],
+  },
   mouseOperation: {
     inputs: singleIn(),
     outputs: singleOut(),

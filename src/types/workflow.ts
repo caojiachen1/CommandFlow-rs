@@ -2,6 +2,7 @@ import type { Edge, Node } from '@xyflow/react'
 
 export type TriggerNodeKind = 'trigger'
 export type ActionNodeKind =
+  | 'uiaElement'
   | 'mouseOperation'
   | 'keyboardOperation'
   | 'inputPresetReplay'

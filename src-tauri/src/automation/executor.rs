@@ -467,6 +467,7 @@ impl WorkflowExecutor {
             NodeKind::TimerTrigger => execute_trigger_node(node, ctx, should_cancel, Some("timer")).await,
             NodeKind::ManualTrigger => execute_trigger_node(node, ctx, should_cancel, Some("manual")).await,
             NodeKind::WindowTrigger => execute_trigger_node(node, ctx, should_cancel, Some("window")).await,
+            NodeKind::UiaElement => execute_uia_element(node, ctx),
             NodeKind::MouseOperation => execute_mouse_operation(node, ctx, None),
             NodeKind::MouseClick => {
                 execute_mouse_operation(node, ctx, Some("click"))
@@ -2635,49 +2636,88 @@ fn execute_mouse_operation(
     Ok(NextDirective::Default)
 }
 
+fn execute_uia_element(node: &WorkflowNode, ctx: &mut ExecutionContext) -> CommandResult<NextDirective> {
+    let locator = parse_ui_element_locator_param(node, "elementLocator")?;
+    let preview = uia::resolve_locator(&locator)?;
+
+    set_node_output(ctx, node, "x", value_from_i32(preview.center_x));
+    set_node_output(ctx, node, "y", value_from_i32(preview.center_y));
+    set_node_output(ctx, node, "name", Value::String(preview.name.clone()));
+    set_node_output(ctx, node, "className", Value::String(preview.class_name.clone()));
+    set_node_output(ctx, node, "automationId", Value::String(preview.automation_id.clone()));
+    set_node_output(ctx, node, "controlType", value_from_i32(preview.control_type));
+    set_node_output(ctx, node, "processId", value_from_u64(preview.process_id as u64));
+    set_node_output(
+        ctx,
+        node,
+        "rect",
+        serde_json::to_value(&preview.rect)
+            .map_err(|error| CommandFlowError::Automation(format!("序列化 UIA rect 失败：{}", error)))?,
+    );
+    set_node_output(
+        ctx,
+        node,
+        "elementLocator",
+        serde_json::to_value(&preview.locator)
+            .map_err(|error| CommandFlowError::Automation(format!("序列化 UIA locator 失败：{}", error)))?,
+    );
+    set_node_output(ctx, node, "summary", Value::String(preview.summary.clone()));
+    set_node_output(
+        ctx,
+        node,
+        "fingerprint",
+        Value::String(preview.locator.fingerprint.clone()),
+    );
+
+    Ok(NextDirective::Default)
+}
+
 fn resolve_mouse_target_point(node: &WorkflowNode, target_mode: &str) -> CommandResult<(i32, i32)> {
     if target_mode == "uielement" {
-        let locator = parse_mouse_element_locator(node)?;
+        let locator = parse_ui_element_locator_param(node, "elementLocator")?;
         return uia::resolve_locator_center(&locator);
     }
 
     Ok((get_i32(node, "x", 0), get_i32(node, "y", 0)))
 }
 
-fn parse_mouse_element_locator(node: &WorkflowNode) -> CommandResult<uia::UiElementLocator> {
-    let value = node.params.get("elementLocator").ok_or_else(|| {
+fn parse_ui_element_locator_param(
+    node: &WorkflowNode,
+    param_key: &str,
+) -> CommandResult<uia::UiElementLocator> {
+    let value = node.params.get(param_key).ok_or_else(|| {
         CommandFlowError::Validation(format!(
-            "node '{}' 缺少 elementLocator，无法按 UI 元素定位",
-            node.id
+            "node '{}' 缺少 {}，无法进行 UIA 元素定位",
+            node.id, param_key
         ))
     })?;
 
     match value {
         Value::Object(_) => serde_json::from_value::<uia::UiElementLocator>(value.clone()).map_err(|error| {
             CommandFlowError::Validation(format!(
-                "node '{}' elementLocator 格式无效：{}",
-                node.id, error
+                "node '{}' {} 格式无效：{}",
+                node.id, param_key, error
             ))
         }),
         Value::String(text) => {
             let trimmed = text.trim();
             if trimmed.is_empty() {
                 return Err(CommandFlowError::Validation(format!(
-                    "node '{}' elementLocator 为空字符串",
-                    node.id
+                    "node '{}' {} 为空字符串",
+                    node.id, param_key
                 )));
             }
 
             serde_json::from_str::<uia::UiElementLocator>(trimmed).map_err(|error| {
                 CommandFlowError::Validation(format!(
-                    "node '{}' elementLocator JSON 解析失败：{}",
-                    node.id, error
+                    "node '{}' {} JSON 解析失败：{}",
+                    node.id, param_key, error
                 ))
             })
         }
         _ => Err(CommandFlowError::Validation(format!(
-            "node '{}' elementLocator 必须是对象或 JSON 字符串",
-            node.id
+            "node '{}' {} 必须是对象或 JSON 字符串",
+            node.id, param_key
         ))),
     }
 }

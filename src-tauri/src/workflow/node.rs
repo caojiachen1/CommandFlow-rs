@@ -10,6 +10,7 @@ pub enum NodeKind {
     TimerTrigger,
     ManualTrigger,
     WindowTrigger,
+    UiaElement,
     MouseOperation,
     MouseClick,
     MouseMove,

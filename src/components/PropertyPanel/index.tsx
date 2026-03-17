@@ -578,7 +578,6 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     if (field.type === 'json') {
       const draft = jsonDrafts[field.key] ?? toJsonDraft(currentValue, field.key)
       const fieldError = errors[field.key]
-      const isElementLocator = field.key === 'elementLocator'
       return (
         <>
           <textarea
