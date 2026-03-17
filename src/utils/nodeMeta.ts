@@ -1980,6 +1980,22 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       { key: 'valueJson', label: '常量值(JSON)', type: 'json', description: '对象/数组等复杂值。' },
     ],
   },
+  jsonExtract: {
+    label: '提取 JSON 值',
+    description: '按键路径从 JSON 中提取对应值，并从 value 触点输出。支持点路径与数组下标（如 user.profile.name / list[0].id）。',
+    defaultParams: {
+      sourceJson: {
+        user: {
+          name: 'CommandFlow',
+        },
+      },
+      keyPath: 'user.name',
+    },
+    fields: [
+      { key: 'sourceJson', label: '源 JSON', type: 'json', description: '可直接填写 JSON，或通过左侧参数输入触点连接上游 JSON 输出。' },
+      { key: 'keyPath', label: '键路径', type: 'string', placeholder: 'user.name 或 list[0].id' },
+    ],
+  },
 }
 
 export const getNodeMeta = (kind: NodeKind): NodeMeta => metas[kind]

@@ -1326,6 +1326,13 @@ impl WorkflowExecutor {
 
                 Ok(NextDirective::Default)
             }
+            NodeKind::JsonExtract => {
+                let source = parse_json_extract_source(node)?;
+                let key_path = get_string(node, "keyPath", "");
+                let value = extract_json_value_by_path(&source, &key_path).unwrap_or(Value::Null);
+                set_node_output(ctx, node, "value", value);
+                Ok(NextDirective::Default)
+            }
             NodeKind::ConstValue => {
                 let value = resolve_typed_param_value(node, "value");
                 set_node_output(ctx, node, "value", value.clone());
@@ -2640,8 +2647,8 @@ fn execute_uia_element(node: &WorkflowNode, ctx: &mut ExecutionContext) -> Comma
     let locator = parse_ui_element_locator_param(node, "elementLocator")?;
     let preview = uia::resolve_locator(&locator)?;
 
-    set_node_output(ctx, node, "x", value_from_i32(preview.center_x));
-    set_node_output(ctx, node, "y", value_from_i32(preview.center_y));
+    set_node_output(ctx, node, "centerX", value_from_i32(preview.center_x));
+    set_node_output(ctx, node, "centerY", value_from_i32(preview.center_y));
     set_node_output(ctx, node, "name", Value::String(preview.name.clone()));
     set_node_output(ctx, node, "className", Value::String(preview.class_name.clone()));
     set_node_output(ctx, node, "automationId", Value::String(preview.automation_id.clone()));
@@ -3569,6 +3576,81 @@ fn resolve_typed_param_value(node: &WorkflowNode, base_key: &str) -> Value {
         }
         _ => node.params.get(base_key).cloned().unwrap_or(Value::Null),
     }
+}
+
+fn parse_json_extract_source(node: &WorkflowNode) -> CommandResult<Value> {
+    let raw = node.params.get("sourceJson").cloned().unwrap_or(Value::Null);
+
+    match raw {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return Ok(Value::Null);
+            }
+
+            serde_json::from_str::<Value>(trimmed).map_err(|error| {
+                CommandFlowError::Validation(format!(
+                    "node '{}' sourceJson 解析失败：{}",
+                    node.id, error
+                ))
+            })
+        }
+        other => Ok(other),
+    }
+}
+
+fn normalize_json_path_segments(path: &str) -> Vec<String> {
+    let mut normalized = String::with_capacity(path.len());
+    let mut chars = path.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '[' {
+            normalized.push('.');
+            while let Some(inner) = chars.peek() {
+                if *inner == ']' {
+                    chars.next();
+                    break;
+                }
+                normalized.push(*inner);
+                chars.next();
+            }
+            continue;
+        }
+
+        normalized.push(ch);
+    }
+
+    normalized
+        .split('.')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn extract_json_value_by_path(source: &Value, path: &str) -> Option<Value> {
+    let segments = normalize_json_path_segments(path);
+    if segments.is_empty() {
+        return Some(source.clone());
+    }
+
+    let mut current = source;
+    for segment in segments {
+        match current {
+            Value::Object(map) => {
+                current = map.get(&segment)?;
+            }
+            Value::Array(array) => {
+                let idx = segment.parse::<usize>().ok()?;
+                current = array.get(idx)?;
+            }
+            _ => {
+                return None;
+            }
+        }
+    }
+
+    Some(current.clone())
 }
 
 async fn sleep_after_node(

@@ -69,6 +69,7 @@ pub enum NodeKind {
     VarMath,
     VarGet,
     ConstValue,
+    JsonExtract,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

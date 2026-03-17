@@ -101,6 +101,24 @@ const isWindowPidField = (kind: NodeKind, params: Record<string, unknown>, field
 const isWindowLookupField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
   isWindowLookupNode(kind, params) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
 
+const describeHandleValueType = (valueType?: string) => {
+  if (valueType === 'control') return '控制流'
+  if (valueType === 'number') return '数字'
+  if (valueType === 'string') return '字符串'
+  if (valueType === 'json') return 'JSON'
+  if (valueType === 'any') return '任意类型'
+  return '通用'
+}
+
+const buildHandleTooltip = (
+  direction: 'input' | 'output',
+  label: string,
+  valueType?: string,
+) => {
+  const directionText = direction === 'input' ? '输入触点' : '输出触点'
+  return `${directionText}：${label}（${describeHandleValueType(valueType)}）`
+}
+
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
   const isSelected = selected
   const portSpec = getNodePortSpec(data.kind, data.params)
@@ -709,6 +727,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             position={Position.Left}
             className="proximity-handle"
             style={{ top: '50%', left: -6 }}
+            title={buildHandleTooltip('input', field.label, field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string')}
           />
 
           {openSuggestFieldKey === field.key ? (
@@ -761,6 +780,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             position={Position.Left}
             className="proximity-handle"
             style={{ top: '50%', left: -6 }}
+            title={buildHandleTooltip('input', field.label, 'control')}
           />
         </div>
       )
@@ -805,6 +825,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             position={Position.Left}
             className="proximity-handle"
             style={{ top: '50%', left: -6 }}
+            title={buildHandleTooltip('input', field.label, field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string')}
           />
 
           {openSelectFieldKey === field.key && !isInputDisabled ? (
@@ -1190,6 +1211,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           position={Position.Left}
           className="proximity-handle"
           style={{ top: '50%', left: -6 }}
+          title={buildHandleTooltip('input', field.label, field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string')}
         />
         {errors[field.key] ? (
           <div className="mt-1 px-1 text-[10px] text-rose-300">{errors[field.key]}</div>
@@ -1437,6 +1459,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 position={Position.Left}
                 className={flowInput.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
                 style={{ top: '52%', left: -1 }}
+                title={buildHandleTooltip('input', '进入', flowInput.valueType)}
               />
             ) : null}
           </div>
@@ -1450,6 +1473,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   position={Position.Right}
                   className={output.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
                   style={{ top: '55%', right: -6 }}
+                  title={buildHandleTooltip('output', output.label ?? output.id, output.valueType)}
                 />
               </div>
             ))}

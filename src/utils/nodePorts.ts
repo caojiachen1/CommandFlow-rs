@@ -231,8 +231,8 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: [
       ...singleOut(),
-      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
-      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
+      { id: 'centerX', label: 'centerX', maxConnections: MANY, valueType: 'number' },
+      { id: 'centerY', label: 'centerY', maxConnections: MANY, valueType: 'number' },
       { id: 'name', label: 'name', maxConnections: MANY, valueType: 'string' },
       { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
       { id: 'automationId', label: 'automationId', maxConnections: MANY, valueType: 'string' },
@@ -391,6 +391,13 @@ const specs: Record<NodeKind, NodePortSpec> = {
     ],
   },
   constValue: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'value', label: 'value', maxConnections: MANY, valueType: 'any' },
+    ],
+  },
+  jsonExtract: {
     inputs: singleIn(),
     outputs: [
       ...singleOut(),

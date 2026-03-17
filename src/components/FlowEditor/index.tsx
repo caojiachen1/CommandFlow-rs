@@ -238,6 +238,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       varMath: VariableNode,
       varGet: VariableNode,
       constValue: VariableNode,
+      jsonExtract: VariableNode,
       trigger: VariableNode,
       windowActivate: ClickNode,
       launchApplication: ClickNode,

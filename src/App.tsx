@@ -129,6 +129,7 @@ const workflowNodeKinds = [
   "varMath",
   "varGet",
   "constValue",
+  "jsonExtract",
 ] as const satisfies ReadonlyArray<WorkflowNode["data"]["kind"]>;
 
 const isWorkflowNodeKind = (
