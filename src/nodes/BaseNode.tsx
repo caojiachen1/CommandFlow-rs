@@ -106,17 +106,85 @@ const describeHandleValueType = (valueType?: string) => {
   if (valueType === 'number') return '数字'
   if (valueType === 'string') return '字符串'
   if (valueType === 'json') return 'JSON'
+  if (valueType === 'boolean') return '布尔'
   if (valueType === 'any') return '任意类型'
   return '通用'
 }
 
-const buildHandleTooltip = (
-  direction: 'input' | 'output',
-  label: string,
-  valueType?: string,
-) => {
-  const directionText = direction === 'input' ? '输入触点' : '输出触点'
-  return `${directionText}：${label}（${describeHandleValueType(valueType)}）`
+const describeControlOutputPurpose = (handleId: string, label: string) => {
+  if (handleId === 'true') return '条件结果为 true 时从这里继续执行。'
+  if (handleId === 'false') return '条件结果为 false 时从这里继续执行。'
+  if (handleId === 'loop') return '循环体继续时从这里进入下一轮。'
+  if (handleId === 'done') return '循环结束后从这里流向后续节点。'
+  if (handleId === 'next') return '节点执行完成后默认从这里继续。'
+  return `控制流会从「${label}」这个分支继续。`
+}
+
+const describeDataOutputPurpose = (handleId: string, label: string) => {
+  if (handleId === 'centerX') return '输出定位到的控件中心点 X 坐标。'
+  if (handleId === 'centerY') return '输出定位到的控件中心点 Y 坐标。'
+  if (handleId === 'x') return '输出计算得到的 X 坐标值。'
+  if (handleId === 'y') return '输出计算得到的 Y 坐标值。'
+  if (handleId === 'value') return '输出当前节点计算/提取得到的结果值。'
+  if (handleId === 'elementLocator') return '输出可复用的 UIA 元素定位指纹(JSON)。'
+  if (handleId === 'rect') return '输出目标区域矩形信息(left/top/right/bottom)。'
+  if (handleId === 'summary') return '输出面向人的元素摘要说明。'
+  if (handleId === 'fingerprint') return '输出元素指纹字符串，便于日志与追踪。'
+  if (handleId === 'similarity') return '输出图像匹配相似度(0~1)。'
+  if (handleId === 'confidence') return '输出识别/匹配置信度(0~1)。'
+  if (handleId === 'matchedText') return '输出实际命中的文本内容。'
+  if (handleId === 'path') return '输出文件或截图保存路径。'
+  if (handleId === 'screenshot') return '输出截图内容(base64)。'
+  if (handleId === 'content') return '输出结构化内容(JSON)。'
+  if (handleId === 'contentType') return '输出内容类型标识。'
+  if (handleId === 'stdout') return '输出命令标准输出内容。'
+  if (handleId === 'stderr') return '输出命令错误输出内容。'
+  if (handleId === 'exitCode') return '输出命令退出码。'
+  if (handleId === 'pid') return '输出启动进程的 PID。'
+  return `输出「${label}」的结果值供下游节点使用。`
+}
+
+const describeParamInputPurpose = (fieldKey: string, label: string) => {
+  if (fieldKey === 'keyPath') return '传入要提取的 JSON 键路径（如 user.name / list[0].id）。'
+  if (fieldKey === 'sourceJson') return '传入待提取的源 JSON 数据。'
+  if (fieldKey === 'elementLocator') return '传入 UIA 元素定位指纹(JSON)，用于稳定定位控件。'
+  if (fieldKey === 'x' || fieldKey === 'y') return `传入鼠标目标 ${label}，覆盖节点中的手动坐标。`
+  if (fieldKey === 'centerX' || fieldKey === 'centerY') return `传入控件中心 ${label} 坐标用于后续动作。`
+  if (fieldKey === 'title') return '传入窗口标题匹配值。'
+  if (fieldKey === 'program') return '传入窗口程序名匹配值。'
+  if (fieldKey === 'processId') return '传入目标进程 PID 匹配值。'
+  return `传入「${label}」参数，执行时覆盖本节点同名字段。`
+}
+
+const buildHandleTooltip = ({
+  direction,
+  nodeLabel,
+  handleId,
+  fieldKey,
+  label,
+  valueType,
+}: {
+  direction: 'input' | 'output'
+  nodeLabel: string
+  handleId: string
+  fieldKey?: string
+  label: string
+  valueType?: string
+}) => {
+  const typeText = describeHandleValueType(valueType)
+
+  if (direction === 'input') {
+    if (valueType === 'control') {
+      return `流程入口：收到上游控制信号后开始执行「${nodeLabel}」。`
+    }
+    return `参数输入：${describeParamInputPurpose(fieldKey ?? handleId, label)} 类型：${typeText}。`
+  }
+
+  if (valueType === 'control') {
+    return `流程输出：${describeControlOutputPurpose(handleId, label)}`
+  }
+
+  return `数据输出：${describeDataOutputPurpose(handleId, label)} 类型：${typeText}。`
 }
 
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
@@ -727,7 +795,14 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             position={Position.Left}
             className="proximity-handle"
             style={{ top: '50%', left: -6 }}
-            title={buildHandleTooltip('input', field.label, field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string')}
+            title={buildHandleTooltip({
+              direction: 'input',
+              nodeLabel: data.label,
+              handleId: createParamInputHandleId(field.key),
+              fieldKey: field.key,
+              label: field.label,
+              valueType: field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string',
+            })}
           />
 
           {openSuggestFieldKey === field.key ? (
@@ -780,7 +855,14 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             position={Position.Left}
             className="proximity-handle"
             style={{ top: '50%', left: -6 }}
-            title={buildHandleTooltip('input', field.label, 'control')}
+            title={buildHandleTooltip({
+              direction: 'input',
+              nodeLabel: data.label,
+              handleId: createParamInputHandleId(field.key),
+              fieldKey: field.key,
+              label: field.label,
+              valueType: 'boolean',
+            })}
           />
         </div>
       )
@@ -825,7 +907,14 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             position={Position.Left}
             className="proximity-handle"
             style={{ top: '50%', left: -6 }}
-            title={buildHandleTooltip('input', field.label, field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string')}
+            title={buildHandleTooltip({
+              direction: 'input',
+              nodeLabel: data.label,
+              handleId: createParamInputHandleId(field.key),
+              fieldKey: field.key,
+              label: field.label,
+              valueType: field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string',
+            })}
           />
 
           {openSelectFieldKey === field.key && !isInputDisabled ? (
@@ -1211,7 +1300,14 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           position={Position.Left}
           className="proximity-handle"
           style={{ top: '50%', left: -6 }}
-          title={buildHandleTooltip('input', field.label, field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string')}
+          title={buildHandleTooltip({
+            direction: 'input',
+            nodeLabel: data.label,
+            handleId: createParamInputHandleId(field.key),
+            fieldKey: field.key,
+            label: field.label,
+            valueType: field.type === 'number' ? 'number' : field.type === 'json' ? 'json' : 'string',
+          })}
         />
         {errors[field.key] ? (
           <div className="mt-1 px-1 text-[10px] text-rose-300">{errors[field.key]}</div>
@@ -1459,7 +1555,13 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 position={Position.Left}
                 className={flowInput.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
                 style={{ top: '52%', left: -1 }}
-                title={buildHandleTooltip('input', '进入', flowInput.valueType)}
+                title={buildHandleTooltip({
+                  direction: 'input',
+                  nodeLabel: data.label,
+                  handleId: 'in',
+                  label: '进入',
+                  valueType: flowInput.valueType,
+                })}
               />
             ) : null}
           </div>
@@ -1473,7 +1575,13 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   position={Position.Right}
                   className={output.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
                   style={{ top: '55%', right: -6 }}
-                  title={buildHandleTooltip('output', output.label ?? output.id, output.valueType)}
+                  title={buildHandleTooltip({
+                    direction: 'output',
+                    nodeLabel: data.label,
+                    handleId: output.id,
+                    label: output.label ?? output.id,
+                    valueType: output.valueType,
+                  })}
                 />
               </div>
             ))}
