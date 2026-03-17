@@ -31,6 +31,7 @@ interface WorkflowState {
   graphName: string
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
+  runningNodeIds: string[]
   selectedNodeId: string | null
   selectedNodeIds: string[]
   copiedNodes: WorkflowNode[] | null
@@ -50,6 +51,8 @@ interface WorkflowState {
   ) => void
   setSelectedNode: (id: string | null) => void
   setSelectedNodes: (ids: string[]) => void
+  setRunningNode: (id: string | null) => void
+  clearRunningNodes: () => void
   setCursor: (cursor: CoordinatePoint) => void
   addNode: (kind: NodeKind, position: { x: number; y: number }) => string
   deleteSelectedNodes: () => void
@@ -352,6 +355,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   graphName: '未命名工作流',
   nodes: makeInitialNodes(),
   edges: [],
+  runningNodeIds: [],
   selectedNodeId: null,
   selectedNodeIds: [],
   cursor: { x: 0, y: 0, isPhysicalPixel: true, mode: 'virtualScreen' },
@@ -451,6 +455,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         selectedNodeIds,
         selectedNodeId: nextPrimaryId,
       }
+    }),
+  setRunningNode: (id) =>
+    set((state) => {
+      const next = id ? [id] : []
+      if (shallowEqualArray(state.runningNodeIds, next)) {
+        return state
+      }
+      return { runningNodeIds: next }
+    }),
+  clearRunningNodes: () =>
+    set((state) => {
+      if (state.runningNodeIds.length === 0) {
+        return state
+      }
+      return { runningNodeIds: [] }
     }),
   setCursor: (cursor) =>
     set((state) => {

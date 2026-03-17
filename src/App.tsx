@@ -74,6 +74,7 @@ interface StepRuntimeContext {
   whileIterations: Map<string, number>;
   loopStack: string[];
   startQueue: string[];
+  pendingBranchQueue: string[];
 }
 
 function truncateParams(params: Record<string, unknown>, maxLen = 80): string {
@@ -295,6 +296,8 @@ function App() {
     addNode,
     updateNodeParams,
     setSelectedNode,
+    setRunningNode,
+    clearRunningNodes,
     setCursor,
   } = useWorkflowStore();
   const { running, setRunning, addLog, setVariables, clearVariables } =
@@ -373,6 +376,7 @@ function App() {
     whileIterations: new Map(),
     loopStack: [],
     startQueue: [],
+    pendingBranchQueue: [],
   });
   const stepNextNodeIdRef = useRef<string | null>(null);
   const loopRoundRef = useRef<Map<string, number>>(new Map());
@@ -567,6 +571,7 @@ function App() {
       const content = toWorkflowCompletionContent(detail);
 
       playWorkflowCompletedTone();
+      clearRunningNodes();
       void sendWorkflowCompletionSystemNotification(content);
     };
 
@@ -575,6 +580,7 @@ function App() {
       const content = toWorkflowFailureContent(detail);
 
       playWorkflowCompletedTone();
+      clearRunningNodes();
       void sendWorkflowFailureSystemNotification(content);
     };
 
@@ -588,7 +594,7 @@ function App() {
       );
       window.removeEventListener(WORKFLOW_FAILED_EVENT, handleWorkflowFailed);
     };
-  }, []);
+  }, [clearRunningNodes]);
 
   useEffect(() => {
     void loadSecureLlmPresets();
@@ -789,6 +795,7 @@ function App() {
         );
       }
 
+      setRunningNode(nodeId);
       setSelectedNode(nodeId);
     })
       .then((cleanup) => {
@@ -857,9 +864,10 @@ function App() {
       unlistenNodeCompleted?.();
       unlistenVariables?.();
       unlistenLog?.();
+      clearRunningNodes();
       loopRoundRef.current.clear();
     };
-  }, [addLog, setSelectedNode, setVariables]);
+  }, [addLog, clearRunningNodes, setRunningNode, setSelectedNode, setVariables]);
 
   const handleFlowEditorPaneClick = useCallback(() => {
     setActiveMenu(null);
@@ -1017,12 +1025,14 @@ function App() {
 
     const resetStepSession = () => {
       stepNextNodeIdRef.current = null;
+      clearRunningNodes();
       stepCtxRef.current = {
         variables: new Map(),
         loopRemaining: new Map(),
         whileIterations: new Map(),
         loopStack: [],
         startQueue: [],
+        pendingBranchQueue: [],
       };
       loopRoundRef.current.clear();
     };
@@ -1120,6 +1130,7 @@ function App() {
     setRunning(true);
     try {
       addLog("info", `单步执行节点：${currentNode.data.label}`);
+      setRunningNode(currentNode.id);
       const message = await runWorkflow(toBackendGraph(stepFile));
       updateStepContextAfterNode(currentNode, stepCtxRef.current);
       setVariables(Object.fromEntries(stepCtxRef.current.variables.entries()));
@@ -1177,14 +1188,17 @@ function App() {
       );
     } finally {
       setRunning(false);
+      clearRunningNodes();
     }
   }, [
     addLog,
+    clearRunningNodes,
     clearVariables,
     edges,
     exportWorkflow,
     nodes,
     running,
+    setRunningNode,
     setRunning,
     setSelectedNode,
     setVariables,
@@ -1393,26 +1407,52 @@ function App() {
   const pickNextNodeId = (node: WorkflowNode, ctx: StepRuntimeContext) => {
     const outgoing = edges.filter((edge) => edge.source === node.id);
 
-    const chooseByHandle = (handle: string) =>
-      outgoing.find((edge) => edge.sourceHandle === handle);
-    const chooseBranchLikeBackend = (handle: string) =>
-      chooseByHandle(handle) ?? outgoing[0];
+    const enqueueAndPickTarget = (targets: string[]) => {
+      if (targets.length === 0) return null;
+      if (targets.length > 1) {
+        ctx.pendingBranchQueue.push(...targets.slice(1));
+      }
+      return targets[0];
+    };
+
+    const getBranchTargets = (
+      handle: string,
+      fallbackToFirstOutgoing: boolean,
+    ) => {
+      const matched = outgoing
+        .filter((edge) => edge.sourceHandle === handle)
+        .map((edge) => edge.target);
+      if (matched.length > 0) {
+        return matched;
+      }
+
+      if (fallbackToFirstOutgoing && outgoing.length > 0) {
+        return [outgoing[0].target];
+      }
+
+      return [] as string[];
+    };
 
     if (node.data.kind === "loop") {
-      const loopEdge = chooseByHandle("loop") ?? outgoing[0];
-      const doneEdge =
-        chooseByHandle("done") ??
-        outgoing.find((edge) => edge.sourceHandle !== "loop");
+      const loopTargets = getBranchTargets("loop", true);
+      const doneTargets = (() => {
+        const matched = getBranchTargets("done", false);
+        if (matched.length > 0) return matched;
+        return outgoing
+          .filter((edge) => edge.sourceHandle !== "loop")
+          .map((edge) => edge.target);
+      })();
       const times = Math.max(0, Math.floor(getParamNumber(node, "times", 1)));
       const remaining = ctx.loopRemaining.get(node.id) ?? times;
 
       if (remaining > 0) {
-        if (loopEdge) {
+        const nextLoopTarget = enqueueAndPickTarget(loopTargets);
+        if (nextLoopTarget) {
           ctx.loopRemaining.set(node.id, remaining - 1);
           if (ctx.loopStack[ctx.loopStack.length - 1] !== node.id) {
             ctx.loopStack.push(node.id);
           }
-          return loopEdge.target;
+          return nextLoopTarget;
         }
         ctx.loopRemaining.set(node.id, 0);
       }
@@ -1422,18 +1462,27 @@ function App() {
         ctx.loopStack.pop();
       }
 
-      if (doneEdge) {
-        return doneEdge.target;
+      const nextDoneTarget = enqueueAndPickTarget(doneTargets);
+      if (nextDoneTarget) {
+        return nextDoneTarget;
+      }
+
+      if (ctx.pendingBranchQueue.length > 0) {
+        return ctx.pendingBranchQueue.shift() ?? null;
       }
 
       return ctx.loopStack[ctx.loopStack.length - 1] ?? null;
     }
 
     if (node.data.kind === "whileLoop") {
-      const loopEdge = chooseByHandle("loop") ?? outgoing[0];
-      const doneEdge =
-        chooseByHandle("done") ??
-        outgoing.find((edge) => edge.sourceHandle !== "loop");
+      const loopTargets = getBranchTargets("loop", true);
+      const doneTargets = (() => {
+        const matched = getBranchTargets("done", false);
+        if (matched.length > 0) return matched;
+        return outgoing
+          .filter((edge) => edge.sourceHandle !== "loop")
+          .map((edge) => edge.target);
+      })();
       const maxIterations = Math.max(
         1,
         Math.floor(getParamNumber(node, "maxIterations", 1000)),
@@ -1442,12 +1491,13 @@ function App() {
       const conditionTrue = evaluateCondition(node, ctx.variables);
 
       if (conditionTrue && currentIterations < maxIterations) {
-        if (loopEdge) {
+        const nextLoopTarget = enqueueAndPickTarget(loopTargets);
+        if (nextLoopTarget) {
           ctx.whileIterations.set(node.id, currentIterations + 1);
           if (ctx.loopStack[ctx.loopStack.length - 1] !== node.id) {
             ctx.loopStack.push(node.id);
           }
-          return loopEdge.target;
+          return nextLoopTarget;
         }
       } else if (conditionTrue && currentIterations >= maxIterations) {
         addLog(
@@ -1461,8 +1511,13 @@ function App() {
         ctx.loopStack.pop();
       }
 
-      if (doneEdge) {
-        return doneEdge.target;
+      const nextDoneTarget = enqueueAndPickTarget(doneTargets);
+      if (nextDoneTarget) {
+        return nextDoneTarget;
+      }
+
+      if (ctx.pendingBranchQueue.length > 0) {
+        return ctx.pendingBranchQueue.shift() ?? null;
       }
 
       return ctx.loopStack[ctx.loopStack.length - 1] ?? null;
@@ -1470,16 +1525,18 @@ function App() {
 
     if (node.data.kind === "condition") {
       const result = evaluateCondition(node, ctx.variables);
-      return (
-        (result
-          ? chooseBranchLikeBackend("true")
-          : chooseBranchLikeBackend("false")
-        )?.target ?? null
-      );
+      const branchTargets = result
+        ? getBranchTargets("true", false)
+        : getBranchTargets("false", false);
+      return enqueueAndPickTarget(branchTargets);
     }
 
     if (outgoing.length > 0) {
-      return outgoing[0].target;
+      return enqueueAndPickTarget(outgoing.map((edge) => edge.target));
+    }
+
+    if (ctx.pendingBranchQueue.length > 0) {
+      return ctx.pendingBranchQueue.shift() ?? null;
     }
 
     return ctx.loopStack[ctx.loopStack.length - 1] ?? null;
@@ -1506,7 +1563,9 @@ function App() {
       whileIterations: new Map(),
       loopStack: [],
       startQueue: [],
+      pendingBranchQueue: [],
     };
+    clearRunningNodes();
     loopRoundRef.current.clear();
     clearVariables();
     setRunning(true);
@@ -1530,6 +1589,7 @@ function App() {
         };
 
         addLog("info", `连续单步执行：${currentNode.data.label}`);
+        setRunningNode(currentNode.id);
         await runWorkflow(toBackendGraph(stepFile));
         updateStepContextAfterNode(currentNode, stepCtxRef.current);
         setVariables(
@@ -1577,15 +1637,18 @@ function App() {
       continuousStepRunningRef.current = false;
       continuousStepStopRef.current = false;
       setRunning(false);
+      clearRunningNodes();
     }
   }, [
     addLog,
+    clearRunningNodes,
     clearVariables,
     exportWorkflow,
     nodes,
     pickNextNodeId,
     running,
     selectedNodeId,
+    setRunningNode,
     setRunning,
     setSelectedNode,
     setVariables,
@@ -1600,6 +1663,7 @@ function App() {
       whileIterations: new Map(),
       loopStack: [],
       startQueue: [],
+      pendingBranchQueue: [],
     };
     loopRoundRef.current.clear();
     try {
@@ -1618,18 +1682,21 @@ function App() {
       );
     } finally {
       setRunning(false);
+      clearRunningNodes();
     }
-  }, [addLog, setRunning]);
+  }, [addLog, clearRunningNodes, setRunning]);
 
   useEffect(() => {
     const resetStepDebug = () => {
       stepNextNodeIdRef.current = null;
+      clearRunningNodes();
       stepCtxRef.current = {
         variables: new Map(),
         loopRemaining: new Map(),
         whileIterations: new Map(),
         loopStack: [],
         startQueue: [],
+        pendingBranchQueue: [],
       };
     };
 
@@ -1639,7 +1706,7 @@ function App() {
         "commandflow:reset-step-debug",
         resetStepDebug,
       );
-  }, []);
+  }, [clearRunningNodes]);
 
   useEffect(() => {
     const handleRunStep = () => {
@@ -1931,6 +1998,7 @@ function App() {
         break;
       case "运行":
         if (running) return;
+        clearRunningNodes();
         stepNextNodeIdRef.current = null;
         stepCtxRef.current = {
           variables: new Map(),
@@ -1938,6 +2006,7 @@ function App() {
           whileIterations: new Map(),
           loopStack: [],
           startQueue: [],
+          pendingBranchQueue: [],
         };
         loopRoundRef.current.clear();
         setRunning(true);
@@ -1964,6 +2033,7 @@ function App() {
           );
         } finally {
           setRunning(false);
+          clearRunningNodes();
         }
         break;
       case "停止":

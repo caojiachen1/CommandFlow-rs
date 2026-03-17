@@ -25,7 +25,7 @@ export interface NodePortSpec {
 }
 
 const ONE = 1
-const MANY = 8
+const MANY = Number.MAX_SAFE_INTEGER
 const singleIn = (): NodePort[] => [{ id: 'in', maxConnections: ONE, valueType: 'control' }]
 const singleOut = (): NodePort[] => [{ id: 'next', maxConnections: ONE, valueType: 'control' }]
 
@@ -433,7 +433,7 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
       ...connectableFields.map((field) => ({
         id: createParamInputHandleId(field.key),
         label: field.label,
-        maxConnections: ONE,
+        maxConnections: MANY,
         valueType: toHandleValueType(field.type),
       })),
     ],

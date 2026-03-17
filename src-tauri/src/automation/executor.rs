@@ -196,6 +196,7 @@ impl WorkflowExecutor {
         let mut current_id = start_id.to_string();
         let mut guard_steps = 0usize;
         let mut loop_stack: Vec<String> = Vec::new();
+        let mut pending_branch_targets: VecDeque<String> = VecDeque::new();
 
         while guard_steps < 10_000 {
             if should_cancel() {
@@ -223,22 +224,35 @@ impl WorkflowExecutor {
                     })
                     .collect();
 
-                let loop_edge = outgoing
+                let loop_edges: Vec<_> = if outgoing
                     .iter()
-                    .find(|edge| edge.source_handle.as_deref() == Some("loop"))
-                    .copied()
-                    .or_else(|| outgoing.first().copied());
+                    .any(|edge| edge.source_handle.as_deref() == Some("loop"))
+                {
+                    outgoing
+                        .iter()
+                        .filter(|edge| edge.source_handle.as_deref() == Some("loop"))
+                        .copied()
+                        .collect()
+                } else {
+                    outgoing.first().copied().into_iter().collect()
+                };
 
-                let done_edge = outgoing
+                let done_edges: Vec<_> = if outgoing
                     .iter()
-                    .find(|edge| edge.source_handle.as_deref() == Some("done"))
-                    .copied()
-                    .or_else(|| {
-                        outgoing
-                            .iter()
-                            .find(|edge| edge.source_handle.as_deref() != Some("loop"))
-                            .copied()
-                    });
+                    .any(|edge| edge.source_handle.as_deref() == Some("done"))
+                {
+                    outgoing
+                        .iter()
+                        .filter(|edge| edge.source_handle.as_deref() == Some("done"))
+                        .copied()
+                        .collect()
+                } else {
+                    outgoing
+                        .iter()
+                        .filter(|edge| edge.source_handle.as_deref() != Some("loop"))
+                        .copied()
+                        .collect()
+                };
 
                 on_variables_update(&ctx.variables);
 
@@ -251,7 +265,7 @@ impl WorkflowExecutor {
                             .or_insert(times);
 
                         if *remaining > 0 {
-                            if let Some(edge) = loop_edge {
+                            if let Some(edge) = loop_edges.first().copied() {
                                 *remaining -= 1;
 
                                 if loop_stack.last().map(String::as_str) != Some(effective_node.id.as_str()) {
@@ -266,6 +280,9 @@ impl WorkflowExecutor {
                                 on_node_complete(&effective_node, &outputs_snapshot, Some("loop"));
 
                                 sleep_after_node(&effective_node, should_cancel).await?;
+                                for branch_edge in loop_edges.iter().skip(1) {
+                                    pending_branch_targets.push_back(branch_edge.target.clone());
+                                }
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -278,7 +295,7 @@ impl WorkflowExecutor {
                             loop_stack.pop();
                         }
 
-                        if let Some(edge) = done_edge {
+                        if let Some(edge) = done_edges.first().copied() {
                             let outputs_snapshot = ctx
                                 .node_outputs
                                 .get(&effective_node.id)
@@ -287,6 +304,9 @@ impl WorkflowExecutor {
                             on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
 
                             sleep_after_node(&effective_node, should_cancel).await?;
+                            for branch_edge in done_edges.iter().skip(1) {
+                                pending_branch_targets.push_back(branch_edge.target.clone());
+                            }
                             current_id = edge.target.clone();
                             continue;
                         }
@@ -323,7 +343,7 @@ impl WorkflowExecutor {
                             .or_insert(0);
 
                         if condition_true && *iterations < max_iterations {
-                            if let Some(edge) = loop_edge {
+                            if let Some(edge) = loop_edges.first().copied() {
                                 *iterations += 1;
 
                                 if loop_stack.last().map(String::as_str) != Some(effective_node.id.as_str()) {
@@ -338,6 +358,9 @@ impl WorkflowExecutor {
                                 on_node_complete(&effective_node, &outputs_snapshot, Some("loop"));
 
                                 sleep_after_node(&effective_node, should_cancel).await?;
+                                for branch_edge in loop_edges.iter().skip(1) {
+                                    pending_branch_targets.push_back(branch_edge.target.clone());
+                                }
                                 current_id = edge.target.clone();
                                 continue;
                             }
@@ -356,7 +379,7 @@ impl WorkflowExecutor {
                             loop_stack.pop();
                         }
 
-                        if let Some(edge) = done_edge {
+                        if let Some(edge) = done_edges.first().copied() {
                             let outputs_snapshot = ctx
                                 .node_outputs
                                 .get(&effective_node.id)
@@ -365,6 +388,9 @@ impl WorkflowExecutor {
                             on_node_complete(&effective_node, &outputs_snapshot, Some("done"));
 
                             sleep_after_node(&effective_node, should_cancel).await?;
+                            for branch_edge in done_edges.iter().skip(1) {
+                                pending_branch_targets.push_back(branch_edge.target.clone());
+                            }
                             current_id = edge.target.clone();
                             continue;
                         }
@@ -412,28 +438,38 @@ impl WorkflowExecutor {
             sleep_after_node(&effective_node, should_cancel).await?;
             on_variables_update(&ctx.variables);
 
-            let outgoing = graph
-                .edges
-                .iter()
-                .filter(|edge| {
-                    edge.source == current_id
-                        && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
-                });
-            let next = match directive {
-                NextDirective::Default => outgoing.into_iter().next(),
+            let next_edges: Vec<_> = match directive {
+                NextDirective::Default => graph
+                    .edges
+                    .iter()
+                    .filter(|edge| {
+                        edge.source == current_id
+                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                    })
+                    .collect(),
                 NextDirective::Branch(handle) => graph
                     .edges
                     .iter()
-                    .find(|edge| {
+                    .filter(|edge| {
                         edge.source == current_id
                             && edge.source_handle.as_deref() == Some(handle)
                             && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
-                    }),
+                    })
+                    .collect(),
             };
 
-            match next {
-                Some(edge) => current_id = edge.target.clone(),
+            match next_edges.first().copied() {
+                Some(edge) => {
+                    for branch_edge in next_edges.iter().skip(1) {
+                        pending_branch_targets.push_back(branch_edge.target.clone());
+                    }
+                    current_id = edge.target.clone();
+                }
                 None => {
+                    if let Some(next_pending) = pending_branch_targets.pop_front() {
+                        current_id = next_pending;
+                        continue;
+                    }
                     if let Some(active_loop_id) = loop_stack.last() {
                         current_id = active_loop_id.clone();
                         continue;

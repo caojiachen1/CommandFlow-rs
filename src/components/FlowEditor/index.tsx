@@ -210,7 +210,6 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     onEdgesChange,
     onConnect: connectNodes,
     onReconnect,
-    disconnectHandleConnections,
     setSelectedNode,
     addNode,
   } = useWorkflowStore()
@@ -580,10 +579,9 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
         handleId: params.handleId ?? null,
       }
 
-      disconnectHandleConnections(params.nodeId, params.handleType, params.handleId ?? null)
       closeGlobalInsert()
     },
-    [disconnectHandleConnections, closeGlobalInsert],
+    [closeGlobalInsert],
   )
 
   const onConnectEnd = useCallback(

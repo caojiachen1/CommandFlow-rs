@@ -34,6 +34,12 @@ const selectedStyles = {
   control: 'border-gray-400 ring-1 ring-gray-400',
 }
 
+const runningStyles = {
+  trigger: 'border-red-500 ring-2 ring-red-500/80 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]',
+  action: 'border-red-500 ring-2 ring-red-500/80 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]',
+  control: 'border-red-500 ring-2 ring-red-500/80 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]',
+}
+
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
   if (kind === 'fileOperation' && (fieldKey === 'sourcePath' || fieldKey === 'targetPath' || fieldKey === 'path')) {
     return true
@@ -189,6 +195,8 @@ const buildHandleTooltip = ({
 
 export default function BaseNode({ id, data, tone = 'action', selected = false }: BaseNodeProps) {
   const isSelected = selected
+  const runningNodeIds = useWorkflowStore((state) => state.runningNodeIds)
+  const isRunning = runningNodeIds.includes(id)
   const portSpec = getNodePortSpec(data.kind, data.params)
   const updateNodeParams = useWorkflowStore((state) => state.updateNodeParams)
   const nodes = useWorkflowStore((state) => state.nodes)
@@ -1532,7 +1540,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   return (
     <div
       className={`relative min-w-[260px] max-w-[340px] rounded-2xl border px-3 py-2 shadow-sm transition-all duration-200 ${tones[tone]} ${
-        isSelected ? selectedStyles[tone] : ''
+        isRunning ? runningStyles[tone] : isSelected ? selectedStyles[tone] : ''
       }`}
     >
       <div
