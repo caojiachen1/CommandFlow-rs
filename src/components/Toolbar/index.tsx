@@ -8,7 +8,7 @@ import {
 } from "../../utils/workflowCompletion";
 import { toBackendGraph } from "../../utils/workflowBridge";
 import { useState } from "react";
-import { Redo2, Undo2 } from "lucide-react";
+import { Moon, Play, Redo2, StepForward, Undo2 } from "lucide-react";
 import CoordinatePicker from "../CoordinatePicker";
 
 interface ToolbarProps {
@@ -85,7 +85,7 @@ export default function Toolbar({
         className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-500 hover:shadow-blue-500/30 active:scale-95 disabled:bg-slate-400"
         disabled={running}
       >
-        <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
+        <Play className="h-4 w-4" />
         F5 运行
       </button>
       <button
@@ -94,7 +94,7 @@ export default function Toolbar({
         className={mutedActionButtonClass}
         disabled={running}
       >
-        <span className="h-2 w-2 rounded-full bg-white" />
+        <StepForward className="h-4 w-4" />
         F10 单步
       </button>
       <button
@@ -102,7 +102,7 @@ export default function Toolbar({
         onClick={onToggleBackgroundMode}
         className={mutedActionButtonClass}
       >
-        <span className="h-2 w-2 rounded-full bg-white" />
+        <Moon className="h-4 w-4" />
         {backgroundMode ? "退出后台" : "F8 后台模式"}
       </button>
       <button
