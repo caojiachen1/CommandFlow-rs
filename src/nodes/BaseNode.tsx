@@ -1561,22 +1561,24 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       {flowInput || flowOutputs.length > 0 ? (
         <div className="mb-3 flex items-start justify-between px-1 text-[11px]">
           <div className="relative pl-3 pt-0.5 text-slate-300">
-            进入
             {flowInput ? (
-              <Handle
-                id="in"
-                type="target"
-                position={Position.Left}
-                className={flowInput.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
-                style={{ top: '52%', left: -1 }}
-                title={buildHandleTooltip({
-                  direction: 'input',
-                  nodeLabel: data.label,
-                  handleId: 'in',
-                  label: '进入',
-                  valueType: flowInput.valueType,
-                })}
-              />
+              <>
+                in
+                <Handle
+                  id="in"
+                  type="target"
+                  position={Position.Left}
+                  className={flowInput.valueType === 'control' ? controlHandleClassName : 'proximity-handle'}
+                  style={{ top: '52%', left: -1 }}
+                  title={buildHandleTooltip({
+                    direction: 'input',
+                    nodeLabel: data.label,
+                    handleId: 'in',
+                    label: 'in',
+                    valueType: flowInput.valueType,
+                  })}
+                />
+              </>
             ) : null}
           </div>
           <div className="space-y-1.5 text-right">
