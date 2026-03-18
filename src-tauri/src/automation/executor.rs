@@ -2821,9 +2821,11 @@ async fn execute_system_operation(
             }
 
             let use_shell = get_bool(node, "shell", true);
-            let result = run_system_command(&command, use_shell).await?;
+            let shell_type = get_string(node, "shellType", "cmd");
+            let result = run_system_command(&command, use_shell, &shell_type).await?;
             set_node_output(ctx, node, "action", Value::String("runCommand".to_string()));
             set_node_output(ctx, node, "command", Value::String(command));
+            set_node_output(ctx, node, "shellType", Value::String(shell_type));
             set_node_output(ctx, node, "stdout", Value::String(result.stdout));
             set_node_output(ctx, node, "stderr", Value::String(result.stderr));
             set_node_output(ctx, node, "exitCode", value_from_i32(result.exit_code));
@@ -3293,7 +3295,53 @@ async fn replay_mouse_move_path(
     Ok(())
 }
 
-async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<CommandExecutionResult> {
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+enum WindowsShellType {
+    Cmd,
+    PowerShell,
+    Pwsh,
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_windows_shell_type(shell_type: &str) -> WindowsShellType {
+    match normalize_system_operation_name(shell_type).as_str() {
+        "powershell" => WindowsShellType::PowerShell,
+        "pwsh" => WindowsShellType::Pwsh,
+        _ => WindowsShellType::Cmd,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn build_windows_shell_command(shell_type: WindowsShellType, command: &str) -> Command {
+    let process = match shell_type {
+        WindowsShellType::Cmd => {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg(command);
+            cmd
+        }
+        WindowsShellType::PowerShell => {
+            let mut ps = Command::new("powershell");
+            ps.arg("-NoProfile")
+                .arg("-ExecutionPolicy")
+                .arg("Bypass")
+                .arg("-Command")
+                .arg(command);
+            ps
+        }
+        WindowsShellType::Pwsh => {
+            let mut pwsh = Command::new("pwsh");
+            pwsh.arg("-NoProfile")
+                .arg("-Command")
+                .arg(command);
+            pwsh
+        }
+    };
+
+    process
+}
+
+async fn run_system_command(command: &str, use_shell: bool, shell_type: &str) -> CommandResult<CommandExecutionResult> {
     let output = if use_shell {
         #[cfg(target_os = "windows")]
         {
@@ -3306,9 +3354,8 @@ async fn run_system_command(command: &str, use_shell: bool) -> CommandResult<Com
                 });
             }
 
-            Command::new("cmd")
-                .arg("/C")
-                .arg(command)
+            let shell_type = resolve_windows_shell_type(shell_type);
+            build_windows_shell_command(shell_type, command)
                 .output()
                 .await
                 .map_err(|error| CommandFlowError::Automation(error.to_string()))?

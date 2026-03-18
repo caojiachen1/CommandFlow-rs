@@ -37,6 +37,7 @@ export type LaunchApplicationMode = 'auto' | 'direct' | 'shell'
 export type ClipboardReadMode = 'auto' | 'text' | 'image'
 export type ClipboardWriteContentType = 'text' | 'image'
 export type ClipboardImageSource = 'literal' | 'var' | 'file'
+export type CommandShellType = 'cmd' | 'powershell' | 'pwsh'
 
 export interface ParamField {
   key: string
@@ -92,6 +93,12 @@ export const CLIPBOARD_IMAGE_SOURCE_OPTIONS: Array<{ label: string; value: Clipb
   { label: '直接输入 base64 / Data URL', value: 'literal' },
   { label: '从变量读取', value: 'var' },
   { label: '从文件读取', value: 'file' },
+]
+
+export const COMMAND_SHELL_TYPE_OPTIONS: Array<{ label: string; value: CommandShellType }> = [
+  { label: 'cmd', value: 'cmd' },
+  { label: 'PowerShell', value: 'powershell' },
+  { label: 'pwsh (PowerShell 7+)', value: 'pwsh' },
 ]
 
 export const FILE_OPERATION_OPTIONS: Array<{ label: string; value: FileOperationKind }> = [
@@ -162,7 +169,7 @@ const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
   theme: ['mode'],
   powerPlan: ['plan'],
   openSettings: ['page'],
-  runCommand: ['command', 'shell'],
+  runCommand: ['command', 'shell', 'shellType'],
 }
 
 const FILE_OPERATION_FIELD_KEYS: Record<FileOperationKind, string[]> = {
@@ -395,6 +402,9 @@ export const isNodeFieldVisible = (
       params,
       getSystemOperationKind(defaultParams, 'shutdown'),
     )
+    if (operation === 'runCommand' && field.key === 'shellType') {
+      return Boolean(params.shell ?? defaultParams.shell ?? true)
+    }
     return SYSTEM_OPERATION_FIELD_KEYS[operation].includes(field.key)
   }
 
@@ -635,7 +645,7 @@ const resolveSystemOperationField = (
         ...field,
         label: '命令',
         placeholder: 'echo Hello CommandFlow',
-        description: '开启 Shell 时使用系统 shell 执行；关闭时按可执行程序 + 参数拆分执行。',
+        description: '开启 Shell 时按 shell 类型执行（cmd / powershell / pwsh）；关闭时按可执行程序 + 参数拆分执行。',
       }
     }
 
@@ -643,6 +653,13 @@ const resolveSystemOperationField = (
       return {
         ...field,
         label: '通过 Shell 执行',
+      }
+    }
+
+    if (field.key === 'shellType') {
+      return {
+        ...field,
+        label: 'Shell 类型',
       }
     }
   }
@@ -1456,6 +1473,7 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       page: 'sound',
       command: 'echo CommandFlow',
       shell: true,
+      shellType: 'cmd',
     },
     fields: [
       {
@@ -1517,6 +1535,12 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       },
       { key: 'command', label: '命令', type: 'string', placeholder: 'echo CommandFlow' },
       { key: 'shell', label: '通过 Shell 执行', type: 'boolean' },
+      {
+        key: 'shellType',
+        label: 'Shell 类型',
+        type: 'select',
+        options: COMMAND_SHELL_TYPE_OPTIONS,
+      },
     ],
   },
   condition: {
