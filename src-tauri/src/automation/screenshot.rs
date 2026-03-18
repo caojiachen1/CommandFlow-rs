@@ -47,8 +47,7 @@ fn ensure_output_parent(path: &str) -> CommandResult<()> {
     let output_path = Path::new(path);
     if let Some(parent) = output_path.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .map_err(|error| CommandFlowError::Io(error.to_string()))?;
+            fs::create_dir_all(parent).map_err(|error| CommandFlowError::Io(error.to_string()))?;
         }
     }
     Ok(())
@@ -70,7 +69,12 @@ pub fn capture_fullscreen_rgba() -> CommandResult<(Vec<u8>, u32, u32)> {
     capture_primary_rgba()
 }
 
-pub fn capture_region_rgba(start_x: u32, start_y: u32, width: u32, height: u32) -> CommandResult<(Vec<u8>, u32, u32)> {
+pub fn capture_region_rgba(
+    start_x: u32,
+    start_y: u32,
+    width: u32,
+    height: u32,
+) -> CommandResult<(Vec<u8>, u32, u32)> {
     let monitor = primary_monitor()?;
     let monitor_width = monitor
         .width()
@@ -100,7 +104,12 @@ pub fn capture_region_rgba(start_x: u32, start_y: u32, width: u32, height: u32) 
     }
 
     let region_image = monitor
-        .capture_region(clamped_start_x, clamped_start_y, target_width, target_height)
+        .capture_region(
+            clamped_start_x,
+            clamped_start_y,
+            target_width,
+            target_height,
+        )
         .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
     let region_rgba = region_image.into_raw();
 
@@ -120,7 +129,9 @@ pub fn capture_fullscreen_gray() -> CommandResult<GrayImage> {
     }
 
     GrayImage::from_vec(width, height, gray).ok_or_else(|| {
-        CommandFlowError::Automation("failed to build grayscale image from captured frame".to_string())
+        CommandFlowError::Automation(
+            "failed to build grayscale image from captured frame".to_string(),
+        )
     })
 }
 
@@ -137,14 +148,12 @@ pub fn start_primary_frame_stream() -> CommandResult<PrimaryFrameStream> {
     for attempt in 1..=STREAM_START_RETRY {
         for monitor in &monitors {
             let monitor_label = describe_monitor(monitor);
-            let stream = monitor
-                .video_recorder()
-                .map_err(|error| {
-                    CommandFlowError::Automation(format!(
-                        "xcap video_recorder init failed (attempt {}, monitor={}): {}",
-                        attempt, monitor_label, error
-                    ))
-                });
+            let stream = monitor.video_recorder().map_err(|error| {
+                CommandFlowError::Automation(format!(
+                    "xcap video_recorder init failed (attempt {}, monitor={}): {}",
+                    attempt, monitor_label, error
+                ))
+            });
 
             let (recorder, receiver) = match stream {
                 Ok(v) => v,
@@ -190,14 +199,13 @@ pub fn ensure_primary_frame_stream() -> CommandResult<()> {
         *guard = Some(stream);
     }
 
-    let stream = guard
-        .as_ref()
-        .ok_or_else(|| CommandFlowError::Automation("primary frame stream unavailable".to_string()))?;
+    let stream = guard.as_ref().ok_or_else(|| {
+        CommandFlowError::Automation("primary frame stream unavailable".to_string())
+    })?;
 
-    stream
-        .recorder
-        .start()
-        .map_err(|error| CommandFlowError::Automation(format!("xcap recorder.start failed: {}", error)))?;
+    stream.recorder.start().map_err(|error| {
+        CommandFlowError::Automation(format!("xcap recorder.start failed: {}", error))
+    })?;
 
     Ok(())
 }
@@ -208,9 +216,9 @@ pub fn recv_primary_frame_gray_timeout(timeout: Duration) -> CommandResult<Optio
         .lock()
         .map_err(|_| CommandFlowError::Automation("primary stream mutex poisoned".to_string()))?;
 
-    let stream = guard
-        .as_mut()
-        .ok_or_else(|| CommandFlowError::Automation("primary frame stream has not been initialized".to_string()))?;
+    let stream = guard.as_mut().ok_or_else(|| {
+        CommandFlowError::Automation("primary frame stream has not been initialized".to_string())
+    })?;
 
     stream.recv_gray_timeout(timeout)
 }
@@ -222,10 +230,9 @@ pub fn stop_primary_frame_stream() -> CommandResult<()> {
         .map_err(|_| CommandFlowError::Automation("primary stream mutex poisoned".to_string()))?;
 
     if let Some(stream) = guard.as_ref() {
-        stream
-            .recorder
-            .stop()
-            .map_err(|error| CommandFlowError::Automation(format!("xcap recorder.stop failed: {}", error)))?;
+        stream.recorder.stop().map_err(|error| {
+            CommandFlowError::Automation(format!("xcap recorder.stop failed: {}", error))
+        })?;
     }
 
     Ok(())
@@ -254,8 +261,10 @@ pub fn save_gray(path: &str, gray: &GrayImage) -> CommandResult<String> {
     let width = gray.width();
     let height = gray.height();
     let buffer = gray.as_raw().clone();
-    let image = ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(width, height, buffer)
-        .ok_or_else(|| CommandFlowError::Automation("failed to build debug gray image".to_string()))?;
+    let image =
+        ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(width, height, buffer).ok_or_else(|| {
+            CommandFlowError::Automation("failed to build debug gray image".to_string())
+        })?;
     image
         .save(path)
         .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
@@ -304,8 +313,12 @@ fn draw_rect_outline(
         return;
     }
 
-    let x2 = x.saturating_add(width.saturating_sub(1)).min(image.width() - 1);
-    let y2 = y.saturating_add(height.saturating_sub(1)).min(image.height() - 1);
+    let x2 = x
+        .saturating_add(width.saturating_sub(1))
+        .min(image.width() - 1);
+    let y2 = y
+        .saturating_add(height.saturating_sub(1))
+        .min(image.height() - 1);
 
     for xx in x.min(image.width() - 1)..=x2 {
         image.put_pixel(xx, y.min(image.height() - 1), color);
@@ -350,16 +363,20 @@ fn frame_to_gray_image(frame: &Frame) -> CommandResult<GrayImage> {
 }
 
 fn primary_monitor() -> CommandResult<Monitor> {
-    let monitors = Monitor::all().map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+    let monitors =
+        Monitor::all().map_err(|error| CommandFlowError::Automation(error.to_string()))?;
     monitors
         .into_iter()
         .find(|monitor| monitor.is_primary().unwrap_or(false))
         .or_else(|| Monitor::from_point(0, 0).ok())
-        .ok_or_else(|| CommandFlowError::Automation("failed to resolve primary monitor".to_string()))
+        .ok_or_else(|| {
+            CommandFlowError::Automation("failed to resolve primary monitor".to_string())
+        })
 }
 
 fn monitor_candidates() -> CommandResult<Vec<Monitor>> {
-    let mut monitors = Monitor::all().map_err(|error| CommandFlowError::Automation(error.to_string()))?;
+    let mut monitors =
+        Monitor::all().map_err(|error| CommandFlowError::Automation(error.to_string()))?;
 
     if let Some(from_point) = Monitor::from_point(0, 0).ok() {
         monitors.insert(0, from_point);
@@ -369,9 +386,7 @@ fn monitor_candidates() -> CommandResult<Vec<Monitor>> {
 }
 
 fn describe_monitor(monitor: &Monitor) -> String {
-    let name = monitor
-        .name()
-        .unwrap_or_else(|_| "unknown".to_string());
+    let name = monitor.name().unwrap_or_else(|_| "unknown".to_string());
     let x = monitor.x().unwrap_or_default();
     let y = monitor.y().unwrap_or_default();
     let w = monitor.width().unwrap_or_default();
@@ -381,24 +396,27 @@ fn describe_monitor(monitor: &Monitor) -> String {
 
 fn save_rgba(path: &str, rgba: Vec<u8>, width: u32, height: u32) -> CommandResult<String> {
     ensure_output_parent(path)?;
-    let img =
-        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba).ok_or_else(|| {
-            CommandFlowError::Automation("failed to build image from captured frame".to_string())
-        })?;
+    let img = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba).ok_or_else(|| {
+        CommandFlowError::Automation("failed to build image from captured frame".to_string())
+    })?;
     img.save(path)
         .map_err(|error| CommandFlowError::Automation(error.to_string()))?;
     Ok(path.to_string())
 }
 
-pub fn save_rgba_image(path: &str, rgba: Vec<u8>, width: u32, height: u32) -> CommandResult<String> {
+pub fn save_rgba_image(
+    path: &str,
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> CommandResult<String> {
     save_rgba(path, rgba, width, height)
 }
 
 pub fn encode_rgba_to_png_base64(rgba: &[u8], width: u32, height: u32) -> CommandResult<String> {
-    let img =
-        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba.to_vec()).ok_or_else(|| {
-            CommandFlowError::Automation("failed to build image from captured frame".to_string())
-        })?;
+    let img = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba.to_vec()).ok_or_else(
+        || CommandFlowError::Automation("failed to build image from captured frame".to_string()),
+    )?;
 
     let mut encoded = Vec::<u8>::new();
     image::DynamicImage::ImageRgba8(img)
@@ -408,7 +426,13 @@ pub fn encode_rgba_to_png_base64(rgba: &[u8], width: u32, height: u32) -> Comman
     Ok(general_purpose::STANDARD.encode(encoded))
 }
 
-pub fn capture_region(path: &str, start_x: u32, start_y: u32, width: u32, height: u32) -> CommandResult<String> {
+pub fn capture_region(
+    path: &str,
+    start_x: u32,
+    start_y: u32,
+    width: u32,
+    height: u32,
+) -> CommandResult<String> {
     let (rgba, target_width, target_height) = capture_region_rgba(start_x, start_y, width, height)?;
     save_rgba(path, rgba, target_width, target_height)
 }

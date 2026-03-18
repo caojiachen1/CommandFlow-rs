@@ -1,15 +1,20 @@
-use crate::automation::{file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu, system_settings, uia, window};
-use crate::secure_settings::{load_input_recording_presets, InputRecordingAction, InputRecordingPreset, RecordedCursorPoint};
+use crate::automation::{
+    file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu,
+    system_settings, uia, window,
+};
+use crate::error::{CommandFlowError, CommandResult};
+use crate::secure_settings::{
+    load_input_recording_presets, InputRecordingAction, InputRecordingPreset, RecordedCursorPoint,
+};
+use crate::workflow::graph::WorkflowGraph;
+use crate::workflow::node::{NodeKind, WorkflowNode};
 use arboard::{Clipboard, ImageData};
-use base64::Engine as _;
 use base64::engine::general_purpose;
+use base64::Engine as _;
+use image::{ImageBuffer, Rgba, RgbaImage};
 use regex::Regex;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
-use crate::error::{CommandFlowError, CommandResult};
-use crate::workflow::graph::WorkflowGraph;
-use crate::workflow::node::{NodeKind, WorkflowNode};
-use image::{ImageBuffer, Rgba, RgbaImage};
 use serde_json::{Map, Number, Value};
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
@@ -84,7 +89,7 @@ impl WorkflowExecutor {
             &mut noop_complete,
             &never_cancel,
         )
-            .await
+        .await
     }
 
     pub async fn execute_with_progress<F, G, H, J, I>(
@@ -109,11 +114,17 @@ impl WorkflowExecutor {
             ));
         }
 
-        let node_map: HashMap<&str, &WorkflowNode> =
-            graph.nodes.iter().map(|node| (node.id.as_str(), node)).collect();
+        let node_map: HashMap<&str, &WorkflowNode> = graph
+            .nodes
+            .iter()
+            .map(|node| (node.id.as_str(), node))
+            .collect();
 
-        let mut incoming_count: HashMap<&str, usize> =
-            graph.nodes.iter().map(|node| (node.id.as_str(), 0)).collect();
+        let mut incoming_count: HashMap<&str, usize> = graph
+            .nodes
+            .iter()
+            .map(|node| (node.id.as_str(), 0))
+            .collect();
         for edge in &graph.edges {
             if !is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref()) {
                 continue;
@@ -174,7 +185,7 @@ impl WorkflowExecutor {
                     on_node_complete,
                     should_cancel,
                 )
-                    .await?;
+                .await?;
             }
         }
 
@@ -250,7 +261,10 @@ impl WorkflowExecutor {
                     .iter()
                     .filter(|edge| {
                         edge.source == current_id
-                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                            && is_control_flow_edge(
+                                edge.source_handle.as_deref(),
+                                edge.target_handle.as_deref(),
+                            )
                     })
                     .collect();
 
@@ -298,7 +312,9 @@ impl WorkflowExecutor {
                             if let Some(edge) = loop_edges.first().copied() {
                                 *remaining -= 1;
 
-                                if loop_stack.last().map(String::as_str) != Some(effective_node.id.as_str()) {
+                                if loop_stack.last().map(String::as_str)
+                                    != Some(effective_node.id.as_str())
+                                {
                                     loop_stack.push(effective_node.id.clone());
                                 }
 
@@ -321,7 +337,8 @@ impl WorkflowExecutor {
                         }
 
                         ctx.loop_remaining.remove(&effective_node.id);
-                        if loop_stack.last().map(String::as_str) == Some(effective_node.id.as_str()) {
+                        if loop_stack.last().map(String::as_str) == Some(effective_node.id.as_str())
+                        {
                             loop_stack.pop();
                         }
 
@@ -376,7 +393,9 @@ impl WorkflowExecutor {
                             if let Some(edge) = loop_edges.first().copied() {
                                 *iterations += 1;
 
-                                if loop_stack.last().map(String::as_str) != Some(effective_node.id.as_str()) {
+                                if loop_stack.last().map(String::as_str)
+                                    != Some(effective_node.id.as_str())
+                                {
                                     loop_stack.push(effective_node.id.clone());
                                 }
 
@@ -405,7 +424,8 @@ impl WorkflowExecutor {
                         }
 
                         ctx.while_iterations.remove(&effective_node.id);
-                        if loop_stack.last().map(String::as_str) == Some(effective_node.id.as_str()) {
+                        if loop_stack.last().map(String::as_str) == Some(effective_node.id.as_str())
+                        {
                             loop_stack.pop();
                         }
 
@@ -461,7 +481,10 @@ impl WorkflowExecutor {
                     .iter()
                     .filter(|edge| {
                         edge.source == current_id
-                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                            && is_control_flow_edge(
+                                edge.source_handle.as_deref(),
+                                edge.target_handle.as_deref(),
+                            )
                     })
                     .collect();
 
@@ -625,7 +648,10 @@ impl WorkflowExecutor {
                     .iter()
                     .filter(|edge| {
                         edge.source == current_id
-                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                            && is_control_flow_edge(
+                                edge.source_handle.as_deref(),
+                                edge.target_handle.as_deref(),
+                            )
                     })
                     .collect(),
                 NextDirective::Branch(handle) => graph
@@ -634,7 +660,10 @@ impl WorkflowExecutor {
                     .filter(|edge| {
                         edge.source == current_id
                             && edge.source_handle.as_deref() == Some(handle)
-                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                            && is_control_flow_edge(
+                                edge.source_handle.as_deref(),
+                                edge.target_handle.as_deref(),
+                            )
                     })
                     .collect(),
             };
@@ -680,31 +709,29 @@ impl WorkflowExecutor {
 
         match node.kind {
             NodeKind::Trigger => execute_trigger_node(node, ctx, should_cancel, None).await,
-            NodeKind::HotkeyTrigger => execute_trigger_node(node, ctx, should_cancel, Some("hotkey")).await,
-            NodeKind::TimerTrigger => execute_trigger_node(node, ctx, should_cancel, Some("timer")).await,
-            NodeKind::ManualTrigger => execute_trigger_node(node, ctx, should_cancel, Some("manual")).await,
-            NodeKind::WindowTrigger => execute_trigger_node(node, ctx, should_cancel, Some("window")).await,
+            NodeKind::HotkeyTrigger => {
+                execute_trigger_node(node, ctx, should_cancel, Some("hotkey")).await
+            }
+            NodeKind::TimerTrigger => {
+                execute_trigger_node(node, ctx, should_cancel, Some("timer")).await
+            }
+            NodeKind::ManualTrigger => {
+                execute_trigger_node(node, ctx, should_cancel, Some("manual")).await
+            }
+            NodeKind::WindowTrigger => {
+                execute_trigger_node(node, ctx, should_cancel, Some("window")).await
+            }
             NodeKind::UiaElement => execute_uia_element(node, ctx),
             NodeKind::MouseOperation => execute_mouse_operation(node, ctx, None),
-            NodeKind::MouseClick => {
-                execute_mouse_operation(node, ctx, Some("click"))
+            NodeKind::MouseClick => execute_mouse_operation(node, ctx, Some("click")),
+            NodeKind::MouseMove => execute_mouse_operation(node, ctx, Some("move")),
+            NodeKind::MouseDrag => execute_mouse_operation(node, ctx, Some("drag")),
+            NodeKind::MouseWheel => execute_mouse_operation(node, ctx, Some("wheel")),
+            NodeKind::MouseDown => execute_mouse_operation(node, ctx, Some("down")),
+            NodeKind::MouseUp => execute_mouse_operation(node, ctx, Some("up")),
+            NodeKind::KeyboardOperation => {
+                execute_keyboard_operation(node, ctx, should_cancel, None).await
             }
-            NodeKind::MouseMove => {
-                execute_mouse_operation(node, ctx, Some("move"))
-            }
-            NodeKind::MouseDrag => {
-                execute_mouse_operation(node, ctx, Some("drag"))
-            }
-            NodeKind::MouseWheel => {
-                execute_mouse_operation(node, ctx, Some("wheel"))
-            }
-            NodeKind::MouseDown => {
-                execute_mouse_operation(node, ctx, Some("down"))
-            }
-            NodeKind::MouseUp => {
-                execute_mouse_operation(node, ctx, Some("up"))
-            }
-            NodeKind::KeyboardOperation => execute_keyboard_operation(node, ctx, should_cancel, None).await,
             NodeKind::KeyboardKey => {
                 execute_keyboard_operation(node, ctx, should_cancel, Some("key")).await
             }
@@ -737,7 +764,8 @@ impl WorkflowExecutor {
                     screenshot::capture_region_rgba(start_x, start_y, width.max(1), height.max(1))?
                 };
 
-                let screenshot_base64 = screenshot::encode_rgba_to_png_base64(&rgba, width, height)?;
+                let screenshot_base64 =
+                    screenshot::encode_rgba_to_png_base64(&rgba, width, height)?;
                 set_node_output(ctx, node, "screenshot", Value::String(screenshot_base64));
 
                 if let Some(path) = output_path {
@@ -782,13 +810,37 @@ impl WorkflowExecutor {
                     set_node_output(ctx, node, "className", Value::String(String::new()));
                     set_node_output(ctx, node, "processId", value_from_u64(0));
                 } else {
-                    let query = build_window_activate_query(node, &connected_window_inputs, has_connected_window_inputs)?;
+                    let query = build_window_activate_query(
+                        node,
+                        &connected_window_inputs,
+                        has_connected_window_inputs,
+                    )?;
                     let activated_window = window::activate_window(&query)?;
                     set_node_output(ctx, node, "title", Value::String(activated_window.title));
-                    set_node_output(ctx, node, "program", Value::String(activated_window.program_name));
-                    set_node_output(ctx, node, "programPath", Value::String(activated_window.program_path));
-                    set_node_output(ctx, node, "className", Value::String(activated_window.class_name));
-                    set_node_output(ctx, node, "processId", value_from_u64(activated_window.process_id as u64));
+                    set_node_output(
+                        ctx,
+                        node,
+                        "program",
+                        Value::String(activated_window.program_name),
+                    );
+                    set_node_output(
+                        ctx,
+                        node,
+                        "programPath",
+                        Value::String(activated_window.program_path),
+                    );
+                    set_node_output(
+                        ctx,
+                        node,
+                        "className",
+                        Value::String(activated_window.class_name),
+                    );
+                    set_node_output(
+                        ctx,
+                        node,
+                        "processId",
+                        value_from_u64(activated_window.process_id as u64),
+                    );
                 }
                 Ok(NextDirective::Default)
             }
@@ -803,8 +855,9 @@ impl WorkflowExecutor {
                 Ok(NextDirective::Default)
             }
             NodeKind::ClipboardRead => {
-                let mut clipboard = Clipboard::new()
-                    .map_err(|error| CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error)))?;
+                let mut clipboard = Clipboard::new().map_err(|error| {
+                    CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error))
+                })?;
                 let read_mode_raw = get_string(node, "readMode", "auto");
                 let read_mode = normalize_system_operation_name(&read_mode_raw);
 
@@ -844,14 +897,27 @@ impl WorkflowExecutor {
                 let image_width = image.as_ref().map(|content| content.width).unwrap_or(0);
                 let image_height = image.as_ref().map(|content| content.height).unwrap_or(0);
 
-                set_node_output(ctx, node, "contentType", Value::String(content_type.to_string()));
+                set_node_output(
+                    ctx,
+                    node,
+                    "contentType",
+                    Value::String(content_type.to_string()),
+                );
                 set_node_output(ctx, node, "text", Value::String(text_value.clone()));
                 set_node_output(ctx, node, "image", Value::String(image_value.clone()));
                 set_node_output(ctx, node, "imageWidth", value_from_u64(image_width as u64));
-                set_node_output(ctx, node, "imageHeight", value_from_u64(image_height as u64));
+                set_node_output(
+                    ctx,
+                    node,
+                    "imageHeight",
+                    value_from_u64(image_height as u64),
+                );
 
                 let mut structured = Map::new();
-                structured.insert("contentType".to_string(), Value::String(content_type.to_string()));
+                structured.insert(
+                    "contentType".to_string(),
+                    Value::String(content_type.to_string()),
+                );
                 structured.insert(
                     "text".to_string(),
                     text.clone().map(Value::String).unwrap_or(Value::Null),
@@ -882,20 +948,26 @@ impl WorkflowExecutor {
                 let structured_value = Value::Object(structured);
                 set_node_output(ctx, node, "content", structured_value.clone());
 
-                let output_var = get_string(node, "outputVar", "clipboardContent").trim().to_string();
+                let output_var = get_string(node, "outputVar", "clipboardContent")
+                    .trim()
+                    .to_string();
                 if !output_var.is_empty() {
                     ctx.variables.insert(output_var, structured_value);
                 }
 
                 if let Some(text) = text {
-                    let output_text_var = get_string(node, "outputTextVar", "clipboardText").trim().to_string();
+                    let output_text_var = get_string(node, "outputTextVar", "clipboardText")
+                        .trim()
+                        .to_string();
                     if !output_text_var.is_empty() {
                         ctx.variables.insert(output_text_var, Value::String(text));
                     }
                 }
 
                 if let Some(image) = image {
-                    let output_image_var = get_string(node, "outputImageVar", "clipboardImage").trim().to_string();
+                    let output_image_var = get_string(node, "outputImageVar", "clipboardImage")
+                        .trim()
+                        .to_string();
                     if !output_image_var.is_empty() {
                         ctx.variables
                             .insert(output_image_var, Value::String(image.data_url));
@@ -924,17 +996,21 @@ impl WorkflowExecutor {
                 Ok(NextDirective::Default)
             }
             NodeKind::ClipboardWrite => {
-                let mut clipboard = Clipboard::new()
-                    .map_err(|error| CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error)))?;
+                let mut clipboard = Clipboard::new().map_err(|error| {
+                    CommandFlowError::Automation(format!("初始化系统剪贴板失败：{}", error))
+                })?;
                 let content_type_raw = get_string(node, "contentType", "text");
                 let content_type = normalize_system_operation_name(&content_type_raw);
 
                 match content_type.as_str() {
                     "text" => {
                         let text = resolve_text_input(node, &ctx.variables);
-                        clipboard
-                            .set_text(text.clone())
-                            .map_err(|error| CommandFlowError::Automation(format!("写入系统剪贴板文本失败：{}", error)))?;
+                        clipboard.set_text(text.clone()).map_err(|error| {
+                            CommandFlowError::Automation(format!(
+                                "写入系统剪贴板文本失败：{}",
+                                error
+                            ))
+                        })?;
                         on_log(
                             "info",
                             format!(
@@ -952,14 +1028,17 @@ impl WorkflowExecutor {
                                 height: image.height,
                                 bytes: Cow::Owned(image.rgba),
                             })
-                            .map_err(|error| CommandFlowError::Automation(format!("写入系统剪贴板图片失败：{}", error)))?;
+                            .map_err(|error| {
+                                CommandFlowError::Automation(format!(
+                                    "写入系统剪贴板图片失败：{}",
+                                    error
+                                ))
+                            })?;
                         on_log(
                             "info",
                             format!(
                                 "剪贴板写入节点 '{}' 已写入图片 {}x{}。",
-                                node.label,
-                                image.width,
-                                image.height
+                                node.label, image.width, image.height
                             ),
                         );
                     }
@@ -1004,19 +1083,39 @@ impl WorkflowExecutor {
             NodeKind::PowerShutdown => execute_system_operation(node, ctx, Some("shutdown")).await,
             NodeKind::PowerRestart => execute_system_operation(node, ctx, Some("restart")).await,
             NodeKind::PowerSleep => execute_system_operation(node, ctx, Some("sleep")).await,
-            NodeKind::PowerHibernate => execute_system_operation(node, ctx, Some("hibernate")).await,
+            NodeKind::PowerHibernate => {
+                execute_system_operation(node, ctx, Some("hibernate")).await
+            }
             NodeKind::PowerLock => execute_system_operation(node, ctx, Some("lock")).await,
             NodeKind::PowerSignOut => execute_system_operation(node, ctx, Some("signOut")).await,
-            NodeKind::SystemVolumeMute => execute_system_operation(node, ctx, Some("volumeMute")).await,
-            NodeKind::SystemVolumeSet => execute_system_operation(node, ctx, Some("volumeSet")).await,
-            NodeKind::SystemVolumeAdjust => execute_system_operation(node, ctx, Some("volumeAdjust")).await,
-            NodeKind::SystemBrightnessSet => execute_system_operation(node, ctx, Some("brightnessSet")).await,
-            NodeKind::SystemWifiSwitch => execute_system_operation(node, ctx, Some("wifiSwitch")).await,
-            NodeKind::SystemBluetoothSwitch => execute_system_operation(node, ctx, Some("bluetoothSwitch")).await,
-            NodeKind::SystemNetworkAdapterSwitch => execute_system_operation(node, ctx, Some("networkAdapterSwitch")).await,
+            NodeKind::SystemVolumeMute => {
+                execute_system_operation(node, ctx, Some("volumeMute")).await
+            }
+            NodeKind::SystemVolumeSet => {
+                execute_system_operation(node, ctx, Some("volumeSet")).await
+            }
+            NodeKind::SystemVolumeAdjust => {
+                execute_system_operation(node, ctx, Some("volumeAdjust")).await
+            }
+            NodeKind::SystemBrightnessSet => {
+                execute_system_operation(node, ctx, Some("brightnessSet")).await
+            }
+            NodeKind::SystemWifiSwitch => {
+                execute_system_operation(node, ctx, Some("wifiSwitch")).await
+            }
+            NodeKind::SystemBluetoothSwitch => {
+                execute_system_operation(node, ctx, Some("bluetoothSwitch")).await
+            }
+            NodeKind::SystemNetworkAdapterSwitch => {
+                execute_system_operation(node, ctx, Some("networkAdapterSwitch")).await
+            }
             NodeKind::SystemTheme => execute_system_operation(node, ctx, Some("theme")).await,
-            NodeKind::SystemPowerPlan => execute_system_operation(node, ctx, Some("powerPlan")).await,
-            NodeKind::SystemOpenSettings => execute_system_operation(node, ctx, Some("openSettings")).await,
+            NodeKind::SystemPowerPlan => {
+                execute_system_operation(node, ctx, Some("powerPlan")).await
+            }
+            NodeKind::SystemOpenSettings => {
+                execute_system_operation(node, ctx, Some("openSettings")).await
+            }
             NodeKind::Condition => {
                 let condition_true = evaluate_condition(node, &ctx.variables);
                 Ok(if condition_true {
@@ -1027,10 +1126,7 @@ impl WorkflowExecutor {
             }
             NodeKind::Loop => {
                 let times = get_u64(node, "times", 1);
-                let remaining = ctx
-                    .loop_remaining
-                    .entry(node.id.clone())
-                    .or_insert(times);
+                let remaining = ctx.loop_remaining.entry(node.id.clone()).or_insert(times);
 
                 if *remaining > 0 {
                     *remaining -= 1;
@@ -1080,7 +1176,8 @@ impl WorkflowExecutor {
                 let click_times = get_u64(node, "clickTimes", 1).max(1) as usize;
                 let confirm_frames = get_u64(node, "confirmFrames", 2).max(1);
                 let debug_save_every = IMAGE_MATCH_DEBUG_SAVE_EVERY;
-                let mut matcher = image_match::TemplateMatcher::from_path(&template_path, threshold)?;
+                let mut matcher =
+                    image_match::TemplateMatcher::from_path(&template_path, threshold)?;
                 let debug_dir = prepare_image_match_debug_dir(node)?;
 
                 let started = tokio::time::Instant::now();
@@ -1129,12 +1226,7 @@ impl WorkflowExecutor {
 
                     let debug_path = debug_dir.join("static-source-gray.png");
                     let rect = evaluation.best_top_left.map(|(x, y)| {
-                        (
-                            x,
-                            y,
-                            evaluation.template_size.0,
-                            evaluation.template_size.1,
-                        )
+                        (x, y, evaluation.template_size.0, evaluation.template_size.1)
                     });
                     let _ = screenshot::save_gray_with_box(
                         path_to_string(&debug_path)?,
@@ -1163,10 +1255,7 @@ impl WorkflowExecutor {
 
                 on_log(
                     "info",
-                    format!(
-                        "图像匹配节点 '{}' 已启用 xcap 实时帧流匹配。",
-                        node.label
-                    ),
+                    format!("图像匹配节点 '{}' 已启用 xcap 实时帧流匹配。", node.label),
                 );
 
                 let mut stream_recover_attempted = false;
@@ -1201,7 +1290,9 @@ impl WorkflowExecutor {
                                     ),
                                 );
 
-                                let _ = screenshot::reset_primary_frame_stream("image_match_recv_failed");
+                                let _ = screenshot::reset_primary_frame_stream(
+                                    "image_match_recv_failed",
+                                );
                                 screenshot::ensure_primary_frame_stream().map_err(|reinit_error| {
                                     let bt = Backtrace::force_capture();
                                     CommandFlowError::Automation(format!(
@@ -1247,12 +1338,7 @@ impl WorkflowExecutor {
                             attempts, evaluation.best_similarity
                         ));
                         let rect = evaluation.best_top_left.map(|(x, y)| {
-                            (
-                                x,
-                                y,
-                                evaluation.template_size.0,
-                                evaluation.template_size.1,
-                            )
+                            (x, y, evaluation.template_size.0, evaluation.template_size.1)
                         });
                         let _ = screenshot::save_gray_with_box(
                             path_to_string(&frame_path)?,
@@ -1290,9 +1376,9 @@ impl WorkflowExecutor {
                     );
 
                     if matched_streak >= confirm_frames {
-                        let (x, y) = evaluation
-                            .matched_point
-                            .ok_or_else(|| CommandFlowError::Automation("matched point missing".to_string()))?;
+                        let (x, y) = evaluation.matched_point.ok_or_else(|| {
+                            CommandFlowError::Automation("matched point missing".to_string())
+                        })?;
                         set_node_output(ctx, node, "matchX", value_from_i32(x));
                         set_node_output(ctx, node, "matchY", value_from_i32(y));
                         let _ = screenshot::stop_primary_frame_stream();
@@ -1309,12 +1395,7 @@ impl WorkflowExecutor {
                             attempts, evaluation.best_similarity
                         ));
                         let rect = evaluation.best_top_left.map(|(x, y)| {
-                            (
-                                x,
-                                y,
-                                evaluation.template_size.0,
-                                evaluation.template_size.1,
-                            )
+                            (x, y, evaluation.template_size.0, evaluation.template_size.1)
                         });
                         let _ = screenshot::save_gray_with_box(
                             path_to_string(&frame_path)?,
@@ -1499,7 +1580,8 @@ impl WorkflowExecutor {
 
                 let result_json = Value::Number(result_value.clone());
                 if assign_to_variable {
-                    ctx.variables.insert(name.clone(), Value::Number(result_value));
+                    ctx.variables
+                        .insert(name.clone(), Value::Number(result_value));
                 }
                 set_node_output(ctx, node, "result", result_json.clone());
 
@@ -1582,14 +1664,8 @@ fn is_trigger_node(node: &WorkflowNode) -> bool {
 fn is_control_source_handle(handle: Option<&str>) -> bool {
     match handle {
         None => true,
-        Some("next")
-        | Some("true")
-        | Some("false")
-        | Some("loop")
-        | Some("done")
-        | Some("success")
-        | Some("error")
-        | Some("finally") => true,
+        Some("next") | Some("true") | Some("false") | Some("loop") | Some("done")
+        | Some("success") | Some("error") | Some("finally") => true,
         _ => false,
     }
 }
@@ -1672,12 +1748,8 @@ fn resolve_node_with_data_inputs(
             continue;
         };
 
-        let source_value = resolve_edge_source_value(
-            &edge.source,
-            edge.source_handle.as_deref(),
-            graph,
-            ctx,
-        );
+        let source_value =
+            resolve_edge_source_value(&edge.source, edge.source_handle.as_deref(), graph, ctx);
         if let Some(value) = source_value {
             resolved.params.insert(field_key, value);
         }
@@ -1744,12 +1816,7 @@ fn set_try_catch_error_outputs(
         "errorType",
         Value::String(error_kind_label(error).to_string()),
     );
-    set_node_output(
-        ctx,
-        node,
-        "errorMessage",
-        Value::String(error.to_string()),
-    );
+    set_node_output(ctx, node, "errorMessage", Value::String(error.to_string()));
     set_node_output(
         ctx,
         node,
@@ -1776,7 +1843,8 @@ fn optional_process_id_param(node: &WorkflowNode, key: &str) -> Option<u32> {
         .filter(|value| *value > 0)
 }
 
-const WINDOW_LOOKUP_PARAM_KEYS: [&str; 5] = ["title", "program", "programPath", "className", "processId"];
+const WINDOW_LOOKUP_PARAM_KEYS: [&str; 5] =
+    ["title", "program", "programPath", "className", "processId"];
 
 fn connected_window_input_keys(node_id: &str, graph: &WorkflowGraph) -> HashSet<String> {
     graph
@@ -1829,7 +1897,10 @@ fn required_connected_process_id_param(
     Ok(Some(process_id))
 }
 
-fn build_single_window_filter_query(key: &str, query: &window::WindowMatchQuery) -> window::WindowMatchQuery {
+fn build_single_window_filter_query(
+    key: &str,
+    query: &window::WindowMatchQuery,
+) -> window::WindowMatchQuery {
     let mut single = window::WindowMatchQuery::new(&query.match_mode);
     match key {
         "title" => single.title = query.title.clone(),
@@ -1842,7 +1913,10 @@ fn build_single_window_filter_query(key: &str, query: &window::WindowMatchQuery)
     single
 }
 
-fn describe_connected_window_inputs(query: &window::WindowMatchQuery, connected_inputs: &HashSet<String>) -> Vec<String> {
+fn describe_connected_window_inputs(
+    query: &window::WindowMatchQuery,
+    connected_inputs: &HashSet<String>,
+) -> Vec<String> {
     let mut descriptions = Vec::new();
 
     if connected_inputs.contains("title") {
@@ -1949,8 +2023,10 @@ fn build_window_activate_query(
         let mut query = window::WindowMatchQuery::new(&match_mode);
         query.title = required_connected_string_param(node, connected_inputs, "title", "标题")?;
         query.program = required_connected_string_param(node, connected_inputs, "program", "程序")?;
-        query.program_path = required_connected_string_param(node, connected_inputs, "programPath", "程序路径")?;
-        query.class_name = required_connected_string_param(node, connected_inputs, "className", "类名")?;
+        query.program_path =
+            required_connected_string_param(node, connected_inputs, "programPath", "程序路径")?;
+        query.class_name =
+            required_connected_string_param(node, connected_inputs, "className", "类名")?;
         query.process_id = required_connected_process_id_param(node, connected_inputs)?;
 
         validate_connected_window_activate_query(node, &query, connected_inputs)?;
@@ -1960,7 +2036,13 @@ fn build_window_activate_query(
     let switch_mode = get_string(node, "switchMode", "title");
     let title = get_string(node, "title", "");
     let program = get_string(node, "program", "");
-    Ok(build_window_match_query(node, &switch_mode, &title, &program, &match_mode))
+    Ok(build_window_match_query(
+        node,
+        &switch_mode,
+        &title,
+        &program,
+        &match_mode,
+    ))
 }
 
 fn build_window_match_query(
@@ -1985,10 +2067,18 @@ fn build_window_match_query(
     query
 }
 
-fn describe_window_query(primary_target: &str, match_value: &str, query: &window::WindowMatchQuery) -> String {
+fn describe_window_query(
+    primary_target: &str,
+    match_value: &str,
+    query: &window::WindowMatchQuery,
+) -> String {
     let mut parts = vec![format!(
         "{} '{}'",
-        if primary_target.eq_ignore_ascii_case("program") { "program" } else { "title" },
+        if primary_target.eq_ignore_ascii_case("program") {
+            "program"
+        } else {
+            "title"
+        },
         match_value
     )];
 
@@ -2033,11 +2123,7 @@ async fn run_python_code(
     }
 
     #[cfg(target_os = "windows")]
-    let candidates: &[(&str, &[&str])] = &[
-        ("python", &[]),
-        ("py", &["-3"]),
-        ("python3", &[]),
-    ];
+    let candidates: &[(&str, &[&str])] = &[("python", &[]), ("py", &["-3"]), ("python3", &[])];
 
     #[cfg(not(target_os = "windows"))]
     let candidates: &[(&str, &[&str])] = &[("python3", &[]), ("python", &[])];
@@ -2057,12 +2143,13 @@ async fn run_python_code(
                 }
 
                 let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                let status = output.status.code().map(|code| code.to_string()).unwrap_or_else(|| "unknown".to_string());
+                let status = output
+                    .status
+                    .code()
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
                 return Err(CommandFlowError::Automation(if stderr_text.is_empty() {
-                    format!(
-                        "python 节点执行失败：{} 返回非零退出码 {}",
-                        program, status
-                    )
+                    format!("python 节点执行失败：{} 返回非零退出码 {}", program, status)
                 } else {
                     format!(
                         "python 节点执行失败：{} 返回非零退出码 {}，stderr: {}",
@@ -2117,7 +2204,9 @@ fn emit_process_output(
 
 fn is_manual_trigger_node(node: &WorkflowNode) -> bool {
     match node.kind {
-        NodeKind::Trigger => normalize_trigger_mode_name(&get_string(node, "triggerType", "manual")) == "manual",
+        NodeKind::Trigger => {
+            normalize_trigger_mode_name(&get_string(node, "triggerType", "manual")) == "manual"
+        }
         NodeKind::ManualTrigger => true,
         _ => false,
     }
@@ -2175,11 +2264,16 @@ async fn execute_trigger_node(
                 return Err(CommandFlowError::Validation(format!(
                     "node '{}' window trigger {} is empty",
                     node.id,
-                    if waiting_for_program { "program" } else { "title" }
+                    if waiting_for_program {
+                        "program"
+                    } else {
+                        "title"
+                    }
                 )));
             }
 
-            let query = build_window_match_query(node, &match_target, &title, &program, &match_mode);
+            let query =
+                build_window_match_query(node, &match_target, &title, &program, &match_mode);
             let query_description = describe_window_query(&match_target, match_value, &query);
 
             let poll_interval = Duration::from_millis(poll_ms.max(10));
@@ -2207,10 +2301,30 @@ async fn execute_trigger_node(
             };
 
             set_node_output(ctx, node, "title", Value::String(matched_window.title));
-            set_node_output(ctx, node, "program", Value::String(matched_window.program_name));
-            set_node_output(ctx, node, "programPath", Value::String(matched_window.program_path));
-            set_node_output(ctx, node, "className", Value::String(matched_window.class_name));
-            set_node_output(ctx, node, "processId", value_from_u64(matched_window.process_id as u64));
+            set_node_output(
+                ctx,
+                node,
+                "program",
+                Value::String(matched_window.program_name),
+            );
+            set_node_output(
+                ctx,
+                node,
+                "programPath",
+                Value::String(matched_window.program_path),
+            );
+            set_node_output(
+                ctx,
+                node,
+                "className",
+                Value::String(matched_window.class_name),
+            );
+            set_node_output(
+                ctx,
+                node,
+                "processId",
+                value_from_u64(matched_window.process_id as u64),
+            );
 
             Ok(NextDirective::Default)
         }
@@ -2234,14 +2348,18 @@ fn execute_launch_application(
     ctx: &mut ExecutionContext,
     on_log: &mut impl FnMut(&str, String),
 ) -> CommandResult<NextDirective> {
-    let launch_mode = start_menu::ApplicationLaunchMode::from_param(&get_string(node, "launchMode", "auto"));
+    let launch_mode =
+        start_menu::ApplicationLaunchMode::from_param(&get_string(node, "launchMode", "auto"));
     let selected_app = get_string(node, "selectedApp", "");
     let app_name = get_string(node, "appName", "");
     let target_path = get_string(node, "targetPath", "");
     let source_path = get_string(node, "sourcePath", "");
     let icon_path = get_string(node, "iconPath", "");
 
-    if selected_app.trim().is_empty() && target_path.trim().is_empty() && source_path.trim().is_empty() {
+    if selected_app.trim().is_empty()
+        && target_path.trim().is_empty()
+        && source_path.trim().is_empty()
+    {
         return Err(CommandFlowError::Validation(format!(
             "node '{}' 尚未选择要启动的应用",
             node.id
@@ -2258,9 +2376,24 @@ fn execute_launch_application(
     let pid = start_menu::launch_application(&entry, launch_mode)?;
 
     set_node_output(ctx, node, "appName", Value::String(entry.app_name.clone()));
-    set_node_output(ctx, node, "targetPath", Value::String(entry.target_path.clone()));
-    set_node_output(ctx, node, "sourcePath", Value::String(entry.source_path.clone()));
-    set_node_output(ctx, node, "iconPath", Value::String(entry.icon_path.clone()));
+    set_node_output(
+        ctx,
+        node,
+        "targetPath",
+        Value::String(entry.target_path.clone()),
+    );
+    set_node_output(
+        ctx,
+        node,
+        "sourcePath",
+        Value::String(entry.source_path.clone()),
+    );
+    set_node_output(
+        ctx,
+        node,
+        "iconPath",
+        Value::String(entry.icon_path.clone()),
+    );
     if let Some(pid) = pid {
         set_node_output(ctx, node, "pid", value_from_u64(pid as u64));
     }
@@ -2272,7 +2405,8 @@ fn execute_launch_application(
             node.label,
             entry.app_name,
             entry.target_path,
-            pid.map(|value| format!(", pid={}", value)).unwrap_or_default()
+            pid.map(|value| format!(", pid={}", value))
+                .unwrap_or_default()
         ),
     );
 
@@ -2352,7 +2486,12 @@ async fn execute_ocr_match(
         if let Some(candidate) = evaluation.matched {
             set_node_output(ctx, node, "matchX", value_from_i32(candidate.x));
             set_node_output(ctx, node, "matchY", value_from_i32(candidate.y));
-            set_node_output(ctx, node, "matchedText", Value::String(candidate.text.clone()));
+            set_node_output(
+                ctx,
+                node,
+                "matchedText",
+                Value::String(candidate.text.clone()),
+            );
             set_node_output(
                 ctx,
                 node,
@@ -2472,7 +2611,12 @@ async fn execute_ocr_match(
             if matched_streak >= confirm_frames {
                 set_node_output(ctx, node, "matchX", value_from_i32(candidate.x));
                 set_node_output(ctx, node, "matchY", value_from_i32(candidate.y));
-                set_node_output(ctx, node, "matchedText", Value::String(candidate.text.clone()));
+                set_node_output(
+                    ctx,
+                    node,
+                    "matchedText",
+                    Value::String(candidate.text.clone()),
+                );
                 set_node_output(
                     ctx,
                     node,
@@ -2645,14 +2789,16 @@ fn execute_file_operation(
                 )));
             }
 
-            let content = fs::read_to_string(&path)
-                .map_err(|error| CommandFlowError::Io(format!("读取文本文件失败 '{}': {}", path, error)))?;
+            let content = fs::read_to_string(&path).map_err(|error| {
+                CommandFlowError::Io(format!("读取文本文件失败 '{}': {}", path, error))
+            })?;
             set_node_output(ctx, node, "text", Value::String(content.clone()));
             set_node_output(ctx, node, "action", Value::String("readText".to_string()));
             let output_var = get_string(node, "outputVar", "fileText").trim().to_string();
 
             if !output_var.is_empty() {
-                ctx.variables.insert(output_var.clone(), Value::String(content.clone()));
+                ctx.variables
+                    .insert(output_var.clone(), Value::String(content.clone()));
                 on_log(
                     "info",
                     format!(
@@ -2853,7 +2999,8 @@ fn execute_mouse_operation(
 
     set_node_output(ctx, node, "operation", Value::String(requested.clone()));
 
-    let target_mode = normalize_system_operation_name(&get_string(node, "targetMode", "coordinate"));
+    let target_mode =
+        normalize_system_operation_name(&get_string(node, "targetMode", "coordinate"));
 
     match operation.as_str() {
         "click" => {
@@ -2910,30 +3057,55 @@ fn execute_mouse_operation(
     Ok(NextDirective::Default)
 }
 
-fn execute_uia_element(node: &WorkflowNode, ctx: &mut ExecutionContext) -> CommandResult<NextDirective> {
+fn execute_uia_element(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+) -> CommandResult<NextDirective> {
     let locator = parse_ui_element_locator_param(node, "elementLocator")?;
     let preview = uia::resolve_locator(&locator)?;
 
     set_node_output(ctx, node, "centerX", value_from_i32(preview.center_x));
     set_node_output(ctx, node, "centerY", value_from_i32(preview.center_y));
     set_node_output(ctx, node, "name", Value::String(preview.name.clone()));
-    set_node_output(ctx, node, "className", Value::String(preview.class_name.clone()));
-    set_node_output(ctx, node, "automationId", Value::String(preview.automation_id.clone()));
-    set_node_output(ctx, node, "controlType", value_from_i32(preview.control_type));
-    set_node_output(ctx, node, "processId", value_from_u64(preview.process_id as u64));
+    set_node_output(
+        ctx,
+        node,
+        "className",
+        Value::String(preview.class_name.clone()),
+    );
+    set_node_output(
+        ctx,
+        node,
+        "automationId",
+        Value::String(preview.automation_id.clone()),
+    );
+    set_node_output(
+        ctx,
+        node,
+        "controlType",
+        value_from_i32(preview.control_type),
+    );
+    set_node_output(
+        ctx,
+        node,
+        "processId",
+        value_from_u64(preview.process_id as u64),
+    );
     set_node_output(
         ctx,
         node,
         "rect",
-        serde_json::to_value(&preview.rect)
-            .map_err(|error| CommandFlowError::Automation(format!("序列化 UIA rect 失败：{}", error)))?,
+        serde_json::to_value(&preview.rect).map_err(|error| {
+            CommandFlowError::Automation(format!("序列化 UIA rect 失败：{}", error))
+        })?,
     );
     set_node_output(
         ctx,
         node,
         "elementLocator",
-        serde_json::to_value(&preview.locator)
-            .map_err(|error| CommandFlowError::Automation(format!("序列化 UIA locator 失败：{}", error)))?,
+        serde_json::to_value(&preview.locator).map_err(|error| {
+            CommandFlowError::Automation(format!("序列化 UIA locator 失败：{}", error))
+        })?,
     );
     set_node_output(ctx, node, "summary", Value::String(preview.summary.clone()));
     set_node_output(
@@ -2967,12 +3139,14 @@ fn parse_ui_element_locator_param(
     })?;
 
     match value {
-        Value::Object(_) => serde_json::from_value::<uia::UiElementLocator>(value.clone()).map_err(|error| {
-            CommandFlowError::Validation(format!(
-                "node '{}' {} 格式无效：{}",
-                node.id, param_key, error
-            ))
-        }),
+        Value::Object(_) => {
+            serde_json::from_value::<uia::UiElementLocator>(value.clone()).map_err(|error| {
+                CommandFlowError::Validation(format!(
+                    "node '{}' {} 格式无效：{}",
+                    node.id, param_key, error
+                ))
+            })
+        }
         Value::String(text) => {
             let trimmed = text.trim();
             if trimmed.is_empty() {
@@ -3035,8 +3209,11 @@ async fn execute_keyboard_operation(
 
                     keyboard::key_tap_by_name(&key)?;
                     if i + 1 < repeat_count {
-                        interruptible_sleep(Duration::from_millis(repeat_interval_ms), should_cancel)
-                            .await?;
+                        interruptible_sleep(
+                            Duration::from_millis(repeat_interval_ms),
+                            should_cancel,
+                        )
+                        .await?;
                     }
                 }
             } else {
@@ -3120,7 +3297,12 @@ async fn execute_input_preset_replay(
     reset_result?;
 
     set_node_output(ctx, node, "presetName", Value::String(preset.name.clone()));
-    set_node_output(ctx, node, "operationCount", value_from_u64(preset.actions.len() as u64));
+    set_node_output(
+        ctx,
+        node,
+        "operationCount",
+        value_from_u64(preset.actions.len() as u64),
+    );
 
     Ok(NextDirective::Default)
 }
@@ -3152,7 +3334,15 @@ async fn replay_input_preset_actions(
             interruptible_sleep(Duration::from_millis(wait_ms), should_cancel).await?;
         }
 
-        replay_input_action(action, replay_mode, delay_scale, min_delay_ms, max_delay_ms, should_cancel).await?;
+        replay_input_action(
+            action,
+            replay_mode,
+            delay_scale,
+            min_delay_ms,
+            max_delay_ms,
+            should_cancel,
+        )
+        .await?;
         previous_end_timestamp = Some(action_end_timestamp(action));
     }
 
@@ -3198,12 +3388,17 @@ fn compute_replay_delay_ms(
 
     let scaled = match replay_mode {
         "step" => min_delay_ms.max(1) as f64,
-        "compressed" => raw_delay_ms.min(max_delay_ms.saturating_mul(3).max(1)) as f64 * delay_scale,
+        "compressed" => {
+            raw_delay_ms.min(max_delay_ms.saturating_mul(3).max(1)) as f64 * delay_scale
+        }
         _ => raw_delay_ms as f64 * delay_scale,
     };
 
     let clamped = scaled.round() as u64;
-    clamped.clamp(min_delay_ms.min(max_delay_ms), max_delay_ms.max(min_delay_ms))
+    clamped.clamp(
+        min_delay_ms.min(max_delay_ms),
+        max_delay_ms.max(min_delay_ms),
+    )
 }
 
 async fn replay_input_action(
@@ -3219,7 +3414,9 @@ async fn replay_input_action(
         InputRecordingAction::KeyUp { key, .. } => keyboard::key_up_by_name(key)?,
         InputRecordingAction::MouseDown { button, x, y, .. } => mouse::button_down(*x, *y, button)?,
         InputRecordingAction::MouseUp { button, x, y, .. } => mouse::button_up(*x, *y, button)?,
-        InputRecordingAction::MouseWheel { x, y, vertical, .. } => mouse::wheel_exact_at(*x, *y, *vertical)?,
+        InputRecordingAction::MouseWheel { x, y, vertical, .. } => {
+            mouse::wheel_exact_at(*x, *y, *vertical)?
+        }
         InputRecordingAction::MouseMovePath {
             points,
             duration_ms,
@@ -3283,7 +3480,13 @@ async fn replay_mouse_move_path(
         let wait_ms = if replay_mode == "step" {
             0
         } else {
-            compute_replay_delay_ms(raw_delay, replay_mode, delay_scale, min_delay_ms, max_delay_ms)
+            compute_replay_delay_ms(
+                raw_delay,
+                replay_mode,
+                delay_scale,
+                min_delay_ms,
+                max_delay_ms,
+            )
         };
 
         if wait_ms > 0 {
@@ -3331,9 +3534,7 @@ fn build_windows_shell_command(shell_type: WindowsShellType, command: &str) -> C
         }
         WindowsShellType::Pwsh => {
             let mut pwsh = Command::new("pwsh");
-            pwsh.arg("-NoProfile")
-                .arg("-Command")
-                .arg(command);
+            pwsh.arg("-NoProfile").arg("-Command").arg(command);
             pwsh
         }
     };
@@ -3341,7 +3542,11 @@ fn build_windows_shell_command(shell_type: WindowsShellType, command: &str) -> C
     process
 }
 
-async fn run_system_command(command: &str, use_shell: bool, shell_type: &str) -> CommandResult<CommandExecutionResult> {
+async fn run_system_command(
+    command: &str,
+    use_shell: bool,
+    shell_type: &str,
+) -> CommandResult<CommandExecutionResult> {
     let output = if use_shell {
         #[cfg(target_os = "windows")]
         {
@@ -3405,14 +3610,16 @@ fn read_clipboard_text(clipboard: &mut Clipboard, required: bool) -> CommandResu
     match clipboard.get_text() {
         Ok(text) => Ok(Some(text)),
         Err(_error) if !required => Ok(None),
-        Err(error) => Err(CommandFlowError::Automation(format!("读取系统剪贴板文本失败：{}", error))),
+        Err(error) => Err(CommandFlowError::Automation(format!(
+            "读取系统剪贴板文本失败：{}",
+            error
+        ))),
     }
 }
 
 fn read_clipboard_text_required(clipboard: &mut Clipboard) -> CommandResult<String> {
-    read_clipboard_text(clipboard, true)?.ok_or_else(|| {
-        CommandFlowError::Automation("系统剪贴板当前不包含文本内容".to_string())
-    })
+    read_clipboard_text(clipboard, true)?
+        .ok_or_else(|| CommandFlowError::Automation("系统剪贴板当前不包含文本内容".to_string()))
 }
 
 fn read_clipboard_image(
@@ -3435,14 +3642,18 @@ fn read_clipboard_image(
             }))
         }
         Err(_error) if !required => Ok(None),
-        Err(error) => Err(CommandFlowError::Automation(format!("读取系统剪贴板图片失败：{}", error))),
+        Err(error) => Err(CommandFlowError::Automation(format!(
+            "读取系统剪贴板图片失败：{}",
+            error
+        ))),
     }
 }
 
-fn read_clipboard_image_required(clipboard: &mut Clipboard) -> CommandResult<ClipboardImageContent> {
-    read_clipboard_image(clipboard, true)?.ok_or_else(|| {
-        CommandFlowError::Automation("系统剪贴板当前不包含图片内容".to_string())
-    })
+fn read_clipboard_image_required(
+    clipboard: &mut Clipboard,
+) -> CommandResult<ClipboardImageContent> {
+    read_clipboard_image(clipboard, true)?
+        .ok_or_else(|| CommandFlowError::Automation("系统剪贴板当前不包含图片内容".to_string()))
 }
 
 fn rgba_to_png_data_url(rgba: &[u8], width: u32, height: u32) -> CommandResult<String> {
@@ -3472,7 +3683,10 @@ fn resolve_clipboard_write_image(
             }
 
             let value = variables.get(&var_name).ok_or_else(|| {
-                CommandFlowError::Automation(format!("变量 '{}' 不存在，无法写入剪贴板图片", var_name))
+                CommandFlowError::Automation(format!(
+                    "变量 '{}' 不存在，无法写入剪贴板图片",
+                    var_name
+                ))
             })?;
             load_clipboard_image_from_value(value)
         }
@@ -3516,7 +3730,9 @@ fn load_clipboard_image_from_string(
 ) -> CommandResult<ClipboardWriteImage> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(CommandFlowError::Validation("剪贴板图片数据不能为空".to_string()));
+        return Err(CommandFlowError::Validation(
+            "剪贴板图片数据不能为空".to_string(),
+        ));
     }
 
     if allow_path_fallback && Path::new(trimmed).exists() {
@@ -3530,7 +3746,9 @@ fn load_clipboard_image_from_string(
 fn load_clipboard_image_from_file(path: &str) -> CommandResult<ClipboardWriteImage> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err(CommandFlowError::Validation("剪贴板图片文件路径不能为空".to_string()));
+        return Err(CommandFlowError::Validation(
+            "剪贴板图片文件路径不能为空".to_string(),
+        ));
     }
 
     let image = image::open(trimmed).map_err(|error| {
@@ -3540,8 +3758,9 @@ fn load_clipboard_image_from_file(path: &str) -> CommandResult<ClipboardWriteIma
 }
 
 fn load_clipboard_image_from_memory(bytes: &[u8]) -> CommandResult<ClipboardWriteImage> {
-    let image = image::load_from_memory(bytes)
-        .map_err(|error| CommandFlowError::Automation(format!("解析剪贴板图片数据失败：{}", error)))?;
+    let image = image::load_from_memory(bytes).map_err(|error| {
+        CommandFlowError::Automation(format!("解析剪贴板图片数据失败：{}", error))
+    })?;
     Ok(dynamic_image_to_clipboard_write_image(image))
 }
 
@@ -3557,9 +3776,9 @@ fn dynamic_image_to_clipboard_write_image(image: image::DynamicImage) -> Clipboa
 
 fn decode_base64_image_payload(raw: &str) -> CommandResult<Vec<u8>> {
     let payload = if raw.starts_with("data:") {
-        raw.split_once(',')
-            .map(|(_, data)| data)
-            .ok_or_else(|| CommandFlowError::Validation("图片 Data URL 缺少 base64 数据段".to_string()))?
+        raw.split_once(',').map(|(_, data)| data).ok_or_else(|| {
+            CommandFlowError::Validation("图片 Data URL 缺少 base64 数据段".to_string())
+        })?
     } else {
         raw
     };
@@ -3733,14 +3952,20 @@ fn stringify_value(value: &Value) -> String {
     }
 }
 
-fn write_text_file(path: &str, text: &str, append: bool, create_parent_dir: bool) -> CommandResult<()> {
+fn write_text_file(
+    path: &str,
+    text: &str,
+    append: bool,
+    create_parent_dir: bool,
+) -> CommandResult<()> {
     let target = Path::new(path);
 
     if create_parent_dir {
         if let Some(parent) = target.parent() {
             if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)
-                    .map_err(|error| CommandFlowError::Io(format!("创建目录失败 '{}': {}", parent.display(), error)))?;
+                fs::create_dir_all(parent).map_err(|error| {
+                    CommandFlowError::Io(format!("创建目录失败 '{}': {}", parent.display(), error))
+                })?;
             }
         }
     }
@@ -3891,7 +4116,11 @@ fn resolve_typed_param_value(node: &WorkflowNode, base_key: &str) -> Value {
 }
 
 fn parse_json_extract_source(node: &WorkflowNode) -> CommandResult<Value> {
-    let raw = node.params.get("sourceJson").cloned().unwrap_or(Value::Null);
+    let raw = node
+        .params
+        .get("sourceJson")
+        .cloned()
+        .unwrap_or(Value::Null);
 
     match raw {
         Value::String(text) => {
@@ -4039,17 +4268,18 @@ fn save_ocr_static_debug_artifacts(
         .unwrap_or_else(|| ".png".to_string());
     let input_path = debug_dir.join(format!("static-input{}", extension));
 
-    fs::copy(source, &input_path)
-        .map_err(|error| CommandFlowError::Io(format!("复制 OCR 静态源图到 debug 目录失败: {}", error)))?;
+    fs::copy(source, &input_path).map_err(|error| {
+        CommandFlowError::Io(format!("复制 OCR 静态源图到 debug 目录失败: {}", error))
+    })?;
 
     if let Ok(decoded) = image::open(source_path) {
         let rgba = decoded.to_rgba8();
         let (width, height) = rgba.dimensions();
         let overlay = render_ocr_debug_overlay(rgba.into_raw(), width, height, evaluation)?;
         let overlay_path = debug_dir.join("static-overlay.png");
-        overlay
-            .save(&overlay_path)
-            .map_err(|error| CommandFlowError::Automation(format!("保存 OCR 静态标注图失败: {}", error)))?;
+        overlay.save(&overlay_path).map_err(|error| {
+            CommandFlowError::Automation(format!("保存 OCR 静态标注图失败: {}", error))
+        })?;
     }
 
     let metadata_path = debug_dir.join("static-metadata.json");
@@ -4084,9 +4314,9 @@ fn save_ocr_frame_debug_artifacts(
 
     let overlay = render_ocr_debug_overlay(rgba.to_vec(), width, height, evaluation)?;
     let overlay_path = debug_dir.join(format!("frame-{:04}-overlay.png", frame));
-    overlay
-        .save(&overlay_path)
-        .map_err(|error| CommandFlowError::Automation(format!("保存 OCR 帧标注图失败: {}", error)))?;
+    overlay.save(&overlay_path).map_err(|error| {
+        CommandFlowError::Automation(format!("保存 OCR 帧标注图失败: {}", error))
+    })?;
 
     let metadata_path = debug_dir.join(format!("frame-{:04}-metadata.json", frame));
     write_ocr_debug_metadata(
@@ -4107,8 +4337,10 @@ fn render_ocr_debug_overlay(
     height: u32,
     evaluation: &ocr_match::OcrMatchEvaluation,
 ) -> CommandResult<RgbaImage> {
-    let mut image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba)
-        .ok_or_else(|| CommandFlowError::Automation("failed to build OCR debug overlay image".to_string()))?;
+    let mut image =
+        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width, height, rgba).ok_or_else(|| {
+            CommandFlowError::Automation("failed to build OCR debug overlay image".to_string())
+        })?;
 
     draw_border(&mut image, Rgba([64, 180, 255, 255]));
 
@@ -4142,8 +4374,20 @@ fn render_ocr_debug_overlay(
 
     if let Some(matched) = evaluation.matched.as_ref() {
         if matched.x >= 0 && matched.y >= 0 {
-            draw_circle_outline(&mut image, matched.x, matched.y, 16, Rgba([255, 255, 0, 255]));
-            draw_crosshair(&mut image, matched.x, matched.y, 18, Rgba([255, 255, 0, 255]));
+            draw_circle_outline(
+                &mut image,
+                matched.x,
+                matched.y,
+                16,
+                Rgba([255, 255, 0, 255]),
+            );
+            draw_crosshair(
+                &mut image,
+                matched.x,
+                matched.y,
+                18,
+                Rgba([255, 255, 0, 255]),
+            );
         }
     }
 
@@ -4223,8 +4467,9 @@ fn write_ocr_debug_metadata(
         "entries": entries,
     });
 
-    let text = serde_json::to_string_pretty(&payload)
-        .map_err(|error| CommandFlowError::Automation(format!("序列化 OCR debug metadata 失败: {}", error)))?;
+    let text = serde_json::to_string_pretty(&payload).map_err(|error| {
+        CommandFlowError::Automation(format!("序列化 OCR debug metadata 失败: {}", error))
+    })?;
     fs::write(output_path, text)
         .map_err(|error| CommandFlowError::Io(format!("写入 OCR debug metadata 失败: {}", error)))
 }
@@ -4257,15 +4502,33 @@ fn path_to_string(path: &Path) -> CommandResult<&str> {
 
 #[derive(Debug, Clone)]
 enum GuiAgentAction {
-    Click { point: (f64, f64) },
-    LeftDouble { point: (f64, f64) },
-    RightSingle { point: (f64, f64) },
-    Drag { start: (f64, f64), end: (f64, f64) },
-    Hotkey { key: String },
-    Type { content: String },
-    Scroll { point: (f64, f64), direction: String },
+    Click {
+        point: (f64, f64),
+    },
+    LeftDouble {
+        point: (f64, f64),
+    },
+    RightSingle {
+        point: (f64, f64),
+    },
+    Drag {
+        start: (f64, f64),
+        end: (f64, f64),
+    },
+    Hotkey {
+        key: String,
+    },
+    Type {
+        content: String,
+    },
+    Scroll {
+        point: (f64, f64),
+        direction: String,
+    },
     Wait,
-    Finished { content: String },
+    Finished {
+        content: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -4346,7 +4609,8 @@ async fn execute_gui_agent_action(
             return Err(CommandFlowError::Canceled);
         }
 
-        let (_cleaned_base64, image_width, image_height, data_url, debug_rgba) = if continuous_mode {
+        let (_cleaned_base64, image_width, image_height, data_url, debug_rgba) = if continuous_mode
+        {
             let (rgba, width, height) = screenshot::capture_fullscreen_rgba()?;
             let base64 = screenshot::encode_rgba_to_png_base64(&rgba, width, height)?;
             let data_url = format!("data:image/png;base64,{}", base64);
@@ -4358,9 +4622,16 @@ async fn execute_gui_agent_action(
             (base64, width, height, data_url, None)
         };
 
-        if let (true, Some(dir), Some(rgba)) = (continuous_mode, debug_dir.as_ref(), debug_rgba.as_ref()) {
+        if let (true, Some(dir), Some(rgba)) =
+            (continuous_mode, debug_dir.as_ref(), debug_rgba.as_ref())
+        {
             let input_path = dir.join(format!("step-{:03}-input.png", step));
-            let _ = screenshot::save_rgba_image(path_to_string(&input_path)?, rgba.clone(), image_width, image_height);
+            let _ = screenshot::save_rgba_image(
+                path_to_string(&input_path)?,
+                rgba.clone(),
+                image_width,
+                image_height,
+            );
         }
 
         while history.len() > history_screenshots.saturating_sub(1) {
@@ -4392,13 +4663,14 @@ async fn execute_gui_agent_action(
                     .json(&payload)
                     .send()
                     .await
-                    .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 请求失败: {}", error)))?;
+                    .map_err(|error| {
+                        CommandFlowError::Automation(format!("GUI Agent 请求失败: {}", error))
+                    })?;
 
                 let status = response.status();
-                let raw_response = response
-                    .text()
-                    .await
-                    .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应读取失败: {}", error)))?;
+                let raw_response = response.text().await.map_err(|error| {
+                    CommandFlowError::Automation(format!("GUI Agent 响应读取失败: {}", error))
+                })?;
 
                 if !status.is_success() {
                     return Err(CommandFlowError::Automation(format!(
@@ -4407,8 +4679,13 @@ async fn execute_gui_agent_action(
                     )));
                 }
 
-                let response_json: Value = serde_json::from_str(&raw_response)
-                    .map_err(|error| CommandFlowError::Automation(format!("GUI Agent 响应 JSON 解析失败: {}", error)))?;
+                let response_json: Value =
+                    serde_json::from_str(&raw_response).map_err(|error| {
+                        CommandFlowError::Automation(format!(
+                            "GUI Agent 响应 JSON 解析失败: {}",
+                            error
+                        ))
+                    })?;
 
                 let content = extract_llm_message_content(&response_json)?;
                 let normalized_content = if strip_think {
@@ -4482,7 +4759,9 @@ async fn execute_gui_agent_action(
                 result
             } else {
                 return Err(last_parse_error.unwrap_or_else(|| {
-                    CommandFlowError::Automation("GUI Agent Action 解析失败（未知错误）".to_string())
+                    CommandFlowError::Automation(
+                        "GUI Agent Action 解析失败（未知错误）".to_string(),
+                    )
                 }));
             }
         };
@@ -4524,21 +4803,29 @@ async fn execute_gui_agent_action(
 
         if let Some(object) = metadata.as_object_mut() {
             object.insert("thought".to_string(), Value::String(thought.clone()));
-            object.insert("actionExpression".to_string(), Value::String(action_expr.clone()));
+            object.insert(
+                "actionExpression".to_string(),
+                Value::String(action_expr.clone()),
+            );
             object.insert("round".to_string(), value_from_u64(step));
         }
 
-        if let (true, Some(dir), Some(rgba)) = (continuous_mode, debug_dir.as_ref(), debug_rgba.as_ref()) {
+        if let (true, Some(dir), Some(rgba)) =
+            (continuous_mode, debug_dir.as_ref(), debug_rgba.as_ref())
+        {
             save_gui_agent_debug_overlay(dir, step, rgba, image_width, image_height, &action)?;
             let response_path = dir.join(format!("step-{:03}-response.txt", step));
-            fs::write(&response_path, normalized_content.as_bytes())
-                .map_err(|error| CommandFlowError::Io(format!("写入 GUI Agent debug 响应失败: {}", error)))?;
+            fs::write(&response_path, normalized_content.as_bytes()).map_err(|error| {
+                CommandFlowError::Io(format!("写入 GUI Agent debug 响应失败: {}", error))
+            })?;
 
             let metadata_path = dir.join(format!("step-{:03}-metadata.json", step));
-            let metadata_text = serde_json::to_string_pretty(&metadata)
-                .map_err(|error| CommandFlowError::Automation(format!("序列化 GUI Agent metadata 失败: {}", error)))?;
-            fs::write(&metadata_path, metadata_text.as_bytes())
-                .map_err(|error| CommandFlowError::Io(format!("写入 GUI Agent debug metadata 失败: {}", error)))?;
+            let metadata_text = serde_json::to_string_pretty(&metadata).map_err(|error| {
+                CommandFlowError::Automation(format!("序列化 GUI Agent metadata 失败: {}", error))
+            })?;
+            fs::write(&metadata_path, metadata_text.as_bytes()).map_err(|error| {
+                CommandFlowError::Io(format!("写入 GUI Agent debug metadata 失败: {}", error))
+            })?;
         }
 
         if continuous_mode {
@@ -4588,10 +4875,15 @@ fn normalize_base64_input(raw: &str) -> String {
     trimmed.to_string()
 }
 
-fn decode_base64_image_dimensions(base64_image: &str, image_format: &str) -> CommandResult<(u32, u32)> {
+fn decode_base64_image_dimensions(
+    base64_image: &str,
+    image_format: &str,
+) -> CommandResult<(u32, u32)> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64_image)
-        .map_err(|error| CommandFlowError::Validation(format!("GUI Agent 图片 base64 解码失败: {}", error)))?;
+        .map_err(|error| {
+            CommandFlowError::Validation(format!("GUI Agent 图片 base64 解码失败: {}", error))
+        })?;
 
     let format = match image_format.to_lowercase().as_str() {
         "png" => image::ImageFormat::Png,
@@ -4606,8 +4898,9 @@ fn decode_base64_image_dimensions(base64_image: &str, image_format: &str) -> Com
         }
     };
 
-    let image = image::load_from_memory_with_format(&bytes, format)
-        .map_err(|error| CommandFlowError::Validation(format!("GUI Agent 图片解析失败: {}", error)))?;
+    let image = image::load_from_memory_with_format(&bytes, format).map_err(|error| {
+        CommandFlowError::Validation(format!("GUI Agent 图片解析失败: {}", error))
+    })?;
 
     Ok((image.width(), image.height()))
 }
@@ -4734,8 +5027,13 @@ fn save_gui_agent_debug_overlay(
     image_height: u32,
     action: &GuiAgentAction,
 ) -> CommandResult<()> {
-    let mut image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(image_width, image_height, rgba.to_vec())
-        .ok_or_else(|| CommandFlowError::Automation("failed to build GUI Agent debug overlay image".to_string()))?;
+    let mut image =
+        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(image_width, image_height, rgba.to_vec())
+            .ok_or_else(|| {
+                CommandFlowError::Automation(
+                    "failed to build GUI Agent debug overlay image".to_string(),
+                )
+            })?;
 
     let accent = Rgba([255, 128, 0, 255]);
     draw_border(&mut image, accent);
@@ -4752,10 +5050,36 @@ fn save_gui_agent_debug_overlay(
         GuiAgentAction::Drag { start, end } => {
             let abs_start = relative_to_absolute(*start, image_width, image_height);
             let abs_end = relative_to_absolute(*end, image_width, image_height);
-            draw_circle_outline(&mut image, abs_start.0, abs_start.1, 12, Rgba([80, 255, 120, 255]));
-            draw_circle_outline(&mut image, abs_end.0, abs_end.1, 12, Rgba([255, 80, 80, 255]));
-            draw_line(&mut image, abs_start.0, abs_start.1, abs_end.0, abs_end.1, Rgba([255, 230, 0, 255]));
-            draw_arrow_head(&mut image, abs_start.0, abs_start.1, abs_end.0, abs_end.1, Rgba([255, 230, 0, 255]));
+            draw_circle_outline(
+                &mut image,
+                abs_start.0,
+                abs_start.1,
+                12,
+                Rgba([80, 255, 120, 255]),
+            );
+            draw_circle_outline(
+                &mut image,
+                abs_end.0,
+                abs_end.1,
+                12,
+                Rgba([255, 80, 80, 255]),
+            );
+            draw_line(
+                &mut image,
+                abs_start.0,
+                abs_start.1,
+                abs_end.0,
+                abs_end.1,
+                Rgba([255, 230, 0, 255]),
+            );
+            draw_arrow_head(
+                &mut image,
+                abs_start.0,
+                abs_start.1,
+                abs_end.0,
+                abs_end.1,
+                Rgba([255, 230, 0, 255]),
+            );
         }
         GuiAgentAction::Hotkey { .. } => {
             draw_border(&mut image, Rgba([90, 180, 255, 255]));
@@ -4772,9 +5096,9 @@ fn save_gui_agent_debug_overlay(
     }
 
     let output_path = debug_dir.join(format!("step-{:03}-overlay.png", step));
-    image
-        .save(&output_path)
-        .map_err(|error| CommandFlowError::Automation(format!("保存 GUI Agent debug 标注图失败: {}", error)))?;
+    image.save(&output_path).map_err(|error| {
+        CommandFlowError::Automation(format!("保存 GUI Agent debug 标注图失败: {}", error))
+    })?;
 
     Ok(())
 }
@@ -4867,8 +5191,22 @@ fn draw_arrow_head(image: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, co
     let right_x = x1 as f64 - arrow_len * (ux * angle.cos() - uy * angle.sin());
     let right_y = y1 as f64 - arrow_len * (uy * angle.cos() + ux * angle.sin());
 
-    draw_line(image, x1, y1, left_x.round() as i32, left_y.round() as i32, color);
-    draw_line(image, x1, y1, right_x.round() as i32, right_y.round() as i32, color);
+    draw_line(
+        image,
+        x1,
+        y1,
+        left_x.round() as i32,
+        left_y.round() as i32,
+        color,
+    );
+    draw_line(
+        image,
+        x1,
+        y1,
+        right_x.round() as i32,
+        right_y.round() as i32,
+        color,
+    );
 }
 
 fn draw_crosshair(image: &mut RgbaImage, x: i32, y: i32, radius: i32, color: Rgba<u8>) {
@@ -4895,7 +5233,11 @@ fn extract_llm_message_content(response_json: &Value) -> CommandResult<String> {
         .and_then(|choices| choices.first())
         .and_then(|first| first.get("message"))
         .and_then(|message| message.get("content"))
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 响应缺少 choices[0].message.content".to_string()))?;
+        .ok_or_else(|| {
+            CommandFlowError::Automation(
+                "GUI Agent 响应缺少 choices[0].message.content".to_string(),
+            )
+        })?;
 
     if let Some(text) = message_content.as_str() {
         return Ok(text.to_string());
@@ -4908,7 +5250,9 @@ fn extract_llm_message_content(response_json: &Value) -> CommandResult<String> {
                 if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                     return Some(text.to_string());
                 }
-                part.get("content").and_then(|v| v.as_str()).map(ToString::to_string)
+                part.get("content")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string)
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -4924,7 +5268,8 @@ fn extract_llm_message_content(response_json: &Value) -> CommandResult<String> {
 
 fn strip_think_sections(content: &str) -> String {
     static THINK_RE: OnceLock<Regex> = OnceLock::new();
-    let regex = THINK_RE.get_or_init(|| Regex::new(r"(?is)<think>.*?</think>").expect("valid think regex"));
+    let regex =
+        THINK_RE.get_or_init(|| Regex::new(r"(?is)<think>.*?</think>").expect("valid think regex"));
     regex.replace_all(content, "").to_string()
 }
 
@@ -4944,14 +5289,17 @@ fn truncate_for_log(content: &str, max_chars: usize) -> String {
 
 fn extract_action_expression(content: &str) -> CommandResult<String> {
     static ACTION_RE: OnceLock<Regex> = OnceLock::new();
-    let regex = ACTION_RE.get_or_init(|| Regex::new(r"(?im)Action:\s*(.+)").expect("valid action regex"));
+    let regex =
+        ACTION_RE.get_or_init(|| Regex::new(r"(?im)Action:\s*(.+)").expect("valid action regex"));
 
     let expression = regex
         .captures(content)
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str().trim().to_string())
         .filter(|line| !line.is_empty())
-        .ok_or_else(|| CommandFlowError::Automation("GUI Agent 未返回可解析的 Action 行".to_string()))?;
+        .ok_or_else(|| {
+            CommandFlowError::Automation("GUI Agent 未返回可解析的 Action 行".to_string())
+        })?;
 
     Ok(expression.trim_matches('`').trim().to_string())
 }
@@ -5020,8 +5368,7 @@ struct ParsedNamedAction {
 fn parse_named_action_call(expression: &str) -> CommandResult<Option<ParsedNamedAction>> {
     static CALL_RE: OnceLock<Regex> = OnceLock::new();
     let regex = CALL_RE.get_or_init(|| {
-        Regex::new(r"(?is)^\s*([a-z_][a-z0-9_]*)\s*\((.*)\)\s*$")
-            .expect("valid named action regex")
+        Regex::new(r"(?is)^\s*([a-z_][a-z0-9_]*)\s*\((.*)\)\s*$").expect("valid named action regex")
     });
 
     let Some(captures) = regex.captures(expression.trim()) else {
@@ -5170,23 +5517,30 @@ fn parse_required_point_arg(
             .expect("valid point regex")
     });
 
-    let captures = regex
-        .captures(raw.trim())
-        .ok_or_else(|| CommandFlowError::Automation(format!("{} 参数 '{}' 点位格式非法", action_name, key)))?;
+    let captures = regex.captures(raw.trim()).ok_or_else(|| {
+        CommandFlowError::Automation(format!("{} 参数 '{}' 点位格式非法", action_name, key))
+    })?;
 
     let x = captures
         .get(1)
         .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation(format!("{} 参数 '{}' X 解析失败", action_name, key)))?;
+        .ok_or_else(|| {
+            CommandFlowError::Automation(format!("{} 参数 '{}' X 解析失败", action_name, key))
+        })?;
     let y = captures
         .get(2)
         .and_then(|m| m.as_str().parse::<f64>().ok())
-        .ok_or_else(|| CommandFlowError::Automation(format!("{} 参数 '{}' Y 解析失败", action_name, key)))?;
+        .ok_or_else(|| {
+            CommandFlowError::Automation(format!("{} 参数 '{}' Y 解析失败", action_name, key))
+        })?;
 
     Ok((x, y))
 }
 
-fn parse_required_direction_arg(args: &HashMap<String, String>, key: &str) -> CommandResult<String> {
+fn parse_required_direction_arg(
+    args: &HashMap<String, String>,
+    key: &str,
+) -> CommandResult<String> {
     let direction = parse_required_string_arg(args, key, "GUI Agent scroll")?.to_lowercase();
     match direction.as_str() {
         "down" | "up" | "right" | "left" => Ok(direction),
@@ -5330,7 +5684,9 @@ async fn apply_gui_agent_action(
                 .collect::<Vec<_>>();
 
             if tokens.is_empty() {
-                return Err(CommandFlowError::Validation("GUI Agent hotkey 为空".to_string()));
+                return Err(CommandFlowError::Validation(
+                    "GUI Agent hotkey 为空".to_string(),
+                ));
             }
 
             if tokens.len() > 3 {
@@ -5364,7 +5720,11 @@ async fn apply_gui_agent_action(
                 format!(
                     "GUI Agent 执行 type: 内容长度={}{}",
                     content.chars().count(),
-                    if content.ends_with('\n') { "（末尾含换行提交）" } else { "" }
+                    if content.ends_with('\n') {
+                        "（末尾含换行提交）"
+                    } else {
+                        ""
+                    }
                 ),
             );
             serde_json::json!({
@@ -5407,10 +5767,7 @@ async fn apply_gui_agent_action(
         }
         GuiAgentAction::Wait => {
             interruptible_sleep(Duration::from_secs(5), should_cancel).await?;
-            on_log(
-                "info",
-                "GUI Agent 执行 wait: 已等待 5s。".to_string(),
-            );
+            on_log("info", "GUI Agent 执行 wait: 已等待 5s。".to_string());
             serde_json::json!({
                 "action": "wait",
                 "waitSeconds": 5,
@@ -5418,13 +5775,7 @@ async fn apply_gui_agent_action(
             })
         }
         GuiAgentAction::Finished { content } => {
-            on_log(
-                "info",
-                format!(
-                    "GUI Agent 执行 finished: {}",
-                    content
-                ),
-            );
+            on_log("info", format!("GUI Agent 执行 finished: {}", content));
             serde_json::json!({
                 "action": "finished",
                 "content": content,
@@ -5465,8 +5816,14 @@ fn extract_xy(object: &serde_json::Map<String, Value>, key: &str) -> (Option<i32
         .cloned()
         .unwrap_or_default();
 
-    let x = point.get("x").and_then(|value| value.as_i64()).map(|value| value as i32);
-    let y = point.get("y").and_then(|value| value.as_i64()).map(|value| value as i32);
+    let x = point
+        .get("x")
+        .and_then(|value| value.as_i64())
+        .map(|value| value as i32);
+    let y = point
+        .get("y")
+        .and_then(|value| value.as_i64())
+        .map(|value| value as i32);
     (x, y)
 }
 
@@ -5500,8 +5857,14 @@ fn execute_gui_agent_action_parser(
                 .and_then(|value| value.as_object())
                 .cloned()
                 .unwrap_or_default();
-            let x = absolute.get("x").and_then(|value| value.as_i64()).map(|value| value as i32);
-            let y = absolute.get("y").and_then(|value| value.as_i64()).map(|value| value as i32);
+            let x = absolute
+                .get("x")
+                .and_then(|value| value.as_i64())
+                .map(|value| value as i32);
+            let y = absolute
+                .get("y")
+                .and_then(|value| value.as_i64())
+                .map(|value| value as i32);
             set_node_output(ctx, node, "x", value_from_i32(x.unwrap_or_default()));
             set_node_output(ctx, node, "y", value_from_i32(y.unwrap_or_default()));
         }
@@ -5513,8 +5876,18 @@ fn execute_gui_agent_action_parser(
                 .unwrap_or_default();
             let (start_x, start_y) = extract_xy(&absolute, "start");
             let (end_x, end_y) = extract_xy(&absolute, "end");
-            set_node_output(ctx, node, "startX", value_from_i32(start_x.unwrap_or_default()));
-            set_node_output(ctx, node, "startY", value_from_i32(start_y.unwrap_or_default()));
+            set_node_output(
+                ctx,
+                node,
+                "startX",
+                value_from_i32(start_x.unwrap_or_default()),
+            );
+            set_node_output(
+                ctx,
+                node,
+                "startY",
+                value_from_i32(start_y.unwrap_or_default()),
+            );
             set_node_output(ctx, node, "endX", value_from_i32(end_x.unwrap_or_default()));
             set_node_output(ctx, node, "endY", value_from_i32(end_y.unwrap_or_default()));
         }
@@ -5540,8 +5913,14 @@ fn execute_gui_agent_action_parser(
                 .and_then(|value| value.as_object())
                 .cloned()
                 .unwrap_or_default();
-            let x = absolute.get("x").and_then(|value| value.as_i64()).map(|value| value as i32);
-            let y = absolute.get("y").and_then(|value| value.as_i64()).map(|value| value as i32);
+            let x = absolute
+                .get("x")
+                .and_then(|value| value.as_i64())
+                .map(|value| value as i32);
+            let y = absolute
+                .get("y")
+                .and_then(|value| value.as_i64())
+                .map(|value| value as i32);
             let direction = metadata
                 .get("direction")
                 .and_then(|value| value.as_str())
@@ -5625,9 +6004,7 @@ fn build_screenshot_file_name(node: &WorkflowNode) -> String {
 
     format!(
         "commandflow_screenshot_{}_{}_{}.png",
-        safe_label,
-        safe_id,
-        unix_ms
+        safe_label, safe_id, unix_ms
     )
 }
 

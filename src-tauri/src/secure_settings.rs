@@ -173,7 +173,9 @@ fn sanitize_input_recording_preset(mut item: InputRecordingPreset) -> InputRecor
     item
 }
 
-fn normalize_input_recording_presets(input: Vec<InputRecordingPreset>) -> Vec<InputRecordingPreset> {
+fn normalize_input_recording_presets(
+    input: Vec<InputRecordingPreset>,
+) -> Vec<InputRecordingPreset> {
     let mut output = input
         .into_iter()
         .map(sanitize_input_recording_preset)
@@ -249,10 +251,10 @@ fn dpapi_entropy_blob() -> windows_sys::Win32::Security::Cryptography::CRYPT_INT
 #[cfg(target_os = "windows")]
 fn encrypt_for_windows(plain: &[u8]) -> Result<Vec<u8>, String> {
     use std::ptr::null_mut;
-    use windows_sys::Win32::Security::Cryptography::{
-        CryptProtectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
-    };
     use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
 
     let input = CRYPT_INTEGER_BLOB {
         cbData: plain.len() as u32,
@@ -283,7 +285,8 @@ fn encrypt_for_windows(plain: &[u8]) -> Result<Vec<u8>, String> {
         ));
     }
 
-    let encrypted = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    let encrypted =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
     unsafe {
         let _ = LocalFree(output.pbData as *mut core::ffi::c_void);
     }
@@ -325,7 +328,8 @@ fn decrypt_for_windows(encrypted: &[u8]) -> Result<Vec<u8>, String> {
         ));
     }
 
-    let plain = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    let plain =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
     unsafe {
         let _ = LocalFree(output.pbData as *mut core::ffi::c_void);
     }
@@ -344,7 +348,8 @@ fn decrypt_for_windows(_encrypted: &[u8]) -> Result<Vec<u8>, String> {
 
 pub fn save_llm_presets(presets: Vec<LlmPreset>) -> Result<(), String> {
     let normalized = normalize_presets(presets);
-    let serialized = serde_json::to_vec(&normalized).map_err(|error| format!("序列化预设失败：{}", error))?;
+    let serialized =
+        serde_json::to_vec(&normalized).map_err(|error| format!("序列化预设失败：{}", error))?;
     let encrypted = encrypt_for_windows(&serialized)?;
 
     let conn = open_connection()?;
@@ -386,7 +391,8 @@ pub fn load_llm_presets() -> Result<Vec<LlmPreset>, String> {
 
 pub fn save_input_recording_presets(presets: Vec<InputRecordingPreset>) -> Result<(), String> {
     let normalized = normalize_input_recording_presets(presets);
-    let serialized = serde_json::to_vec(&normalized).map_err(|error| format!("序列化键鼠预设失败：{}", error))?;
+    let serialized = serde_json::to_vec(&normalized)
+        .map_err(|error| format!("序列化键鼠预设失败：{}", error))?;
     let encrypted = encrypt_for_windows(&serialized)?;
 
     let conn = open_connection()?;

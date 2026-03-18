@@ -9,11 +9,11 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use tokio::sync::oneshot;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size};
+use tokio::sync::oneshot;
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{POINT, RECT};
@@ -25,9 +25,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetSystemMetrics, SystemParametersInfoW,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SPI_GETWORKAREA,
+    GetCursorPos, GetSystemMetrics, SystemParametersInfoW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETWORKAREA,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -57,12 +56,7 @@ fn execution_control() -> &'static ExecutionControl {
 fn get_work_area() -> Option<(i32, i32, i32, i32)> {
     unsafe {
         let mut rect: RECT = std::mem::zeroed();
-        let result = SystemParametersInfoW(
-            SPI_GETWORKAREA,
-            0,
-            &mut rect as *mut _ as *mut _,
-            0,
-        );
+        let result = SystemParametersInfoW(SPI_GETWORKAREA, 0, &mut rect as *mut _ as *mut _, 0);
         if result != 0 {
             Some((rect.left, rect.top, rect.right, rect.bottom))
         } else {
@@ -231,12 +225,7 @@ fn get_virtual_screen_bounds() -> (i32, i32, u32, u32) {
     let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
     let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
 
-    (
-        x,
-        y,
-        width.max(1) as u32,
-        height.max(1) as u32,
-    )
+    (x, y, width.max(1) as u32, height.max(1) as u32)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -336,24 +325,23 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
             },
         );
     };
-    let mut emit_node_complete = |
-        node: &crate::workflow::node::WorkflowNode,
-        outputs: &HashMap<String, Value>,
-        selected_control_output: Option<&str>,
-    | {
-        let _ = app.emit(
-            "workflow-node-completed",
-            NodeCompletedPayload {
-                node_id: node.id.clone(),
-                node_kind: format!("{:?}", node.kind),
-                node_kind_key: node_kind_key(&node.kind),
-                node_label: node.label.clone(),
-                params: node.params.clone(),
-                outputs: outputs.clone(),
-                selected_control_output: selected_control_output.map(ToString::to_string),
-            },
-        );
-    };
+    let mut emit_node_complete =
+        |node: &crate::workflow::node::WorkflowNode,
+         outputs: &HashMap<String, Value>,
+         selected_control_output: Option<&str>| {
+            let _ = app.emit(
+                "workflow-node-completed",
+                NodeCompletedPayload {
+                    node_id: node.id.clone(),
+                    node_kind: format!("{:?}", node.kind),
+                    node_kind_key: node_kind_key(&node.kind),
+                    node_label: node.label.clone(),
+                    params: node.params.clone(),
+                    outputs: outputs.clone(),
+                    selected_control_output: selected_control_output.map(ToString::to_string),
+                },
+            );
+        };
 
     let run_result = executor
         .execute_with_progress(
@@ -401,8 +389,7 @@ pub async fn stop_workflow() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn save_workflow(path: String, graph: WorkflowGraph) -> Result<String, String> {
-    let payload = serde_json::to_string_pretty(&graph)
-        .map_err(|error| error.to_string())?;
+    let payload = serde_json::to_string_pretty(&graph).map_err(|error| error.to_string())?;
     std::fs::write(&path, payload).map_err(|error| error.to_string())?;
     Ok(path)
 }
@@ -829,12 +816,15 @@ pub async fn load_llm_presets() -> Result<Vec<crate::secure_settings::LlmPreset>
 }
 
 #[tauri::command]
-pub async fn save_llm_presets(presets: Vec<crate::secure_settings::LlmPreset>) -> Result<(), String> {
+pub async fn save_llm_presets(
+    presets: Vec<crate::secure_settings::LlmPreset>,
+) -> Result<(), String> {
     crate::secure_settings::save_llm_presets(presets)
 }
 
 #[tauri::command]
-pub async fn load_input_recording_presets() -> Result<Vec<crate::secure_settings::InputRecordingPreset>, String> {
+pub async fn load_input_recording_presets(
+) -> Result<Vec<crate::secure_settings::InputRecordingPreset>, String> {
     crate::secure_settings::load_input_recording_presets()
 }
 
@@ -854,7 +844,9 @@ pub async fn start_input_recording(
 }
 
 #[tauri::command]
-pub async fn stop_input_recording(app: AppHandle) -> Result<crate::input_recorder::InputRecordingStopResult, String> {
+pub async fn stop_input_recording(
+    app: AppHandle,
+) -> Result<crate::input_recorder::InputRecordingStopResult, String> {
     input_recorder::stop_recording(app).await
 }
 
@@ -900,7 +892,10 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
 
         // 获取窗口外边框尺寸，用于精确计算位置
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let outer_size = window.outer_size().unwrap_or_else(|_| PhysicalSize { width: compact_width, height: compact_height });
+        let outer_size = window.outer_size().unwrap_or_else(|_| PhysicalSize {
+            width: compact_width,
+            height: compact_height,
+        });
 
         #[cfg(target_os = "windows")]
         {
@@ -911,7 +906,10 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
                 let target_x = work_right - outer_size.width as i32 - margin;
                 let target_y = work_bottom - outer_size.height as i32 - margin;
                 window
-                    .set_position(Position::Physical(PhysicalPosition { x: target_x, y: target_y }))
+                    .set_position(Position::Physical(PhysicalPosition {
+                        x: target_x,
+                        y: target_y,
+                    }))
                     .map_err(|error| error.to_string())?;
             }
         }
@@ -919,16 +917,24 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
         #[cfg(not(target_os = "windows"))]
         {
             // 其他平台：使用显示器尺寸
-            if let Some(monitor) = window.current_monitor().map_err(|error| error.to_string())? {
+            if let Some(monitor) = window
+                .current_monitor()
+                .map_err(|error| error.to_string())?
+            {
                 let margin = 12i32;
                 let monitor_pos = monitor.position();
                 let monitor_size = monitor.size();
 
-                let target_x = monitor_pos.x + monitor_size.width as i32 - outer_size.width as i32 - margin;
-                let target_y = monitor_pos.y + monitor_size.height as i32 - outer_size.height as i32 - margin;
+                let target_x =
+                    monitor_pos.x + monitor_size.width as i32 - outer_size.width as i32 - margin;
+                let target_y =
+                    monitor_pos.y + monitor_size.height as i32 - outer_size.height as i32 - margin;
 
                 window
-                    .set_position(Position::Physical(PhysicalPosition { x: target_x, y: target_y }))
+                    .set_position(Position::Physical(PhysicalPosition {
+                        x: target_x,
+                        y: target_y,
+                    }))
                     .map_err(|error| error.to_string())?;
             }
         }

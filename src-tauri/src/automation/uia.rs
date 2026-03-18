@@ -1,8 +1,10 @@
 use crate::error::{CommandFlowError, CommandResult};
 use serde::{Deserialize, Serialize};
-use windows::core::{HRESULT, Interface};
+use windows::core::{Interface, HRESULT};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationElementArray,
     IUIAutomationTreeWalker, TreeScope_Children, TreeScope_Subtree,
@@ -74,9 +76,7 @@ struct ElementSnapshot {
 }
 
 pub fn inspect_element_at_point(x: i32, y: i32) -> CommandResult<Option<UiElementPreview>> {
-    with_automation(|automation| {
-        inspect_element_at_point_with_automation(automation, x, y)
-    })
+    with_automation(|automation| inspect_element_at_point_with_automation(automation, x, y))
 }
 
 fn inspect_element_at_point_with_automation(
@@ -84,10 +84,12 @@ fn inspect_element_at_point_with_automation(
     x: i32,
     y: i32,
 ) -> CommandResult<Option<UiElementPreview>> {
-    let element = unsafe { automation.ElementFromPoint(POINT { x, y }) }
-        .map_err(|error| CommandFlowError::Automation(format!("UIA ElementFromPoint 失败：{}", error)))?;
-    let walker = unsafe { automation.ControlViewWalker() }
-        .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error)))?;
+    let element = unsafe { automation.ElementFromPoint(POINT { x, y }) }.map_err(|error| {
+        CommandFlowError::Automation(format!("UIA ElementFromPoint 失败：{}", error))
+    })?;
+    let walker = unsafe { automation.ControlViewWalker() }.map_err(|error| {
+        CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error))
+    })?;
     let snapshot = snapshot_element(automation, &walker, &element)?;
     Ok(Some(to_preview(snapshot)))
 }
@@ -107,25 +109,28 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
             }
         }
 
-        let walker = unsafe { automation.ControlViewWalker() }
-            .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error)))?;
+        let walker = unsafe { automation.ControlViewWalker() }.map_err(|error| {
+            CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error))
+        })?;
         let expected_name = normalize_option(&locator.name);
 
         let root = if let Some(hwnd_value) = locator.top_level_hwnd {
             if hwnd_value > 0 {
-                unsafe {
-                    automation.ElementFromHandle(HWND(hwnd_value as *mut core::ffi::c_void))
-                }
-                .ok()
+                unsafe { automation.ElementFromHandle(HWND(hwnd_value as *mut core::ffi::c_void)) }
+                    .ok()
                     .or_else(|| unsafe { automation.GetRootElement() }.ok())
-                    .ok_or_else(|| CommandFlowError::Automation("无法获取 UIA 根元素。".to_string()))?
+                    .ok_or_else(|| {
+                        CommandFlowError::Automation("无法获取 UIA 根元素。".to_string())
+                    })?
             } else {
-                unsafe { automation.GetRootElement() }
-                    .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 RootElement 失败：{}", error)))?
+                unsafe { automation.GetRootElement() }.map_err(|error| {
+                    CommandFlowError::Automation(format!("UIA 获取 RootElement 失败：{}", error))
+                })?
             }
         } else {
-            unsafe { automation.GetRootElement() }
-                .map_err(|error| CommandFlowError::Automation(format!("UIA 获取 RootElement 失败：{}", error)))?
+            unsafe { automation.GetRootElement() }.map_err(|error| {
+                CommandFlowError::Automation(format!("UIA 获取 RootElement 失败：{}", error))
+            })?
         };
 
         let candidates = collect_descendants(automation, &root)?;
@@ -135,7 +140,9 @@ pub fn resolve_locator(locator: &UiElementLocator) -> CommandResult<UiElementPre
 
         for candidate in candidates {
             let snapshot = snapshot_element_for_matching(automation, &walker, &candidate)?;
-            if snapshot.rect.right <= snapshot.rect.left || snapshot.rect.bottom <= snapshot.rect.top {
+            if snapshot.rect.right <= snapshot.rect.left
+                || snapshot.rect.bottom <= snapshot.rect.top
+            {
                 continue;
             }
 
@@ -212,10 +219,11 @@ fn with_automation<T>(run: impl FnOnce(&IUIAutomation) -> CommandResult<T>) -> C
         )));
     }
 
-    let automation = unsafe {
-        CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-    }
-    .map_err(|error| CommandFlowError::Automation(format!("创建 CUIAutomation 失败：{}", error)))?;
+    let automation =
+        unsafe { CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|error| {
+                CommandFlowError::Automation(format!("创建 CUIAutomation 失败：{}", error))
+            })?;
 
     let result = run(&automation);
 
@@ -241,23 +249,25 @@ fn snapshot_element(
     let rect = safe_current_rect(element);
 
     let parent = unsafe { walker.GetParentElement(element) }.ok();
-    let (parent_name, parent_class_name, parent_automation_id, parent_control_type) = if let Some(parent) = parent.as_ref() {
-        (
-            safe_current_name(parent),
-            safe_current_class_name(parent),
-            safe_current_automation_id(parent),
-            safe_current_control_type(parent),
-        )
-    } else {
-        (String::new(), String::new(), String::new(), 0)
-    };
+    let (parent_name, parent_class_name, parent_automation_id, parent_control_type) =
+        if let Some(parent) = parent.as_ref() {
+            (
+                safe_current_name(parent),
+                safe_current_class_name(parent),
+                safe_current_automation_id(parent),
+                safe_current_control_type(parent),
+            )
+        } else {
+            (String::new(), String::new(), String::new(), 0)
+        };
 
     let relative_index = parent
         .as_ref()
         .map(|parent| sibling_index(automation, parent, element).unwrap_or(0))
         .unwrap_or(0);
 
-    let (top_level_hwnd, top_level_name, top_level_class_name) = top_level_signature(walker, element);
+    let (top_level_hwnd, top_level_name, top_level_class_name) =
+        top_level_signature(walker, element);
 
     Ok(ElementSnapshot {
         name,
@@ -290,16 +300,17 @@ fn snapshot_element_for_matching(
     let rect = safe_current_rect(element);
 
     let parent = unsafe { walker.GetParentElement(element) }.ok();
-    let (parent_name, parent_class_name, parent_automation_id, parent_control_type) = if let Some(parent) = parent.as_ref() {
-        (
-            safe_current_name(parent),
-            safe_current_class_name(parent),
-            safe_current_automation_id(parent),
-            safe_current_control_type(parent),
-        )
-    } else {
-        (String::new(), String::new(), String::new(), 0)
-    };
+    let (parent_name, parent_class_name, parent_automation_id, parent_control_type) =
+        if let Some(parent) = parent.as_ref() {
+            (
+                safe_current_name(parent),
+                safe_current_class_name(parent),
+                safe_current_automation_id(parent),
+                safe_current_control_type(parent),
+            )
+        } else {
+            (String::new(), String::new(), String::new(), 0)
+        };
 
     Ok(ElementSnapshot {
         name,
@@ -319,7 +330,10 @@ fn snapshot_element_for_matching(
     })
 }
 
-fn top_level_signature(walker: &IUIAutomationTreeWalker, element: &IUIAutomationElement) -> (i64, String, String) {
+fn top_level_signature(
+    walker: &IUIAutomationTreeWalker,
+    element: &IUIAutomationElement,
+) -> (i64, String, String) {
     let mut current = element.clone();
     let mut last = current.clone();
 
@@ -340,8 +354,9 @@ fn collect_descendants(
     automation: &IUIAutomation,
     root: &IUIAutomationElement,
 ) -> CommandResult<Vec<IUIAutomationElement>> {
-    let condition = unsafe { automation.CreateTrueCondition() }
-        .map_err(|error| CommandFlowError::Automation(format!("UIA CreateTrueCondition 失败：{}", error)))?;
+    let condition = unsafe { automation.CreateTrueCondition() }.map_err(|error| {
+        CommandFlowError::Automation(format!("UIA CreateTrueCondition 失败：{}", error))
+    })?;
 
     let array = unsafe { root.FindAll(TreeScope_Subtree, &condition) }
         .map_err(|error| CommandFlowError::Automation(format!("UIA FindAll 失败：{}", error)))?;
@@ -349,14 +364,18 @@ fn collect_descendants(
     read_element_array(&array)
 }
 
-fn read_element_array(array: &IUIAutomationElementArray) -> CommandResult<Vec<IUIAutomationElement>> {
-    let len = unsafe { array.Length() }
-        .map_err(|error| CommandFlowError::Automation(format!("UIA 读取数组长度失败：{}", error)))?;
+fn read_element_array(
+    array: &IUIAutomationElementArray,
+) -> CommandResult<Vec<IUIAutomationElement>> {
+    let len = unsafe { array.Length() }.map_err(|error| {
+        CommandFlowError::Automation(format!("UIA 读取数组长度失败：{}", error))
+    })?;
 
     let mut out = Vec::with_capacity(len as usize);
     for idx in 0..len {
-        let element = unsafe { array.GetElement(idx) }
-            .map_err(|error| CommandFlowError::Automation(format!("UIA 读取元素失败：{}", error)))?;
+        let element = unsafe { array.GetElement(idx) }.map_err(|error| {
+            CommandFlowError::Automation(format!("UIA 读取元素失败：{}", error))
+        })?;
         out.push(element);
     }
 
@@ -368,18 +387,21 @@ fn sibling_index(
     parent: &IUIAutomationElement,
     target: &IUIAutomationElement,
 ) -> CommandResult<u32> {
-    let condition = unsafe { automation.CreateTrueCondition() }
-        .map_err(|error| CommandFlowError::Automation(format!("UIA CreateTrueCondition 失败：{}", error)))?;
+    let condition = unsafe { automation.CreateTrueCondition() }.map_err(|error| {
+        CommandFlowError::Automation(format!("UIA CreateTrueCondition 失败：{}", error))
+    })?;
 
     let children = unsafe { parent.FindAll(TreeScope_Children, &condition) }
         .map_err(|error| CommandFlowError::Automation(format!("UIA 查找子节点失败：{}", error)))?;
 
-    let len = unsafe { children.Length() }
-        .map_err(|error| CommandFlowError::Automation(format!("UIA 读取子节点长度失败：{}", error)))?;
+    let len = unsafe { children.Length() }.map_err(|error| {
+        CommandFlowError::Automation(format!("UIA 读取子节点长度失败：{}", error))
+    })?;
 
     for i in 0..len {
-        let child = unsafe { children.GetElement(i) }
-            .map_err(|error| CommandFlowError::Automation(format!("UIA 读取子节点失败：{}", error)))?;
+        let child = unsafe { children.GetElement(i) }.map_err(|error| {
+            CommandFlowError::Automation(format!("UIA 读取子节点失败：{}", error))
+        })?;
 
         if child.as_raw() == target.as_raw() {
             return Ok((i + 1) as u32);
@@ -485,7 +507,10 @@ fn score_snapshot(locator: &UiElementLocator, snapshot: &ElementSnapshot) -> i32
 }
 
 fn normalize_option(value: &Option<String>) -> Option<String> {
-    value.as_ref().map(|v| normalize(v)).filter(|v| !v.is_empty())
+    value
+        .as_ref()
+        .map(|v| normalize(v))
+        .filter(|v| !v.is_empty())
 }
 
 fn normalize(value: &str) -> String {

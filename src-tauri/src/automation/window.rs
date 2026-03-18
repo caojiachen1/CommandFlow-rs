@@ -1,10 +1,10 @@
-use crate::error::CommandResult;
 use crate::error::CommandFlowError;
+use crate::error::CommandResult;
 use serde::Serialize;
 use std::path::Path;
 
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM};
+use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -94,7 +94,8 @@ fn read_window_process_path(hwnd: HWND) -> Option<String> {
 
     let mut buffer = vec![0u16; 32_768];
     let mut length = buffer.len() as u32;
-    let ok = unsafe { QueryFullProcessImageNameW(process_handle, 0, buffer.as_mut_ptr(), &mut length) };
+    let ok =
+        unsafe { QueryFullProcessImageNameW(process_handle, 0, buffer.as_mut_ptr(), &mut length) };
     unsafe {
         CloseHandle(process_handle);
     }
@@ -185,7 +186,10 @@ fn enumerate_windows() -> Vec<WindowEntry> {
 
     let mut entries = Vec::<WindowEntry>::new();
     unsafe {
-        EnumWindows(Some(enum_windows_proc), &mut entries as *mut Vec<WindowEntry> as LPARAM);
+        EnumWindows(
+            Some(enum_windows_proc),
+            &mut entries as *mut Vec<WindowEntry> as LPARAM,
+        );
     }
     entries
 }
@@ -368,7 +372,9 @@ pub fn foreground_window_matches_program(
     }
 }
 
-pub fn foreground_window_matches(query: &WindowMatchQuery) -> CommandResult<Option<OpenWindowEntry>> {
+pub fn foreground_window_matches(
+    query: &WindowMatchQuery,
+) -> CommandResult<Option<OpenWindowEntry>> {
     #[cfg(target_os = "windows")]
     {
         let matched = read_foreground_window_entry()
@@ -420,7 +426,10 @@ pub fn activate_window_by_title(title: &str, match_mode: &str) -> CommandResult<
             .find(|entry| match_text(&entry.title, &target, match_mode));
 
         let window = maybe_window.ok_or_else(|| {
-            CommandFlowError::Automation(format!("cannot find open window matching title: {}", target))
+            CommandFlowError::Automation(format!(
+                "cannot find open window matching title: {}",
+                target
+            ))
         })?;
 
         unsafe {
@@ -511,7 +520,9 @@ pub fn activate_window(query: &WindowMatchQuery) -> CommandResult<OpenWindowEntr
             .find(|entry| matches_query(entry, query));
 
         let window = maybe_window.ok_or_else(|| {
-            CommandFlowError::Automation("cannot find open window matching current filters".to_string())
+            CommandFlowError::Automation(
+                "cannot find open window matching current filters".to_string(),
+            )
         })?;
 
         unsafe {

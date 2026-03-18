@@ -15,7 +15,8 @@ fn parse_button(name: &str) -> Button {
 }
 
 pub fn click(x: i32, y: i32, times: usize) -> CommandResult<bool> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .move_mouse(x, y, Coordinate::Abs)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
@@ -30,7 +31,8 @@ pub fn click(x: i32, y: i32, times: usize) -> CommandResult<bool> {
 }
 
 pub fn move_to(x: i32, y: i32) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .move_mouse(x, y, Coordinate::Abs)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
@@ -38,7 +40,8 @@ pub fn move_to(x: i32, y: i32) -> CommandResult<()> {
 }
 
 pub fn wheel(vertical: i32) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .scroll(vertical, Axis::Vertical)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
@@ -46,7 +49,8 @@ pub fn wheel(vertical: i32) -> CommandResult<()> {
 }
 
 pub fn wheel_at(x: i32, y: i32, vertical: i32) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .move_mouse(x, y, Coordinate::Abs)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
@@ -65,14 +69,24 @@ fn send_native_wheel_delta(delta: i32, horizontal: bool) -> CommandResult<()> {
                 dx: 0,
                 dy: 0,
                 mouseData: delta as u32,
-                dwFlags: if horizontal { MOUSEEVENTF_HWHEEL } else { MOUSEEVENTF_WHEEL },
+                dwFlags: if horizontal {
+                    MOUSEEVENTF_HWHEEL
+                } else {
+                    MOUSEEVENTF_WHEEL
+                },
                 time: 0,
                 dwExtraInfo: 0,
             },
         },
     };
 
-    let sent = unsafe { SendInput(1, &mut input as *mut INPUT, std::mem::size_of::<INPUT>() as i32) };
+    let sent = unsafe {
+        SendInput(
+            1,
+            &mut input as *mut INPUT,
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
     if sent == 0 {
         return Err(CommandFlowError::Automation(format!(
             "发送原生滚轮输入失败：{}",
@@ -85,9 +99,17 @@ fn send_native_wheel_delta(delta: i32, horizontal: bool) -> CommandResult<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn send_native_wheel_delta(delta: i32, horizontal: bool) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
-        .scroll(delta, if horizontal { Axis::Horizontal } else { Axis::Vertical })
+        .scroll(
+            delta,
+            if horizontal {
+                Axis::Horizontal
+            } else {
+                Axis::Vertical
+            },
+        )
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     Ok(())
 }
@@ -106,7 +128,8 @@ pub fn wheel_horizontal_exact(horizontal_delta: i32) -> CommandResult<()> {
 }
 
 pub fn wheel_horizontal(horizontal: i32) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .scroll(horizontal, Axis::Horizontal)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
@@ -114,7 +137,8 @@ pub fn wheel_horizontal(horizontal: i32) -> CommandResult<()> {
 }
 
 pub fn drag(from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .move_mouse(from_x, from_y, Coordinate::Abs)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
@@ -131,7 +155,8 @@ pub fn drag(from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> CommandResult<()>
 }
 
 pub fn button_down(x: i32, y: i32, button: &str) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .move_mouse(x, y, Coordinate::Abs)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
@@ -142,7 +167,8 @@ pub fn button_down(x: i32, y: i32, button: &str) -> CommandResult<()> {
 }
 
 pub fn button_up(x: i32, y: i32, button: &str) -> CommandResult<()> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| CommandFlowError::Automation(e.to_string()))?;
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| CommandFlowError::Automation(e.to_string()))?;
     enigo
         .move_mouse(x, y, Coordinate::Abs)
         .map_err(|e| CommandFlowError::Automation(e.to_string()))?;

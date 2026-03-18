@@ -54,7 +54,9 @@ pub async fn shutdown(timeout_sec: u64, force: bool) -> CommandResult<()> {
     }
 
     #[allow(unreachable_code)]
-    Err(CommandFlowError::Automation("当前平台暂不支持关机操作。".to_string()))
+    Err(CommandFlowError::Automation(
+        "当前平台暂不支持关机操作。".to_string(),
+    ))
 }
 
 pub async fn restart(timeout_sec: u64, force: bool) -> CommandResult<()> {
@@ -81,13 +83,18 @@ pub async fn restart(timeout_sec: u64, force: bool) -> CommandResult<()> {
     }
 
     #[allow(unreachable_code)]
-    Err(CommandFlowError::Automation("当前平台暂不支持重启操作。".to_string()))
+    Err(CommandFlowError::Automation(
+        "当前平台暂不支持重启操作。".to_string(),
+    ))
 }
 
 pub async fn sleep() -> CommandResult<()> {
     #[cfg(target_os = "windows")]
     {
-        return run_command("rundll32.exe", &["powrprof.dll,SetSuspendState 0,1,0".to_string()])
+        return run_command(
+            "rundll32.exe",
+            &["powrprof.dll,SetSuspendState 0,1,0".to_string()],
+        )
         .await;
     }
 
@@ -102,7 +109,9 @@ pub async fn sleep() -> CommandResult<()> {
     }
 
     #[allow(unreachable_code)]
-    Err(CommandFlowError::Automation("当前平台暂不支持睡眠操作。".to_string()))
+    Err(CommandFlowError::Automation(
+        "当前平台暂不支持睡眠操作。".to_string(),
+    ))
 }
 
 pub async fn hibernate() -> CommandResult<()> {
@@ -124,7 +133,9 @@ pub async fn hibernate() -> CommandResult<()> {
     }
 
     #[allow(unreachable_code)]
-    Err(CommandFlowError::Automation("当前平台暂不支持休眠操作。".to_string()))
+    Err(CommandFlowError::Automation(
+        "当前平台暂不支持休眠操作。".to_string(),
+    ))
 }
 
 pub async fn lock_screen() -> CommandResult<()> {
@@ -148,7 +159,9 @@ pub async fn lock_screen() -> CommandResult<()> {
     }
 
     #[allow(unreachable_code)]
-    Err(CommandFlowError::Automation("当前平台暂不支持锁屏操作。".to_string()))
+    Err(CommandFlowError::Automation(
+        "当前平台暂不支持锁屏操作。".to_string(),
+    ))
 }
 
 pub async fn sign_out(force: bool) -> CommandResult<()> {
@@ -175,11 +188,16 @@ pub async fn sign_out(force: bool) -> CommandResult<()> {
         let _ = force;
         return run_command(
             "osascript",
-            &["-e".to_string(), "tell application \"System Events\" to log out".to_string()],
+            &[
+                "-e".to_string(),
+                "tell application \"System Events\" to log out".to_string(),
+            ],
         )
         .await;
     }
 
     #[allow(unreachable_code)]
-    Err(CommandFlowError::Automation("当前平台暂不支持注销操作。".to_string()))
+    Err(CommandFlowError::Automation(
+        "当前平台暂不支持注销操作。".to_string(),
+    ))
 }

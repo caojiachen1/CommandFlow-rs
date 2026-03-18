@@ -41,11 +41,8 @@ impl TemplateMatcher {
         if let Some(gpu) = &mut self.gpu_matcher {
             let template_f32 = to_luma32f(&self.template);
             let input_f32 = to_luma32f(source);
-            let input_image = template_matching::Image::new(
-                &input_f32,
-                source.width(),
-                source.height(),
-            );
+            let input_image =
+                template_matching::Image::new(&input_f32, source.width(), source.height());
             let template_image = template_matching::Image::new(
                 &template_f32,
                 self.template.width(),
@@ -109,7 +106,11 @@ fn to_luma32f(source: &GrayImage) -> Vec<f32> {
     data
 }
 
-fn evaluate_template_cpu(source: &GrayImage, template: &GrayImage, threshold: f32) -> MatchEvaluation {
+fn evaluate_template_cpu(
+    source: &GrayImage,
+    template: &GrayImage,
+    threshold: f32,
+) -> MatchEvaluation {
     let (sw, sh) = source.dimensions();
     let (tw, th) = template.dimensions();
 
@@ -173,7 +174,11 @@ fn build_coarse_images(source: &GrayImage, template: &GrayImage) -> (GrayImage, 
     let (sw, sh) = source.dimensions();
     let (tw, th) = template.dimensions();
 
-    if tw < COARSE_SCALE * 2 || th < COARSE_SCALE * 2 || sw < COARSE_SCALE * 2 || sh < COARSE_SCALE * 2 {
+    if tw < COARSE_SCALE * 2
+        || th < COARSE_SCALE * 2
+        || sw < COARSE_SCALE * 2
+        || sh < COARSE_SCALE * 2
+    {
         return (source.clone(), template.clone(), 1);
     }
 

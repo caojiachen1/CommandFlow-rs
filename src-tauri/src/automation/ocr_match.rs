@@ -50,9 +50,9 @@ fn get_engine() -> CommandResult<&'static Mutex<RapidOcrEngine>> {
     })?;
 
     let _ = OCR_ENGINE.set(Mutex::new(engine));
-    OCR_ENGINE.get().ok_or_else(|| {
-        CommandFlowError::Automation("OCR 引擎初始化后无法获取实例".to_string())
-    })
+    OCR_ENGINE
+        .get()
+        .ok_or_else(|| CommandFlowError::Automation("OCR 引擎初始化后无法获取实例".to_string()))
 }
 
 pub fn evaluate_path(
@@ -109,9 +109,9 @@ fn evaluate_input(
     min_confidence: f32,
 ) -> CommandResult<OcrMatchEvaluation> {
     let engine = get_engine()?;
-    let mut guard = engine.lock().map_err(|_| {
-        CommandFlowError::Automation("OCR 引擎锁已中毒，无法继续识别".to_string())
-    })?;
+    let mut guard = engine
+        .lock()
+        .map_err(|_| CommandFlowError::Automation("OCR 引擎锁已中毒，无法继续识别".to_string()))?;
 
     let run_options = RunOptions {
         use_det: Some(true),
@@ -153,10 +153,9 @@ fn find_match(
         } else {
             format!("(?i){}", target_text)
         };
-        Some(
-            Regex::new(&pattern)
-                .map_err(|error| CommandFlowError::Validation(format!("OCR 正则表达式无效：{}", error)))?,
-        )
+        Some(Regex::new(&pattern).map_err(|error| {
+            CommandFlowError::Validation(format!("OCR 正则表达式无效：{}", error))
+        })?)
     } else {
         None
     };
@@ -174,7 +173,13 @@ fn find_match(
                     peak_text = text.clone();
                 }
 
-                let is_text_match = text_matches(text, target_text, match_mode, case_sensitive, regex.as_ref());
+                let is_text_match = text_matches(
+                    text,
+                    target_text,
+                    match_mode,
+                    case_sensitive,
+                    regex.as_ref(),
+                );
                 let is_confidence_passed = score >= min_confidence;
                 let (x, y) = quad_center(quad);
 
@@ -219,7 +224,13 @@ fn find_match(
                     peak_text = text.clone();
                 }
 
-                let is_text_match = text_matches(text, target_text, match_mode, case_sensitive, regex.as_ref());
+                let is_text_match = text_matches(
+                    text,
+                    target_text,
+                    match_mode,
+                    case_sensitive,
+                    regex.as_ref(),
+                );
                 let is_confidence_passed = score >= min_confidence;
                 debug_entries.push(OcrDebugEntry {
                     text: text.to_string(),

@@ -24,11 +24,13 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Shell::{
-    CommandLineToArgvW, ExtractIconExW, ShellExecuteW, SHGetFileInfoW, SHFILEINFOW,
-    SHGFI_ICON, SHGFI_LARGEICON,
+    CommandLineToArgvW, ExtractIconExW, SHGetFileInfoW, ShellExecuteW, SHFILEINFOW, SHGFI_ICON,
+    SHGFI_LARGEICON,
 };
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, PrivateExtractIconsW, HICON, DI_NORMAL, SW_SHOWNORMAL};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, DrawIconEx, PrivateExtractIconsW, DI_NORMAL, HICON, SW_SHOWNORMAL,
+};
 
 const EXECUTABLE_EXTENSIONS: &[&str] = &["exe", "com", "bat", "cmd"];
 const DIRECT_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "webp", "ico"];
@@ -36,8 +38,7 @@ const ICON_RESOURCE_EXTENSIONS: &[&str] = &["exe", "dll", "ico", "icl", "cpl", "
 const EXTRACTED_ICON_SIZE: i32 = 256;
 const ICON_RENDER_FALLBACK_SIZES: &[i32] = &[128, 64, 48, 32, 24, 16];
 
-fn icon_debug(_message: impl AsRef<str>) {
-}
+fn icon_debug(_message: impl AsRef<str>) {}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,7 +259,8 @@ pub fn launch_application(
     let child = command.spawn().map_err(|error| {
         CommandFlowError::Automation(format!(
             "启动应用失败 '{}': {}",
-            direct_launch.target_path.display(), error
+            direct_launch.target_path.display(),
+            error
         ))
     })?;
 
@@ -533,7 +535,11 @@ fn is_valid_launch_target(path: &Path) -> bool {
 
     path.extension()
         .and_then(|value| value.to_str())
-        .map(|value| EXECUTABLE_EXTENSIONS.iter().any(|ext| value.eq_ignore_ascii_case(ext)))
+        .map(|value| {
+            EXECUTABLE_EXTENSIONS
+                .iter()
+                .any(|ext| value.eq_ignore_ascii_case(ext))
+        })
         .unwrap_or(false)
 }
 
@@ -677,14 +683,22 @@ fn icon_candidates(
 fn is_direct_image_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
-        .map(|value| DIRECT_IMAGE_EXTENSIONS.iter().any(|ext| value.eq_ignore_ascii_case(ext)))
+        .map(|value| {
+            DIRECT_IMAGE_EXTENSIONS
+                .iter()
+                .any(|ext| value.eq_ignore_ascii_case(ext))
+        })
         .unwrap_or(false)
 }
 
 fn is_icon_resource_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
-        .map(|value| ICON_RESOURCE_EXTENSIONS.iter().any(|ext| value.eq_ignore_ascii_case(ext)))
+        .map(|value| {
+            ICON_RESOURCE_EXTENSIONS
+                .iter()
+                .any(|ext| value.eq_ignore_ascii_case(ext))
+        })
         .unwrap_or(false)
 }
 
@@ -702,7 +716,11 @@ fn load_image_file_data_url(path: &Path) -> CommandResult<Option<String>> {
     let reader = match ImageReader::open(path) {
         Ok(reader) => reader,
         Err(error) => {
-            icon_debug(format!("failed to open image file '{}': {}", path.display(), error));
+            icon_debug(format!(
+                "failed to open image file '{}': {}",
+                path.display(),
+                error
+            ));
             return Ok(None);
         }
     };
@@ -710,7 +728,11 @@ fn load_image_file_data_url(path: &Path) -> CommandResult<Option<String>> {
     let decoded = match reader.decode() {
         Ok(image) => image,
         Err(error) => {
-            icon_debug(format!("failed to decode image file '{}': {}", path.display(), error));
+            icon_debug(format!(
+                "failed to decode image file '{}': {}",
+                path.display(),
+                error
+            ));
             return Ok(None);
         }
     };
@@ -776,7 +798,8 @@ fn split_windows_command_line_arguments(raw: &str) -> CommandResult<Vec<String>>
     let command_line = format!("commandflow-shortcut {}", trimmed);
     let wide_command_line = to_wide_null(&command_line);
     let mut argument_count = 0;
-    let argument_vector = unsafe { CommandLineToArgvW(wide_command_line.as_ptr(), &mut argument_count) };
+    let argument_vector =
+        unsafe { CommandLineToArgvW(wide_command_line.as_ptr(), &mut argument_count) };
 
     if argument_vector.is_null() || argument_count <= 0 {
         return Err(CommandFlowError::Automation(format!(
@@ -809,7 +832,10 @@ fn split_windows_command_line_arguments(raw: &str) -> CommandResult<Vec<String>>
 #[cfg(target_os = "windows")]
 fn extract_high_resolution_icon_data_url(path: &Path, index: i32) -> CommandResult<Option<String>> {
     if !path.exists() || !path.is_file() {
-        icon_debug(format!("high-resolution extract skipped; file missing: {}", path.display()));
+        icon_debug(format!(
+            "high-resolution extract skipped; file missing: {}",
+            path.display()
+        ));
         return Ok(None);
     }
 
@@ -857,7 +883,10 @@ fn extract_high_resolution_icon_data_url(path: &Path, index: i32) -> CommandResu
 #[cfg(target_os = "windows")]
 fn extract_icon_resource_data_url(path: &Path, index: i32) -> CommandResult<Option<String>> {
     if !path.exists() || !path.is_file() {
-        icon_debug(format!("resource extract skipped; file missing: {}", path.display()));
+        icon_debug(format!(
+            "resource extract skipped; file missing: {}",
+            path.display()
+        ));
         return Ok(None);
     }
 
@@ -904,7 +933,10 @@ fn extract_icon_resource_data_url(path: &Path, index: i32) -> CommandResult<Opti
 #[cfg(target_os = "windows")]
 fn extract_associated_icon_data_url(path: &Path) -> CommandResult<Option<String>> {
     if !path.exists() {
-        icon_debug(format!("associated icon extract skipped; file missing: {}", path.display()));
+        icon_debug(format!(
+            "associated icon extract skipped; file missing: {}",
+            path.display()
+        ));
         return Ok(None);
     }
 
@@ -946,7 +978,10 @@ fn extract_associated_icon_data_url(path: &Path) -> CommandResult<Option<String>
 #[cfg(target_os = "windows")]
 fn hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<Option<String>> {
     if icon_handle.is_null() || size <= 0 {
-        icon_debug(format!("hicon_to_png_data_url received invalid input (size={})", size));
+        icon_debug(format!(
+            "hicon_to_png_data_url received invalid input (size={})",
+            size
+        ));
         return Ok(None);
     }
 
@@ -1034,7 +1069,19 @@ fn render_hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<
         slice::from_raw_parts_mut(bits as *mut u8, byte_len).fill(0);
     }
 
-    let drawn = unsafe { DrawIconEx(dc, 0, 0, icon_handle, size, size, 0, ptr::null_mut(), DI_NORMAL) };
+    let drawn = unsafe {
+        DrawIconEx(
+            dc,
+            0,
+            0,
+            icon_handle,
+            size,
+            size,
+            0,
+            ptr::null_mut(),
+            DI_NORMAL,
+        )
+    };
     let bgra = if drawn != 0 {
         unsafe { slice::from_raw_parts(bits as *const u8, byte_len).to_vec() }
     } else {
@@ -1053,12 +1100,18 @@ fn render_hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<
     }
 
     if bgra.is_empty() {
-        icon_debug(format!("DrawIconEx produced no bitmap data at size {}", size));
+        icon_debug(format!(
+            "DrawIconEx produced no bitmap data at size {}",
+            size
+        ));
         return Ok(None);
     }
 
     if !bitmap_has_visible_pixels(&bgra) {
-        icon_debug(format!("DrawIconEx produced a fully transparent bitmap at size {}", size));
+        icon_debug(format!(
+            "DrawIconEx produced a fully transparent bitmap at size {}",
+            size
+        ));
         return Ok(None);
     }
 
@@ -1079,7 +1132,10 @@ fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<
     let path = Path::new(&location.path);
 
     if is_direct_image_extension(path) {
-        icon_debug(format!("attempting direct image load for '{}'", path.display()));
+        icon_debug(format!(
+            "attempting direct image load for '{}'",
+            path.display()
+        ));
         if let Some(data_url) = load_image_file_data_url(path)? {
             return Ok(Some(data_url));
         }
@@ -1098,7 +1154,10 @@ fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<
             }
         }
 
-        icon_debug(format!("attempting associated icon fallback for '{}'", path.display()));
+        icon_debug(format!(
+            "attempting associated icon fallback for '{}'",
+            path.display()
+        ));
         if let Some(data_url) = extract_associated_icon_data_url(path)? {
             return Ok(Some(data_url));
         }
@@ -1111,10 +1170,9 @@ fn load_icon_location_data_url(location: &IconLocation) -> CommandResult<Option<
 #[cfg(test)]
 mod tests {
     use super::{
-        bitmap_has_visible_pixels, compare_entries, is_valid_launch_target,
-        normalize_path_key, parse_icon_location, resolve_direct_launch_request,
-        resolve_launch_application_entry, ApplicationLaunchMode, DirectLaunchRequest,
-        StartMenuAppEntry,
+        bitmap_has_visible_pixels, compare_entries, is_valid_launch_target, normalize_path_key,
+        parse_icon_location, resolve_direct_launch_request, resolve_launch_application_entry,
+        ApplicationLaunchMode, DirectLaunchRequest, StartMenuAppEntry,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1125,7 +1183,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        std::env::temp_dir().join(format!("commandflow-start-menu-test-{}-{}", stamp, file_name))
+        std::env::temp_dir().join(format!(
+            "commandflow-start-menu-test-{}-{}",
+            stamp, file_name
+        ))
     }
 
     #[test]
@@ -1156,8 +1217,9 @@ mod tests {
         let path = unique_temp_path("demo.lnk");
         fs::write(&path, b"not-a-real-shortcut").expect("create test shortcut placeholder");
 
-        let entry = resolve_launch_application_entry("", path.to_str(), Some("Demo Shortcut"), None)
-            .expect("resolve shortcut entry");
+        let entry =
+            resolve_launch_application_entry("", path.to_str(), Some("Demo Shortcut"), None)
+                .expect("resolve shortcut entry");
 
         assert_eq!(entry.app_name, "Demo Shortcut");
         assert!(entry.target_path.is_empty());
@@ -1211,13 +1273,16 @@ mod tests {
             app_name: "App".to_string(),
             target_path: r"C:\App\app.exe".to_string(),
             icon_path: String::new(),
-            source_path: r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\App.lnk".to_string(),
+            source_path: r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\App.lnk"
+                .to_string(),
         };
         let deep = StartMenuAppEntry {
             app_name: "App".to_string(),
             target_path: r"C:\App\app.exe".to_string(),
             icon_path: String::new(),
-            source_path: r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Tools\Utilities\App.lnk".to_string(),
+            source_path:
+                r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Tools\Utilities\App.lnk"
+                    .to_string(),
         };
 
         assert_eq!(compare_entries(&deep, &shallow), std::cmp::Ordering::Less);
@@ -1225,7 +1290,8 @@ mod tests {
 
     #[test]
     fn parses_icon_location_with_index() {
-        let parsed = parse_icon_location(r#"C:\Program Files\App\app.exe,3"#).expect("icon location");
+        let parsed =
+            parse_icon_location(r#"C:\Program Files\App\app.exe,3"#).expect("icon location");
         assert_eq!(parsed.path, r#"C:\Program Files\App\app.exe"#);
         assert_eq!(parsed.index, 3);
     }
@@ -1251,15 +1317,31 @@ mod tests {
 
     #[test]
     fn parses_launch_mode_from_params() {
-        assert_eq!(ApplicationLaunchMode::from_param("auto"), ApplicationLaunchMode::Auto);
-        assert_eq!(ApplicationLaunchMode::from_param("direct"), ApplicationLaunchMode::Direct);
-        assert_eq!(ApplicationLaunchMode::from_param("shell"), ApplicationLaunchMode::Shell);
-        assert_eq!(ApplicationLaunchMode::from_param("shell_api"), ApplicationLaunchMode::Shell);
-        assert_eq!(ApplicationLaunchMode::from_param("unknown"), ApplicationLaunchMode::Auto);
+        assert_eq!(
+            ApplicationLaunchMode::from_param("auto"),
+            ApplicationLaunchMode::Auto
+        );
+        assert_eq!(
+            ApplicationLaunchMode::from_param("direct"),
+            ApplicationLaunchMode::Direct
+        );
+        assert_eq!(
+            ApplicationLaunchMode::from_param("shell"),
+            ApplicationLaunchMode::Shell
+        );
+        assert_eq!(
+            ApplicationLaunchMode::from_param("shell_api"),
+            ApplicationLaunchMode::Shell
+        );
+        assert_eq!(
+            ApplicationLaunchMode::from_param("unknown"),
+            ApplicationLaunchMode::Auto
+        );
     }
 
     #[test]
-    fn direct_launch_request_uses_target_parent_as_working_directory_when_shortcut_metadata_is_missing() {
+    fn direct_launch_request_uses_target_parent_as_working_directory_when_shortcut_metadata_is_missing(
+    ) {
         let executable = unique_temp_path("cwd-fallback.exe");
         fs::write(&executable, b"MZ").expect("create test executable placeholder");
 
@@ -1272,7 +1354,10 @@ mod tests {
 
         let request = resolve_direct_launch_request(&entry);
         assert_eq!(request.target_path, executable);
-        assert_eq!(request.working_directory, executable.parent().map(PathBuf::from));
+        assert_eq!(
+            request.working_directory,
+            executable.parent().map(PathBuf::from)
+        );
         assert!(request.launch_arguments.is_empty());
 
         let _ = fs::remove_file(&executable);
@@ -1311,7 +1396,8 @@ mod tests {
         };
 
         let mut command = std::process::Command::new(&request.target_path);
-        super::apply_direct_launch_request(&mut command, &request).expect("apply direct launch request");
+        super::apply_direct_launch_request(&mut command, &request)
+            .expect("apply direct launch request");
 
         assert_eq!(command.get_current_dir(), Some(working_directory.as_path()));
         let args = command

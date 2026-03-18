@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
@@ -11,23 +11,25 @@ use tokio::sync::oneshot;
 use windows_sys::Win32::Foundation::POINT;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_0, VK_ADD,
-    VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DECIMAL, VK_DELETE, VK_DIVIDE, VK_DOWN, VK_END,
-    VK_ESCAPE, VK_F1, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14, VK_F15, VK_F16, VK_F17, VK_F18,
-    VK_F19, VK_F2, VK_F20, VK_F21, VK_F22, VK_F23, VK_F24, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7,
-    VK_F8, VK_F9, VK_HOME, VK_INSERT, VK_LBUTTON, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN,
-    VK_MBUTTON, VK_MENU, VK_MULTIPLY, VK_NEXT, VK_PRIOR, VK_RBUTTON, VK_RETURN, VK_RIGHT,
-    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SCROLL, VK_SHIFT, VK_SNAPSHOT, VK_SPACE, VK_SUBTRACT,
-    VK_TAB, VK_UP,
+    GetAsyncKeyState, VK_0, VK_ADD, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DECIMAL, VK_DELETE,
+    VK_DIVIDE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14, VK_F15,
+    VK_F16, VK_F17, VK_F18, VK_F19, VK_F2, VK_F20, VK_F21, VK_F22, VK_F23, VK_F24, VK_F3, VK_F4,
+    VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_HOME, VK_INSERT, VK_LBUTTON, VK_LEFT, VK_LMENU,
+    VK_LSHIFT, VK_LWIN, VK_MBUTTON, VK_MENU, VK_MULTIPLY, VK_NEXT, VK_PRIOR, VK_RBUTTON, VK_RETURN,
+    VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SCROLL, VK_SHIFT, VK_SNAPSHOT, VK_SPACE,
+    VK_SUBTRACT, VK_TAB, VK_UP,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetCursorPos, GetMessageW, PostThreadMessageW,
-    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, MSG,
-    MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MOUSEWHEEL,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, MSG, MSLLHOOKSTRUCT,
+    WH_MOUSE_LL, WM_MOUSEWHEEL,
 };
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::{Foundation::{LPARAM, LRESULT, WPARAM}, System::Threading::GetCurrentThreadId};
+use windows_sys::Win32::{
+    Foundation::{LPARAM, LRESULT, WPARAM},
+    System::Threading::GetCurrentThreadId,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,7 +165,13 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn emit_state(app: &AppHandle, recording: bool, operation_count: usize, started_at_ms: Option<u64>, options: InputRecordingOptions) {
+fn emit_state(
+    app: &AppHandle,
+    recording: bool,
+    operation_count: usize,
+    started_at_ms: Option<u64>,
+    options: InputRecordingOptions,
+) {
     let _ = app.emit(
         "input-recorder-state",
         InputRecordingStatePayload {
@@ -198,7 +206,13 @@ fn action_summary(action: &InputRecordingAction) -> String {
         }
         InputRecordingAction::MouseWheel { x, y, vertical, .. } => {
             let direction = if *vertical > 0 { "上滚" } else { "下滚" };
-            format!("鼠标滚轮：{} {} @ ({}, {})", direction, vertical.abs(), x, y)
+            format!(
+                "鼠标滚轮：{} {} @ ({}, {})",
+                direction,
+                vertical.abs(),
+                x,
+                y
+            )
         }
         InputRecordingAction::MouseMovePath {
             points,
@@ -214,9 +228,22 @@ fn action_summary(action: &InputRecordingAction) -> String {
     }
 }
 
-fn push_action(app: &AppHandle, actions: &mut Vec<InputRecordingAction>, action: InputRecordingAction) {
+fn push_action(
+    app: &AppHandle,
+    actions: &mut Vec<InputRecordingAction>,
+    action: InputRecordingAction,
+) {
     actions.push(action.clone());
-    emit_log(app, "info", format!("已记录第 {} 个操作：{}", actions.len(), action_summary(&action)), actions.len());
+    emit_log(
+        app,
+        "info",
+        format!(
+            "已记录第 {} 个操作：{}",
+            actions.len(),
+            action_summary(&action)
+        ),
+        actions.len(),
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -245,7 +272,11 @@ fn get_cursor() -> Result<(i32, i32), String> {
 }
 
 #[cfg(target_os = "windows")]
-unsafe extern "system" fn mouse_wheel_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn mouse_wheel_hook_proc(
+    code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     if code == HC_ACTION as i32 && wparam == WM_MOUSEWHEEL as usize {
         let info = &*(lparam as *const MSLLHOOKSTRUCT);
         let vertical = ((info.mouseData >> 16) as i16) as i32;
@@ -277,7 +308,14 @@ fn start_mouse_wheel_hook() -> Result<MouseWheelHook, String> {
         }
 
         let thread_id = unsafe { GetCurrentThreadId() };
-        let hook = unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_wheel_hook_proc), std::ptr::null_mut(), 0) };
+        let hook = unsafe {
+            SetWindowsHookExW(
+                WH_MOUSE_LL,
+                Some(mouse_wheel_hook_proc),
+                std::ptr::null_mut(),
+                0,
+            )
+        };
         if hook.is_null() {
             if let Ok(mut guard) = mouse_wheel_sender_store().lock() {
                 *guard = None;
@@ -326,7 +364,12 @@ fn start_mouse_wheel_hook() -> Result<MouseWheelHook, String> {
 impl Drop for MouseWheelHook {
     fn drop(&mut self) {
         unsafe {
-            let _ = PostThreadMessageW(self.thread_id, windows_sys::Win32::UI::WindowsAndMessaging::WM_QUIT, 0, 0);
+            let _ = PostThreadMessageW(
+                self.thread_id,
+                windows_sys::Win32::UI::WindowsAndMessaging::WM_QUIT,
+                0,
+                0,
+            );
         }
         if let Some(handle) = self.join_handle.take() {
             let _ = handle.join();
@@ -398,7 +441,11 @@ fn monitored_keys() -> Vec<(i32, &'static str)> {
 
 #[cfg(target_os = "windows")]
 fn monitored_mouse_buttons() -> Vec<(i32, &'static str)> {
-    vec![(VK_LBUTTON as i32, "left"), (VK_RBUTTON as i32, "right"), (VK_MBUTTON as i32, "middle")]
+    vec![
+        (VK_LBUTTON as i32, "left"),
+        (VK_RBUTTON as i32, "right"),
+        (VK_MBUTTON as i32, "middle"),
+    ]
 }
 
 #[cfg(target_os = "windows")]
@@ -437,8 +484,10 @@ fn optimize_mouse_path(raw: &[RecordedCursorPoint]) -> Vec<RecordedCursorPoint> 
         let prev = &deduped[index - 1];
         let curr = &deduped[index];
         let next = &deduped[index + 1];
-        smoothed[index].x = ((prev.x as f64 * 0.2) + (curr.x as f64 * 0.6) + (next.x as f64 * 0.2)).round() as i32;
-        smoothed[index].y = ((prev.y as f64 * 0.2) + (curr.y as f64 * 0.6) + (next.y as f64 * 0.2)).round() as i32;
+        smoothed[index].x =
+            ((prev.x as f64 * 0.2) + (curr.x as f64 * 0.6) + (next.x as f64 * 0.2)).round() as i32;
+        smoothed[index].y =
+            ((prev.y as f64 * 0.2) + (curr.y as f64 * 0.6) + (next.y as f64 * 0.2)).round() as i32;
     }
 
     // 3) 特征提取：保留起终点、转折点、长距离点
@@ -463,7 +512,8 @@ fn optimize_mouse_path(raw: &[RecordedCursorPoint]) -> Vec<RecordedCursorPoint> 
             0.0
         };
         let anchor = &smoothed[last_feature];
-        let dist_from_anchor = (((curr.x - anchor.x).pow(2) + (curr.y - anchor.y).pow(2)) as f64).sqrt();
+        let dist_from_anchor =
+            (((curr.x - anchor.x).pow(2) + (curr.y - anchor.y).pow(2)) as f64).sqrt();
         if angle > 18.0 || dist_from_anchor >= 24.0 {
             featured.insert(index);
             last_feature = index;
@@ -476,12 +526,21 @@ fn optimize_mouse_path(raw: &[RecordedCursorPoint]) -> Vec<RecordedCursorPoint> 
     merged.extend(featured);
     let mut ordered = merged.into_iter().collect::<Vec<_>>();
     ordered.sort_unstable();
-    ordered.into_iter().map(|index| smoothed[index].clone()).collect()
+    ordered
+        .into_iter()
+        .map(|index| smoothed[index].clone())
+        .collect()
 }
 
 #[cfg(target_os = "windows")]
 fn rdp_indices(points: &[RecordedCursorPoint], epsilon: f64) -> Vec<usize> {
-    fn recurse(points: &[RecordedCursorPoint], start: usize, end: usize, epsilon: f64, keep: &mut HashSet<usize>) {
+    fn recurse(
+        points: &[RecordedCursorPoint],
+        start: usize,
+        end: usize,
+        epsilon: f64,
+        keep: &mut HashSet<usize>,
+    ) {
         if end <= start + 1 {
             keep.insert(start);
             keep.insert(end);
@@ -522,7 +581,11 @@ fn rdp_indices(points: &[RecordedCursorPoint], epsilon: f64) -> Vec<usize> {
 }
 
 #[cfg(target_os = "windows")]
-fn perpendicular_distance(point: &RecordedCursorPoint, line_start: &RecordedCursorPoint, line_end: &RecordedCursorPoint) -> f64 {
+fn perpendicular_distance(
+    point: &RecordedCursorPoint,
+    line_start: &RecordedCursorPoint,
+    line_end: &RecordedCursorPoint,
+) -> f64 {
     let x0 = point.x as f64;
     let y0 = point.y as f64;
     let x1 = line_start.x as f64;
@@ -552,7 +615,11 @@ fn path_distance(points: &[RecordedCursorPoint]) -> f64 {
 }
 
 #[cfg(target_os = "windows")]
-fn flush_mouse_path(app: &AppHandle, actions: &mut Vec<InputRecordingAction>, buffer: &mut Vec<RecordedCursorPoint>) {
+fn flush_mouse_path(
+    app: &AppHandle,
+    actions: &mut Vec<InputRecordingAction>,
+    buffer: &mut Vec<RecordedCursorPoint>,
+) {
     if buffer.len() < 2 {
         buffer.clear();
         return;
@@ -599,7 +666,12 @@ async fn run_recording_loop(
     let mut mouse_wheel_hook = match start_mouse_wheel_hook() {
         Ok(hook) => Some(hook),
         Err(error) => {
-            emit_log(&app, "warn", format!("鼠标滚轮录制初始化失败，将继续录制其它操作：{}", error), 0);
+            emit_log(
+                &app,
+                "warn",
+                format!("鼠标滚轮录制初始化失败，将继续录制其它操作：{}", error),
+                0,
+            );
             None
         }
     };
@@ -630,7 +702,12 @@ async fn run_recording_loop(
         }
     }
 
-    emit_log(&app, "info", "键鼠录制已开始，可使用 Scroll Lock 开始 / Alt+Scroll Lock 停止。".to_string(), 0);
+    emit_log(
+        &app,
+        "info",
+        "键鼠录制已开始，可使用 Scroll Lock 开始 / Alt+Scroll Lock 停止。".to_string(),
+        0,
+    );
     emit_state(&app, true, 0, Some(started_at_ms), options.clone());
 
     loop {
@@ -661,7 +738,13 @@ async fn run_recording_loop(
                         }
                     };
                     push_action(&app, &mut actions, action);
-                    emit_state(&app, true, actions.len(), Some(started_at_ms), options.clone());
+                    emit_state(
+                        &app,
+                        true,
+                        actions.len(),
+                        Some(started_at_ms),
+                        options.clone(),
+                    );
                 }
             }
         }
@@ -679,9 +762,17 @@ async fn run_recording_loop(
                     timestamp_ms: elapsed_ms,
                 });
                 last_mouse_change_at = Instant::now();
-            } else if last_mouse_path.len() >= 2 && last_mouse_change_at.elapsed() >= Duration::from_millis(90) {
+            } else if last_mouse_path.len() >= 2
+                && last_mouse_change_at.elapsed() >= Duration::from_millis(90)
+            {
                 flush_mouse_path(&app, &mut actions, &mut last_mouse_path);
-                emit_state(&app, true, actions.len(), Some(started_at_ms), options.clone());
+                emit_state(
+                    &app,
+                    true,
+                    actions.len(),
+                    Some(started_at_ms),
+                    options.clone(),
+                );
                 last_mouse_change_at = Instant::now();
                 last_mouse_path.push(RecordedCursorPoint {
                     x,
@@ -697,7 +788,8 @@ async fn run_recording_loop(
                     flush_mouse_path(&app, &mut actions, &mut last_mouse_path);
                 }
 
-                let timestamp_ms = event.occurred_at.duration_since(start_instant).as_millis() as u64;
+                let timestamp_ms =
+                    event.occurred_at.duration_since(start_instant).as_millis() as u64;
                 push_action(
                     &app,
                     &mut actions,
@@ -708,7 +800,13 @@ async fn run_recording_loop(
                         timestamp_ms,
                     },
                 );
-                emit_state(&app, true, actions.len(), Some(started_at_ms), options.clone());
+                emit_state(
+                    &app,
+                    true,
+                    actions.len(),
+                    Some(started_at_ms),
+                    options.clone(),
+                );
             }
         }
 
@@ -738,7 +836,13 @@ async fn run_recording_loop(
                         }
                     };
                     push_action(&app, &mut actions, action);
-                    emit_state(&app, true, actions.len(), Some(started_at_ms), options.clone());
+                    emit_state(
+                        &app,
+                        true,
+                        actions.len(),
+                        Some(started_at_ms),
+                        options.clone(),
+                    );
                 }
             }
         }
@@ -751,7 +855,13 @@ async fn run_recording_loop(
     }
 
     let ended_at_ms = now_ms();
-    emit_state(&app, false, actions.len(), Some(started_at_ms), options.clone());
+    emit_state(
+        &app,
+        false,
+        actions.len(),
+        Some(started_at_ms),
+        options.clone(),
+    );
     emit_log(
         &app,
         "success",
@@ -769,7 +879,10 @@ async fn run_recording_loop(
     })
 }
 
-pub async fn start_recording(app: AppHandle, options: InputRecordingOptions) -> Result<String, String> {
+pub async fn start_recording(
+    app: AppHandle,
+    options: InputRecordingOptions,
+) -> Result<String, String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = app;
@@ -781,7 +894,8 @@ pub async fn start_recording(app: AppHandle, options: InputRecordingOptions) -> 
     {
         let started_at_ms = now_ms();
         let cancel_requested = Arc::new(AtomicBool::new(false));
-        let (finished_tx, finished_rx) = oneshot::channel::<Result<InputRecordingStopResult, String>>();
+        let (finished_tx, finished_rx) =
+            oneshot::channel::<Result<InputRecordingStopResult, String>>();
 
         {
             let store = recorder_store();
@@ -799,7 +913,13 @@ pub async fn start_recording(app: AppHandle, options: InputRecordingOptions) -> 
 
         let app_handle = app.clone();
         tokio::spawn(async move {
-            let result = run_recording_loop(app_handle.clone(), options.clone(), cancel_requested, started_at_ms).await;
+            let result = run_recording_loop(
+                app_handle.clone(),
+                options.clone(),
+                cancel_requested,
+                started_at_ms,
+            )
+            .await;
             if let Err(error) = &result {
                 emit_state(&app_handle, false, 0, Some(started_at_ms), options.clone());
                 emit_log(&app_handle, "error", format!("录制失败：{}", error), 0);

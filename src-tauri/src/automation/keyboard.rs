@@ -8,8 +8,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_ADD, VK_BACK, VK_CONTROL, VK_DECIMAL, VK_DELETE, VK_DIVIDE, VK_DOWN,
     VK_END, VK_ESCAPE, VK_F1, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14, VK_F15, VK_F16, VK_F17,
     VK_F18, VK_F19, VK_F2, VK_F20, VK_F21, VK_F22, VK_F23, VK_F24, VK_F3, VK_F4, VK_F5, VK_F6,
-    VK_F7, VK_F8, VK_F9, VK_HOME, VK_LEFT, VK_LWIN, VK_MULTIPLY, VK_NEXT, VK_PRIOR, VK_RETURN,
-    VK_RIGHT, VK_SHIFT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP, VK_MENU,
+    VK_F7, VK_F8, VK_F9, VK_HOME, VK_LEFT, VK_LWIN, VK_MENU, VK_MULTIPLY, VK_NEXT, VK_PRIOR,
+    VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP,
 };
 
 fn keyboard_store() -> &'static Mutex<Option<Enigo>> {
@@ -29,9 +29,9 @@ fn with_enigo<T>(f: impl FnOnce(&mut Enigo) -> CommandResult<T>) -> CommandResul
         );
     }
 
-    let enigo = guard
-        .as_mut()
-        .ok_or_else(|| CommandFlowError::Automation("keyboard controller is unavailable".to_string()))?;
+    let enigo = guard.as_mut().ok_or_else(|| {
+        CommandFlowError::Automation("keyboard controller is unavailable".to_string())
+    })?;
 
     f(enigo)
 }
@@ -115,7 +115,9 @@ pub fn shortcut_by_hotkey(hotkey: &str) -> CommandResult<()> {
         .collect::<Vec<_>>();
 
     if tokens.is_empty() {
-        return Err(CommandFlowError::Validation("hotkey cannot be empty".to_string()));
+        return Err(CommandFlowError::Validation(
+            "hotkey cannot be empty".to_string(),
+        ));
     }
 
     if tokens.len() == 1 {
@@ -242,10 +244,16 @@ fn parse_hotkey(hotkey: &str) -> CommandResult<HotkeySpec> {
     for token in tokens {
         let normalized = token.to_lowercase();
         let key = map_hotkey_token(&normalized).ok_or_else(|| {
-            CommandFlowError::Validation(format!("unsupported hotkey token '{}': {}", token, hotkey))
+            CommandFlowError::Validation(format!(
+                "unsupported hotkey token '{}': {}",
+                token, hotkey
+            ))
         })?;
 
-        let is_modifier = matches!(normalized.as_str(), "ctrl" | "control" | "shift" | "alt" | "win" | "meta" | "cmd");
+        let is_modifier = matches!(
+            normalized.as_str(),
+            "ctrl" | "control" | "shift" | "alt" | "win" | "meta" | "cmd"
+        );
         if is_modifier {
             modifiers.push(key);
         } else {
