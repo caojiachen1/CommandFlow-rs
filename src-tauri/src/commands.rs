@@ -9,10 +9,16 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::fmt::Write as _;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 #[cfg(target_os = "windows")]
@@ -28,6 +34,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetSystemMetrics, SystemParametersInfoW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETWORKAREA,
 };
+
+const WORKFLOW_PACKAGE_PROGRESS_EVENT: &str = "workflow-package-progress";
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Copy)]
 struct WindowSnapshot {
@@ -403,6 +413,561 @@ pub async fn load_workflow(path: String) -> Result<WorkflowGraph, String> {
     let graph =
         serde_json::from_str::<WorkflowGraph>(&payload).map_err(|error| error.to_string())?;
     Ok(graph)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageWorkflowResult {
+    pub executable_path: String,
+    pub binary_name: String,
+    pub source_path: String,
+    pub build_output: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageWorkflowJobStarted {
+    pub job_id: String,
+    pub workflow_name: String,
+    pub target_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageWorkflowProgressPayload {
+    pub job_id: String,
+    pub workflow_name: String,
+    pub target_path: String,
+    pub status: String,
+    pub stage: String,
+    pub progress: f64,
+    pub message: String,
+    pub log_line: Option<String>,
+    pub result: Option<PackageWorkflowResult>,
+}
+
+fn package_job_counter() -> &'static AtomicU64 {
+    static PACKAGE_JOB_COUNTER: OnceLock<AtomicU64> = OnceLock::new();
+    PACKAGE_JOB_COUNTER.get_or_init(|| AtomicU64::new(1))
+}
+
+fn next_package_job_id() -> String {
+    let index = package_job_counter().fetch_add(1, Ordering::Relaxed);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    format!("pkg-{}-{}", now_ms, index)
+}
+
+fn emit_package_progress(
+    app: &AppHandle,
+    payload: PackageWorkflowProgressPayload,
+) {
+    let _ = app.emit(WORKFLOW_PACKAGE_PROGRESS_EVENT, payload);
+}
+
+fn clamp_progress(value: f64) -> f64 {
+    value.clamp(0.0, 100.0)
+}
+
+fn update_cargo_progress(line: &str, current: f64) -> f64 {
+    let trimmed = line.trim();
+    if trimmed.starts_with("Compiling ") {
+        return clamp_progress((current + 1.8).min(88.0));
+    }
+    if trimmed.starts_with("Checking ") {
+        return clamp_progress((current + 1.4).min(86.0));
+    }
+    if trimmed.starts_with("Finished ") {
+        return current.max(93.0);
+    }
+    if trimmed.contains("Running") {
+        return clamp_progress((current + 0.3).min(90.0));
+    }
+    if trimmed.contains("warning:") || trimmed.contains("error[") {
+        return clamp_progress((current + 0.05).min(90.0));
+    }
+    clamp_progress((current + 0.02).min(90.0))
+}
+
+#[tauri::command]
+pub async fn start_package_workflow_as_exe(
+    app: AppHandle,
+    graph: WorkflowGraph,
+    target_path: String,
+) -> Result<PackageWorkflowJobStarted, String> {
+    let requested_target = target_path.trim().to_string();
+    if requested_target.is_empty() {
+        return Err("输出路径不能为空。".to_string());
+    }
+
+    let job_id = next_package_job_id();
+    let workflow_name = graph.name.clone();
+    let app_for_task = app.clone();
+    let job_id_for_task = job_id.clone();
+    let target_for_task = requested_target.clone();
+    let workflow_for_task = workflow_name.clone();
+
+    tokio::spawn(async move {
+        run_package_workflow_job(
+            app_for_task,
+            graph,
+            target_for_task,
+            job_id_for_task,
+            workflow_for_task,
+        )
+        .await;
+    });
+
+    Ok(PackageWorkflowJobStarted {
+        job_id,
+        workflow_name,
+        target_path: requested_target,
+    })
+}
+
+async fn run_package_workflow_job(
+    app: AppHandle,
+    graph: WorkflowGraph,
+    target_path: String,
+    job_id: String,
+    workflow_name: String,
+) {
+    emit_package_progress(
+        &app,
+        PackageWorkflowProgressPayload {
+            job_id: job_id.clone(),
+            workflow_name: workflow_name.clone(),
+            target_path: target_path.clone(),
+            status: "running".to_string(),
+            stage: "queued".to_string(),
+            progress: 0.0,
+            message: "打包任务已进入队列。".to_string(),
+            log_line: None,
+            result: None,
+        },
+    );
+
+    match package_workflow_job_inner(&app, &graph, &target_path, &job_id, &workflow_name).await {
+        Ok(result) => {
+            emit_package_progress(
+                &app,
+                PackageWorkflowProgressPayload {
+                    job_id,
+                    workflow_name,
+                    target_path,
+                    status: "success".to_string(),
+                    stage: "done".to_string(),
+                    progress: 100.0,
+                    message: format!("打包完成：{}", result.executable_path),
+                    log_line: None,
+                    result: Some(result),
+                },
+            );
+        }
+        Err(error) => {
+            emit_package_progress(
+                &app,
+                PackageWorkflowProgressPayload {
+                    job_id,
+                    workflow_name,
+                    target_path,
+                    status: "error".to_string(),
+                    stage: "failed".to_string(),
+                    progress: 100.0,
+                    message: format!("打包失败：{}", error),
+                    log_line: None,
+                    result: None,
+                },
+            );
+        }
+    }
+}
+
+async fn package_workflow_job_inner(
+    app: &AppHandle,
+    graph: &WorkflowGraph,
+    target_path: &str,
+    job_id: &str,
+    workflow_name: &str,
+) -> Result<PackageWorkflowResult, String> {
+    let manifest_dir = resolve_manifest_dir()?;
+    let target_path = target_path.trim();
+    let target_candidate = PathBuf::from(target_path);
+
+    emit_package_progress(
+        app,
+        PackageWorkflowProgressPayload {
+            job_id: job_id.to_string(),
+            workflow_name: workflow_name.to_string(),
+            target_path: target_path.to_string(),
+            status: "running".to_string(),
+            stage: "prepare".to_string(),
+            progress: 5.0,
+            message: "准备打包环境...".to_string(),
+            log_line: Some(format!("manifest_dir={}", manifest_dir.display())),
+            result: None,
+        },
+    );
+
+    let requested_name = target_candidate
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| graph.name.as_str());
+    let bin_name = sanitize_bin_name(requested_name);
+
+    let source_dir = manifest_dir.join("src").join("bin");
+    fs::create_dir_all(&source_dir).map_err(|error| {
+        format!(
+            "创建打包源码目录失败（{}）：{}",
+            source_dir.display(),
+            error
+        )
+    })?;
+
+    let source_path = source_dir.join(format!("{}.rs", bin_name));
+    let source_code = generate_workflow_bin_source(&graph)?;
+    fs::write(&source_path, source_code).map_err(|error| {
+        format!(
+            "写入打包源码失败（{}）：{}",
+            source_path.display(),
+            error
+        )
+    })?;
+
+    emit_package_progress(
+        app,
+        PackageWorkflowProgressPayload {
+            job_id: job_id.to_string(),
+            workflow_name: workflow_name.to_string(),
+            target_path: target_path.to_string(),
+            status: "running".to_string(),
+            stage: "generate".to_string(),
+            progress: 12.0,
+            message: "已生成 Rust 源码，开始调用 Cargo 编译...".to_string(),
+            log_line: Some(format!("source={}", source_path.display())),
+            result: None,
+        },
+    );
+
+    let mut command = Command::new("cargo");
+    command
+        .arg("build")
+        .arg("--release")
+        .arg("--bin")
+        .arg(&bin_name)
+        .current_dir(&manifest_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("调用 cargo 编译失败：{}", error))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "无法捕捉 cargo stdout 输出。".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "无法捕捉 cargo stderr 输出。".to_string())?;
+
+    let (line_tx, mut line_rx) = mpsc::unbounded_channel::<(String, String)>();
+
+    let out_tx = line_tx.clone();
+    let stdout_task = tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = out_tx.send(("stdout".to_string(), line));
+        }
+    });
+
+    let err_tx = line_tx.clone();
+    let stderr_task = tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = err_tx.send(("stderr".to_string(), line));
+        }
+    });
+
+    drop(line_tx);
+
+    let mut build_output = String::new();
+    let mut progress = 18.0;
+    while let Some((stream, line)) = line_rx.recv().await {
+        progress = update_cargo_progress(&line, progress);
+        let prefixed = format!("[{}] {}", stream, line);
+        let _ = writeln!(&mut build_output, "{}", prefixed);
+        emit_package_progress(
+            app,
+            PackageWorkflowProgressPayload {
+                job_id: job_id.to_string(),
+                workflow_name: workflow_name.to_string(),
+                target_path: target_path.to_string(),
+                status: "running".to_string(),
+                stage: "build".to_string(),
+                progress,
+                message: "Cargo 编译进行中...".to_string(),
+                log_line: Some(prefixed),
+                result: None,
+            },
+        );
+    }
+
+    let _ = stdout_task.await;
+    let _ = stderr_task.await;
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| format!("等待 cargo 进程结束失败：{}", error))?;
+
+    if !status.success() {
+        return Err(format!(
+            "Cargo 编译失败（bin={}，exit={}）。\n{}",
+            bin_name,
+            status,
+            build_output
+        ));
+    }
+
+    emit_package_progress(
+        app,
+        PackageWorkflowProgressPayload {
+            job_id: job_id.to_string(),
+            workflow_name: workflow_name.to_string(),
+            target_path: target_path.to_string(),
+            status: "running".to_string(),
+            stage: "copy".to_string(),
+            progress: 95.0,
+            message: "编译完成，正在复制 exe 到目标目录...".to_string(),
+            log_line: None,
+            result: None,
+        },
+    );
+
+    let compiled_path = manifest_dir
+        .join("target")
+        .join("release")
+        .join(format!("{}.exe", bin_name));
+
+    if !compiled_path.exists() {
+        return Err(format!(
+            "Cargo 编译已完成，但未找到产物：{}",
+            compiled_path.display()
+        ));
+    }
+
+    let mut final_target = target_candidate;
+    if final_target
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|ext| !ext.eq_ignore_ascii_case("exe"))
+        .unwrap_or(true)
+    {
+        final_target.set_extension("exe");
+    }
+
+    if let Some(parent) = final_target.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "创建输出目录失败（{}）：{}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+
+    fs::copy(&compiled_path, &final_target).map_err(|error| {
+        format!(
+            "复制 exe 到输出路径失败（{} -> {}）：{}",
+            compiled_path.display(),
+            final_target.display(),
+            error
+        )
+    })?;
+
+    Ok(PackageWorkflowResult {
+        executable_path: final_target.to_string_lossy().to_string(),
+        binary_name: bin_name,
+        source_path: source_path.to_string_lossy().to_string(),
+        build_output,
+    })
+}
+
+fn resolve_manifest_dir() -> Result<PathBuf, String> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if manifest_dir.join("Cargo.toml").exists() {
+        return Ok(manifest_dir);
+    }
+
+    let current_dir = std::env::current_dir().map_err(|error| error.to_string())?;
+    let direct = current_dir.join("Cargo.toml");
+    if direct.exists() {
+        return Ok(current_dir);
+    }
+
+    let nested = current_dir.join("src-tauri").join("Cargo.toml");
+    if nested.exists() {
+        return Ok(current_dir.join("src-tauri"));
+    }
+
+    Err("无法定位 src-tauri/Cargo.toml，请确保在项目源码目录运行。".to_string())
+}
+
+fn sanitize_bin_name(raw: &str) -> String {
+    let mut normalized = raw
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    while normalized.contains("__") {
+        normalized = normalized.replace("__", "_");
+    }
+    normalized = normalized.trim_matches('_').to_string();
+
+    if normalized.is_empty() {
+        normalized = "workflow_package".to_string();
+    }
+
+    if !normalized
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_alphabetic())
+        .unwrap_or(false)
+    {
+        normalized = format!("workflow_{}", normalized);
+    }
+
+    if normalized.len() > 64 {
+        normalized.truncate(64);
+        normalized = normalized.trim_end_matches('_').to_string();
+    }
+
+    normalized
+}
+
+fn to_rust_string_literal(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+fn format_option_string(value: &Option<String>) -> String {
+    match value {
+        Some(content) => format!("Some({}.to_string())", to_rust_string_literal(content)),
+        None => "None".to_string(),
+    }
+}
+
+fn generate_workflow_bin_source(graph: &WorkflowGraph) -> Result<String, String> {
+    let mut source = String::new();
+    source.push_str("use commandflow_rs_lib::automation::executor::WorkflowExecutor;\n");
+    source.push_str("use commandflow_rs_lib::workflow::edge::WorkflowEdge;\n");
+    source.push_str("use commandflow_rs_lib::workflow::graph::WorkflowGraph;\n");
+    source.push_str("use commandflow_rs_lib::workflow::node::{NodeKind, WorkflowNode};\n\n");
+
+    source.push_str("fn build_graph() -> WorkflowGraph {\n");
+    let _ = writeln!(
+        &mut source,
+        "    WorkflowGraph {{\n        id: {}.to_string(),\n        name: {}.to_string(),\n        nodes: vec![",
+        to_rust_string_literal(&graph.id),
+        to_rust_string_literal(&graph.name)
+    );
+
+    for node in &graph.nodes {
+        let kind_literal = format!("{:?}", node.kind);
+        let params_json = serde_json::to_string(&node.params)
+            .map_err(|error| format!("序列化节点参数失败（{}）：{}", node.id, error))?;
+        let _ = writeln!(
+            &mut source,
+            "            WorkflowNode {{ id: {}.to_string(), label: {}.to_string(), kind: NodeKind::{}, position_x: {:?}, position_y: {:?}, params: serde_json::from_str::<std::collections::HashMap<String, serde_json::Value>>({}).expect(\"invalid embedded params\") }},",
+            to_rust_string_literal(&node.id),
+            to_rust_string_literal(&node.label),
+            kind_literal,
+            node.position_x,
+            node.position_y,
+            to_rust_string_literal(&params_json)
+        );
+    }
+
+    source.push_str("        ],\n        edges: vec![\n");
+    for edge in &graph.edges {
+        let _ = writeln!(
+            &mut source,
+            "            WorkflowEdge {{ id: {}.to_string(), source: {}.to_string(), target: {}.to_string(), source_handle: {}, target_handle: {} }},",
+            to_rust_string_literal(&edge.id),
+            to_rust_string_literal(&edge.source),
+            to_rust_string_literal(&edge.target),
+            format_option_string(&edge.source_handle),
+            format_option_string(&edge.target_handle)
+        );
+    }
+    source.push_str("        ],\n    }\n}\n\n");
+
+    source.push_str("#[tokio::main]\n");
+    source.push_str("async fn main() {\n");
+    source.push_str("    let graph = build_graph();\n");
+    source.push_str(
+        "    println!(\"[CommandFlow] 开始执行工作流: {} (nodes={}, edges={})\", graph.name, graph.nodes.len(), graph.edges.len());\n",
+    );
+    source.push_str("    let executor = WorkflowExecutor::default();\n");
+    source.push_str("\n");
+    source.push_str("    let mut on_node_start = |node: &WorkflowNode| {\n");
+    source.push_str("        let params_json = serde_json::to_string(&node.params).unwrap_or_else(|_| \"{}\".to_string());\n");
+    source.push_str("        println!(\"[NODE_START] id={} kind={:?} label={} params={}\", node.id, node.kind, node.label, params_json);\n");
+    source.push_str("    };\n");
+    source.push_str("\n");
+    source.push_str("    let mut on_variables_update = |variables: &std::collections::HashMap<String, serde_json::Value>| {\n");
+    source.push_str("        let vars_json = serde_json::to_string(variables).unwrap_or_else(|_| \"{}\".to_string());\n");
+    source.push_str("        println!(\"[VARS] {}\", vars_json);\n");
+    source.push_str("    };\n");
+    source.push_str("\n");
+    source.push_str("    let mut on_log = |level: &str, message: String| {\n");
+    source.push_str("        println!(\"[LOG:{}] {}\", level, message);\n");
+    source.push_str("    };\n");
+    source.push_str("\n");
+    source.push_str("    let mut on_node_complete = |node: &WorkflowNode, outputs: &std::collections::HashMap<String, serde_json::Value>, selected_control_output: Option<&str>| {\n");
+    source.push_str("        let outputs_json = serde_json::to_string(outputs).unwrap_or_else(|_| \"{}\".to_string());\n");
+    source.push_str("        println!(\"[NODE_DONE] id={} kind={:?} label={} selected={} outputs={}\", node.id, node.kind, node.label, selected_control_output.unwrap_or(\"\"), outputs_json);\n");
+    source.push_str("    };\n");
+    source.push_str("\n");
+    source.push_str("    let should_cancel = || false;\n");
+    source.push_str("\n");
+    source.push_str("    match executor\n");
+    source.push_str("        .execute_with_progress(\n");
+    source.push_str("            &graph,\n");
+    source.push_str("            &mut on_node_start,\n");
+    source.push_str("            &mut on_variables_update,\n");
+    source.push_str("            &mut on_log,\n");
+    source.push_str("            &mut on_node_complete,\n");
+    source.push_str("            &should_cancel,\n");
+    source.push_str("        )\n");
+    source.push_str("        .await\n");
+    source.push_str("    {\n");
+    source.push_str("        Ok(()) => {\n");
+    source.push_str("            println!(\"[CommandFlow] 工作流执行完成: {}\", graph.name);\n");
+    source.push_str("        }\n");
+    source.push_str("        Err(error) => {\n");
+    source.push_str("            eprintln!(\"[CommandFlow] 工作流执行失败: {}\", error);\n");
+    source.push_str("            std::process::exit(1);\n");
+    source.push_str("        }\n");
+    source.push_str("    }\n");
+    source.push_str("}\n");
+
+    Ok(source)
 }
 
 #[tauri::command]

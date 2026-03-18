@@ -31,6 +31,8 @@ import { useShortcutBindings } from "./hooks/useShortcutBindings";
 import { listen } from "@tauri-apps/api/event";
 import {
   getCursorPosition,
+  startPackageWorkflowAsExe,
+  type PackageWorkflowProgressPayload,
   pickUiElement,
   pickCoordinate,
   playCompletionBeep,
@@ -60,7 +62,7 @@ const RIGHT_PANE_RATIO_STORAGE_KEY =
   "commandflow.layout.right-pane-top-ratio.v1";
 
 const menuGroups = {
-  文件: ["新建", "打开", "保存", "另存为"],
+  文件: ["新建", "打开", "保存", "另存为", "打包EXE"],
   编辑: ["撤销", "重做", "复制", "粘贴"],
   视图: ["放大", "缩小", "重置缩放", "后台模式"],
   运行: ["运行", "停止", "单步", "拾取坐标", "提取元素"],
@@ -75,6 +77,22 @@ interface StepRuntimeContext {
   loopStack: string[];
   startQueue: string[];
   pendingBranchQueue: string[];
+}
+
+interface PackageJobViewItem {
+  jobId: string;
+  workflowName: string;
+  targetPath: string;
+  status: "running" | "success" | "error";
+  stage: string;
+  progress: number;
+  message: string;
+  logs: string[];
+  startedAt: number;
+  updatedAt: number;
+  executablePath?: string;
+  binaryName?: string;
+  sourcePath?: string;
 }
 
 function truncateParams(params: Record<string, unknown>, maxLen = 80): string {
@@ -365,6 +383,8 @@ function App() {
     }
   });
   const [isResizingRightPane, setIsResizingRightPane] = useState(false);
+  const [packageProgressOpen, setPackageProgressOpen] = useState(false);
+  const [packageJobs, setPackageJobs] = useState<PackageJobViewItem[]>([]);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const rightPaneRef = useRef<HTMLDivElement>(null);
@@ -420,6 +440,60 @@ function App() {
           },
         ].slice(-1000),
       );
+    },
+    [],
+  );
+
+  const upsertPackageJob = useCallback(
+    (payload: PackageWorkflowProgressPayload) => {
+      const now = Date.now();
+      const logLine = payload.log_line?.trim();
+
+      setPackageJobs((state) => {
+        const index = state.findIndex((item) => item.jobId === payload.job_id);
+        if (index < 0) {
+          const next: PackageJobViewItem = {
+            jobId: payload.job_id,
+            workflowName: payload.workflow_name,
+            targetPath: payload.target_path,
+            status: payload.status,
+            stage: payload.stage,
+            progress: Math.max(0, Math.min(100, payload.progress ?? 0)),
+            message: payload.message,
+            logs: logLine ? [logLine] : [],
+            startedAt: now,
+            updatedAt: now,
+            executablePath: payload.result?.executable_path,
+            binaryName: payload.result?.binary_name,
+            sourcePath: payload.result?.source_path,
+          };
+          return [next, ...state].slice(0, 20);
+        }
+
+        const current = state[index];
+        const logs = logLine
+          ? [...current.logs, logLine].slice(-500)
+          : current.logs;
+        const updated: PackageJobViewItem = {
+          ...current,
+          workflowName: payload.workflow_name || current.workflowName,
+          targetPath: payload.target_path || current.targetPath,
+          status: payload.status,
+          stage: payload.stage,
+          progress: Math.max(0, Math.min(100, payload.progress ?? current.progress)),
+          message: payload.message || current.message,
+          logs,
+          updatedAt: now,
+          executablePath:
+            payload.result?.executable_path ?? current.executablePath,
+          binaryName: payload.result?.binary_name ?? current.binaryName,
+          sourcePath: payload.result?.source_path ?? current.sourcePath,
+        };
+
+        const nextState = [...state];
+        nextState[index] = updated;
+        return nextState;
+      });
     },
     [],
   );
@@ -994,6 +1068,61 @@ function App() {
     setLastFileName(toDisplayFileName(targetPath));
     addLog("success", `已另存为：${toDisplayFileName(targetPath)}`);
   };
+
+  const packageCurrentWorkflowAsExe = useCallback(async () => {
+    if (!isTauriRuntime) {
+      addLog("warn", "浏览器预览模式不支持打包 EXE，请在 Tauri 桌面端运行。");
+      return;
+    }
+
+    const workflowFile = exportWorkflow();
+    const graph = toBackendGraph(workflowFile);
+    const suggestedName = `${workflowFile.graph.name || "workflow"}.exe`;
+
+    const targetPath = await save({
+      defaultPath: suggestedName,
+      filters: [{ name: "Windows Executable", extensions: ["exe"] }],
+    });
+
+    if (!targetPath) {
+      addLog("warn", "已取消 EXE 打包。");
+      return;
+    }
+
+    try {
+      const started = await startPackageWorkflowAsExe(graph, targetPath);
+      setPackageProgressOpen(true);
+      setPackageJobs((state) => {
+        if (state.some((item) => item.jobId === started.job_id)) {
+          return state;
+        }
+
+        const now = Date.now();
+        return [
+          {
+            jobId: started.job_id,
+            workflowName: started.workflow_name,
+            targetPath: started.target_path,
+            status: "running" as const,
+            stage: "queued",
+            progress: 0,
+            message: "打包任务已启动，等待后端处理...",
+            logs: [],
+            startedAt: now,
+            updatedAt: now,
+          },
+          ...state,
+        ].slice(0, 20);
+      });
+
+      addLog(
+        "info",
+        `已启动后台打包任务 [${started.job_id}]：${started.workflow_name}`,
+      );
+    } catch (error) {
+      addLog("error", `打包 EXE 失败：${String(error)}`);
+    }
+  }, [addLog, exportWorkflow, isTauriRuntime]);
 
   const handleOpenFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1916,6 +2045,46 @@ function App() {
     stopInputRecorderSession,
   ]);
 
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void listen<PackageWorkflowProgressPayload>(
+      "workflow-package-progress",
+      (event) => {
+        if (disposed || !event.payload) return;
+
+        const payload = event.payload;
+        upsertPackageJob(payload);
+        setPackageProgressOpen(true);
+
+        if (payload.status === "success") {
+          addLog(
+            "success",
+            `打包完成 [${payload.job_id}]：${payload.result?.executable_path ?? payload.target_path}`,
+          );
+        } else if (payload.status === "error") {
+          addLog("error", `打包失败 [${payload.job_id}]：${payload.message}`);
+        }
+      },
+    )
+      .then((cleanup) => {
+        unlisten = cleanup;
+      })
+      .catch((error) => {
+        addLog("warn", `监听打包进度失败：${String(error)}`);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [addLog, upsertPackageJob]);
+
   const handleMenuAction = async (item: string) => {
     setActiveMenu(null);
     switch (item) {
@@ -1963,6 +2132,9 @@ function App() {
         }
         break;
       }
+      case "打包EXE":
+        await packageCurrentWorkflowAsExe();
+        break;
       case "撤销":
         undo();
         break;
@@ -2119,6 +2291,16 @@ function App() {
     }
   };
 
+  const handlePackageProgressBackdropClick = (event: React.MouseEvent) => {
+    if (event.target === event.currentTarget) {
+      setPackageProgressOpen(false);
+    }
+  };
+
+  const runningPackageCount = packageJobs.filter(
+    (item) => item.status === "running",
+  ).length;
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#202020] text-slate-900 selection:bg-cyan-100 dark:bg-[#202020] dark:text-slate-100 dark:selection:bg-cyan-900/30">
       {!backgroundMode && (
@@ -2265,6 +2447,137 @@ function App() {
         </div>
       )}
 
+      {packageProgressOpen && (
+        <div
+          className="fixed inset-0 z-[310] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={handlePackageProgressBackdropClick}
+        >
+          <div className="flex max-h-[85vh] w-[860px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+              <div>
+                <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                  EXE 打包进度
+                </h2>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  当前运行中任务：{runningPackageCount} / 总任务：
+                  {packageJobs.length}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPackageJobs((state) =>
+                      state.filter((item) => item.status === "running"),
+                    );
+                  }}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                >
+                  清理已完成
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPackageProgressOpen(false)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {packageJobs.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-xs text-slate-500 dark:border-neutral-700 dark:text-slate-400">
+                  暂无打包任务。
+                </div>
+              ) : (
+                packageJobs.map((job) => {
+                  const statusClass =
+                    job.status === "success"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : job.status === "error"
+                        ? "text-rose-600 dark:text-rose-400"
+                        : "text-cyan-600 dark:text-cyan-400";
+
+                  return (
+                    <section
+                      key={job.jobId}
+                      className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900/70"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">
+                            {job.workflowName}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                            输出：{job.targetPath}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                            任务ID：{job.jobId}
+                          </p>
+                        </div>
+                        <span className={`text-xs font-semibold ${statusClass}`}>
+                          {job.status.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                          <span>阶段：{job.stage}</span>
+                          <span>{Math.round(job.progress)}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-neutral-800">
+                          <div
+                            className={`h-full transition-all ${
+                              job.status === "success"
+                                ? "bg-emerald-500"
+                                : job.status === "error"
+                                  ? "bg-rose-500"
+                                  : "bg-cyan-500"
+                            }`}
+                            style={{
+                              width: `${Math.max(0, Math.min(100, job.progress))}%`,
+                            }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">
+                          {job.message}
+                        </p>
+                      </div>
+
+                      {(job.executablePath || job.sourcePath) && (
+                        <div className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-neutral-800/70 dark:text-slate-300">
+                          {job.executablePath && <p>EXE：{job.executablePath}</p>}
+                          {job.binaryName && <p>Bin：{job.binaryName}</p>}
+                          {job.sourcePath && <p>源码：{job.sourcePath}</p>}
+                        </div>
+                      )}
+
+                      <div className="mt-2">
+                        <p className="mb-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                          详细日志
+                        </p>
+                        <div className="max-h-36 overflow-auto rounded-md bg-[#0b1220] p-2 font-mono text-[11px] text-slate-200">
+                          {job.logs.length === 0 ? (
+                            <p className="text-slate-400">暂无日志输出...</p>
+                          ) : (
+                            job.logs.map((line, index) => (
+                              <p key={`${job.jobId}-${index}`} className="leading-5">
+                                {line}
+                              </p>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <LlmSettingsModal
         open={llmSettingsOpen}
         onClose={() => setLlmSettingsOpen(false)}
@@ -2347,6 +2660,9 @@ function App() {
               backgroundMode={backgroundMode}
               coordinatePicking={coordinatePicking}
               elementPicking={elementPicking}
+              onPackageWorkflow={() => {
+                void packageCurrentWorkflowAsExe();
+              }}
               onPickCoordinate={startCoordinatePicking}
               onPickElement={startElementPicking}
               onToggleBackgroundMode={() => {
