@@ -8,6 +8,7 @@ import {
 } from "../../utils/workflowCompletion";
 import { toBackendGraph } from "../../utils/workflowBridge";
 import { useState } from "react";
+import { Redo2, Undo2 } from "lucide-react";
 import CoordinatePicker from "../CoordinatePicker";
 
 interface ToolbarProps {
@@ -72,7 +73,7 @@ export default function Toolbar({
   };
 
   const buttonClass =
-    "flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/60 px-3.5 py-1.5 text-xs font-medium transition-all duration-150 hover:bg-white hover:shadow-sm active:translate-y-[1px] disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:bg-slate-800";
+    "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all duration-150 hover:shadow-sm active:translate-y-[1px] disabled:opacity-50";
   const mutedActionButtonClass =
     "flex items-center gap-2 rounded-lg bg-slate-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-slate-700/20 transition-all hover:bg-slate-500 hover:shadow-slate-600/30 active:scale-95 disabled:bg-slate-400 dark:bg-slate-600 dark:hover:bg-slate-500";
 
@@ -116,12 +117,26 @@ export default function Toolbar({
 
       <div className="mx-2 h-5 w-[1px] bg-slate-200 dark:bg-neutral-800" />
 
-      <button type="button" onClick={undo} className={buttonClass}>
-        撤销
-      </button>
-      <button type="button" onClick={redo} className={buttonClass}>
-        重做
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={undo}
+          className={buttonClass}
+          title="撤销 (Ctrl+Z)"
+          aria-label="撤销"
+        >
+          <Undo2 className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={redo}
+          className={buttonClass}
+          title="重做 (Ctrl+Y)"
+          aria-label="重做"
+        >
+          <Redo2 className="h-4 w-4" />
+        </button>
+      </div>
 
       <div className="mx-2 h-5 w-[1px] bg-slate-200 dark:bg-neutral-800" />
 
