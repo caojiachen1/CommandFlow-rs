@@ -18,7 +18,7 @@ export type ActionNodeKind =
   | 'systemOperation'
   | 'guiAgent'
   | 'guiAgentActionParser'
-export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch' | 'ocrMatch'
+export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch' | 'ocrMatch' | 'tryCatch'
 export type DataNodeKind = 'varDefine' | 'varSet' | 'varMath' | 'varGet' | 'constValue'
   | 'jsonExtract'
 

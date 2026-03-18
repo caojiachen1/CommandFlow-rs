@@ -30,7 +30,7 @@ A **Windows-only** desktop automation workflow editor built with **Tauri v2, Rus
 - [x] Sequential execution (node executor)
 - [x] Conditional branching (If/Else node)
 - [x] Looping (Loop/While nodes)
-- [ ] Exception handling (Try/Catch node)
+- [x] Exception handling (Try/Catch node)
 - [x] Waiting (Delay node, image-match polling, hotkey wait)
 
 ### 4. Data Scraping & Manipulation

@@ -1626,6 +1626,12 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       },
     ],
   },
+  tryCatch: {
+    label: 'try/catch/finally',
+    description: '先执行 next 分支；成功后执行 success；失败执行 error；无论成功失败都执行 finally。',
+    defaultParams: {},
+    fields: [],
+  },
   imageMatch: {
     label: '图像匹配',
     description: '在截图或指定源图中查找模板图。',

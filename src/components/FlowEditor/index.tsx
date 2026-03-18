@@ -38,6 +38,7 @@ import OcrMatchNode from '../../nodes/OcrMatchNode'
 import InputPresetReplayNode from '../../nodes/InputPresetReplayNode'
 import KeyPressNode from '../../nodes/KeyPressNode'
 import LoopNode from '../../nodes/LoopNode'
+import TryCatchNode from '../../nodes/TryCatchNode'
 import ScreenshotNode from '../../nodes/ScreenshotNode'
 import VariableNode from '../../nodes/VariableNode'
 import PropertyModal from '../PropertyModal'
@@ -232,6 +233,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       condition: ConditionNode,
       loop: LoopNode,
       whileLoop: LoopNode,
+      tryCatch: TryCatchNode,
       varDefine: VariableNode,
       varSet: VariableNode,
       varMath: VariableNode,

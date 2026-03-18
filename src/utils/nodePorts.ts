@@ -350,6 +350,18 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'done', label: 'done', maxConnections: ONE, valueType: 'control' },
     ],
   },
+  tryCatch: {
+    inputs: singleIn(),
+    outputs: [
+      { id: 'next', label: 'next', maxConnections: MANY, valueType: 'control' },
+      { id: 'success', label: 'success', maxConnections: MANY, valueType: 'control' },
+      { id: 'error', label: 'error', maxConnections: MANY, valueType: 'control' },
+      { id: 'finally', label: 'finally', maxConnections: MANY, valueType: 'control' },
+      { id: 'errorType', label: 'errorType', maxConnections: MANY, valueType: 'string' },
+      { id: 'errorMessage', label: 'errorMessage', maxConnections: MANY, valueType: 'string' },
+      { id: 'errorDebug', label: 'errorDebug', maxConnections: MANY, valueType: 'string' },
+    ],
+  },
   imageMatch: {
     inputs: singleIn(),
     outputs: [

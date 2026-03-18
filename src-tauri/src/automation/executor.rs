@@ -181,6 +181,36 @@ impl WorkflowExecutor {
         Ok(())
     }
 
+    async fn execute_targets(
+        &self,
+        targets: &[String],
+        graph: &WorkflowGraph,
+        node_map: &HashMap<&str, &WorkflowNode>,
+        ctx: &mut ExecutionContext,
+        on_node_start: &mut impl FnMut(&WorkflowNode),
+        on_variables_update: &mut impl FnMut(&HashMap<String, Value>),
+        on_log: &mut impl FnMut(&str, String),
+        on_node_complete: &mut impl FnMut(&WorkflowNode, &HashMap<String, Value>, Option<&str>),
+        should_cancel: &impl Fn() -> bool,
+    ) -> CommandResult<()> {
+        for target in targets {
+            Box::pin(self.execute_from_node(
+                target,
+                graph,
+                node_map,
+                ctx,
+                on_node_start,
+                on_variables_update,
+                on_log,
+                on_node_complete,
+                should_cancel,
+            ))
+            .await?;
+        }
+
+        Ok(())
+    }
+
     async fn execute_from_node(
         &self,
         start_id: &str,
@@ -420,6 +450,157 @@ impl WorkflowExecutor {
                     }
                     _ => {}
                 }
+            }
+
+            if matches!(effective_node.kind, NodeKind::TryCatch) {
+                ctx.node_outputs
+                    .insert(effective_node.id.clone(), HashMap::<String, Value>::new());
+
+                let outgoing: Vec<_> = graph
+                    .edges
+                    .iter()
+                    .filter(|edge| {
+                        edge.source == current_id
+                            && is_control_flow_edge(edge.source_handle.as_deref(), edge.target_handle.as_deref())
+                    })
+                    .collect();
+
+                let branch_targets = |handle: &str| {
+                    outgoing
+                        .iter()
+                        .filter(|edge| edge.source_handle.as_deref() == Some(handle))
+                        .map(|edge| edge.target.clone())
+                        .collect::<Vec<_>>()
+                };
+
+                let next_targets = {
+                    let explicit = branch_targets("next");
+                    if explicit.is_empty() {
+                        outgoing
+                            .iter()
+                            .filter(|edge| edge.source_handle.is_none())
+                            .map(|edge| edge.target.clone())
+                            .collect::<Vec<_>>()
+                    } else {
+                        explicit
+                    }
+                };
+                let success_targets = branch_targets("success");
+                let error_targets = branch_targets("error");
+                let finally_targets = branch_targets("finally");
+
+                on_variables_update(&ctx.variables);
+
+                let mut primary_error: Option<CommandFlowError> = None;
+                let mut unresolved_error: Option<CommandFlowError> = None;
+
+                if let Err(error) = self
+                    .execute_targets(
+                        &next_targets,
+                        graph,
+                        node_map,
+                        ctx,
+                        on_node_start,
+                        on_variables_update,
+                        on_log,
+                        on_node_complete,
+                        should_cancel,
+                    )
+                    .await
+                {
+                    primary_error = Some(error);
+                }
+
+                if primary_error.is_none() {
+                    if let Err(error) = self
+                        .execute_targets(
+                            &success_targets,
+                            graph,
+                            node_map,
+                            ctx,
+                            on_node_start,
+                            on_variables_update,
+                            on_log,
+                            on_node_complete,
+                            should_cancel,
+                        )
+                        .await
+                    {
+                        primary_error = Some(error);
+                    }
+                }
+
+                if let Some(error) = primary_error.take() {
+                    set_try_catch_error_outputs(ctx, &effective_node, &error);
+
+                    if error_targets.is_empty() {
+                        unresolved_error = Some(error);
+                    } else if let Err(catch_error) = self
+                        .execute_targets(
+                            &error_targets,
+                            graph,
+                            node_map,
+                            ctx,
+                            on_node_start,
+                            on_variables_update,
+                            on_log,
+                            on_node_complete,
+                            should_cancel,
+                        )
+                        .await
+                    {
+                        unresolved_error = Some(catch_error);
+                    }
+                } else {
+                    clear_try_catch_error_outputs(ctx, &effective_node);
+                }
+
+                if let Err(finally_error) = self
+                    .execute_targets(
+                        &finally_targets,
+                        graph,
+                        node_map,
+                        ctx,
+                        on_node_start,
+                        on_variables_update,
+                        on_log,
+                        on_node_complete,
+                        should_cancel,
+                    )
+                    .await
+                {
+                    unresolved_error = Some(finally_error);
+                }
+
+                let outputs_snapshot = ctx
+                    .node_outputs
+                    .get(&effective_node.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let selected_control_output = if unresolved_error.is_some() {
+                    Some("error")
+                } else {
+                    Some("success")
+                };
+                on_node_complete(&effective_node, &outputs_snapshot, selected_control_output);
+                sleep_after_node(&effective_node, should_cancel).await?;
+                on_variables_update(&ctx.variables);
+
+                if let Some(error) = unresolved_error {
+                    return Err(error);
+                }
+
+                if let Some(next_pending) = pending_branch_targets.pop_front() {
+                    current_id = next_pending;
+                    continue;
+                }
+
+                if let Some(active_loop_id) = loop_stack.last() {
+                    current_id = active_loop_id.clone();
+                    continue;
+                }
+
+                return Ok(());
             }
 
             let directive = self
@@ -881,6 +1062,7 @@ impl WorkflowExecutor {
                     Ok(NextDirective::Branch("done"))
                 }
             }
+            NodeKind::TryCatch => Ok(NextDirective::Default),
             NodeKind::ImageMatch => {
                 let template_path = get_string(node, "templatePath", "");
                 if template_path.trim().is_empty() {
@@ -1400,7 +1582,14 @@ fn is_trigger_node(node: &WorkflowNode) -> bool {
 fn is_control_source_handle(handle: Option<&str>) -> bool {
     match handle {
         None => true,
-        Some("next") | Some("true") | Some("false") | Some("loop") | Some("done") => true,
+        Some("next")
+        | Some("true")
+        | Some("false")
+        | Some("loop")
+        | Some("done")
+        | Some("success")
+        | Some("error")
+        | Some("finally") => true,
         _ => false,
     }
 }
@@ -1527,6 +1716,46 @@ fn set_node_output(ctx: &mut ExecutionContext, node: &WorkflowNode, handle: &str
         .entry(node.id.clone())
         .or_insert_with(HashMap::new);
     outputs.insert(handle.to_string(), value);
+}
+
+fn error_kind_label(error: &CommandFlowError) -> &'static str {
+    match error {
+        CommandFlowError::Io(_) => "io",
+        CommandFlowError::Validation(_) => "validation",
+        CommandFlowError::Automation(_) => "automation",
+        CommandFlowError::Canceled => "canceled",
+    }
+}
+
+fn clear_try_catch_error_outputs(ctx: &mut ExecutionContext, node: &WorkflowNode) {
+    set_node_output(ctx, node, "errorType", Value::String(String::new()));
+    set_node_output(ctx, node, "errorMessage", Value::String(String::new()));
+    set_node_output(ctx, node, "errorDebug", Value::String(String::new()));
+}
+
+fn set_try_catch_error_outputs(
+    ctx: &mut ExecutionContext,
+    node: &WorkflowNode,
+    error: &CommandFlowError,
+) {
+    set_node_output(
+        ctx,
+        node,
+        "errorType",
+        Value::String(error_kind_label(error).to_string()),
+    );
+    set_node_output(
+        ctx,
+        node,
+        "errorMessage",
+        Value::String(error.to_string()),
+    );
+    set_node_output(
+        ctx,
+        node,
+        "errorDebug",
+        Value::String(format!("{:?}", error)),
+    );
 }
 
 fn optional_string_param(node: &WorkflowNode, key: &str) -> Option<String> {

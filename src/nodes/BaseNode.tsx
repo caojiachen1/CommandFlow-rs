@@ -122,6 +122,9 @@ const describeControlOutputPurpose = (handleId: string, label: string) => {
   if (handleId === 'false') return '条件结果为 false 时从这里继续执行。'
   if (handleId === 'loop') return '循环体继续时从这里进入下一轮。'
   if (handleId === 'done') return '循环结束后从这里流向后续节点。'
+  if (handleId === 'success') return 'try 主流程成功完成后从这里继续执行。'
+  if (handleId === 'error') return 'try/success 阶段发生错误时从这里继续执行。'
+  if (handleId === 'finally') return '不论成功或失败，都会执行该 finally 分支。'
   if (handleId === 'next') return '节点执行完成后默认从这里继续。'
   return `控制流会从「${label}」这个分支继续。`
 }
@@ -146,6 +149,9 @@ const describeDataOutputPurpose = (handleId: string, label: string) => {
   if (handleId === 'stdout') return '输出命令标准输出内容。'
   if (handleId === 'stderr') return '输出命令错误输出内容。'
   if (handleId === 'exitCode') return '输出命令退出码。'
+  if (handleId === 'errorType') return '输出错误类型（如 validation / automation / canceled）。'
+  if (handleId === 'errorMessage') return '输出错误消息文本（errormessage）。'
+  if (handleId === 'errorDebug') return '输出错误调试字符串（debug）。'
   if (handleId === 'pid') return '输出启动进程的 PID。'
   return `输出「${label}」的结果值供下游节点使用。`
 }

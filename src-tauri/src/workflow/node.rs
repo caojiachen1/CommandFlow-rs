@@ -62,6 +62,7 @@ pub enum NodeKind {
     Condition,
     Loop,
     WhileLoop,
+    TryCatch,
     ImageMatch,
     OcrMatch,
     VarDefine,

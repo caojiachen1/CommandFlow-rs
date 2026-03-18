@@ -123,6 +123,7 @@ const workflowNodeKinds = [
   "condition",
   "loop",
   "whileLoop",
+  "tryCatch",
   "imageMatch",
   "ocrMatch",
   "varDefine",
