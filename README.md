@@ -34,14 +34,13 @@ A **Windows-only** desktop automation workflow editor built with **Tauri v2, Rus
 - [x] Waiting (Delay node, image-match polling, hotkey wait)
 
 ### 4. Data Scraping & Manipulation
-- [ ] Structured data extraction (tables/Excel/Web table)
 - [x] OCR + regex extraction (text parsing from screenshots)
 - [x] Regex/text parsing (LLM output parsing, etc.)
 - [x] Clipboard read/write and variable transfer
 
 ### 5. Stability Mechanisms
 - [x] Retry logic (e.g., xcap stream recover)
-- [ ] Resolution/DPI adaptation
+- [x] Resolution/DPI adaptation
 - [ ] Popup handling (global listener / auto-dismiss system dialogs)
 
 ## Tech stack
