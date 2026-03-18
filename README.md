@@ -17,14 +17,13 @@ A **Windows-only** desktop automation workflow editor built with **Tauri v2, Rus
 ## TODO List
 
 ### 1. Element Identification
-- [ ] UI object/control recognition (Accessibility APIs: UIA/MSAA/Java Access Bridge)
+- [x] UI object/control recognition (Accessibility APIs: UIA/MSAA/Java Access Bridge)
 - [x] Image matching (template matching + similarity threshold; real-time polling via xcap stream)
 - [x] OCR (screen text recognition)
 
 ### 2. Input Simulation
 - [x] Mouse: move/click/double-click/drag/scroll (enigo + SendInput)
 - [x] Keyboard: key press/combos/hotkey listening (enigo + virtual keys)
-- [ ] IME compatibility (input method candidate selection / clipboard paste)
 - [ ] Message-level sending (PostMessage/SendMessage; current uses driver-level SendInput)
 
 ### 3. Flow Control & Logic
@@ -41,7 +40,6 @@ A **Windows-only** desktop automation workflow editor built with **Tauri v2, Rus
 - [x] Clipboard read/write and variable transfer
 
 ### 5. Stability Mechanisms
-- [ ] Anchor-based positioning (anchor-based targeting)
 - [x] Retry logic (e.g., xcap stream recover)
 - [ ] Resolution/DPI adaptation
 - [ ] Popup handling (global listener / auto-dismiss system dialogs)
