@@ -1783,10 +1783,7 @@ fn resolve_source_fallback_value(
 }
 
 fn set_node_output(ctx: &mut ExecutionContext, node: &WorkflowNode, handle: &str, value: Value) {
-    let outputs = ctx
-        .node_outputs
-        .entry(node.id.clone())
-        .or_default();
+    let outputs = ctx.node_outputs.entry(node.id.clone()).or_default();
     outputs.insert(handle.to_string(), value);
 }
 
