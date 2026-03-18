@@ -296,10 +296,10 @@ fn validate_match_value(value: &str, field_label: &str) -> CommandResult<String>
 pub fn list_open_window_entries() -> CommandResult<Vec<OpenWindowEntry>> {
     #[cfg(target_os = "windows")]
     {
-        return Ok(enumerate_windows()
+        Ok(enumerate_windows()
             .into_iter()
             .map(to_public_window_entry)
-            .collect());
+            .collect())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -317,7 +317,7 @@ pub fn list_open_window_titles() -> CommandResult<Vec<String>> {
             .collect::<Vec<_>>();
         titles.sort();
         titles.dedup();
-        return Ok(titles);
+        Ok(titles)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -336,7 +336,7 @@ pub fn foreground_window_matches_title(
         let matched = read_foreground_window_entry()
             .filter(|entry| match_text(&entry.title, &target, match_mode))
             .map(to_public_window_entry);
-        return Ok(matched);
+        Ok(matched)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -359,7 +359,7 @@ pub fn foreground_window_matches_program(
         let matched = read_foreground_window_entry()
             .filter(|entry| matches_program(entry, &target, match_mode))
             .map(to_public_window_entry);
-        return Ok(matched);
+        Ok(matched)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -380,7 +380,7 @@ pub fn foreground_window_matches(
         let matched = read_foreground_window_entry()
             .filter(|entry| matches_query(entry, query))
             .map(to_public_window_entry);
-        return Ok(matched);
+        Ok(matched)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -395,11 +395,11 @@ pub fn foreground_window_matches(
 pub fn list_matching_windows(query: &WindowMatchQuery) -> CommandResult<Vec<OpenWindowEntry>> {
     #[cfg(target_os = "windows")]
     {
-        return Ok(enumerate_windows()
+        Ok(enumerate_windows()
             .into_iter()
             .filter(|entry| matches_query(entry, query))
             .map(to_public_window_entry)
-            .collect());
+            .collect())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -450,7 +450,7 @@ pub fn activate_window_by_title(title: &str, match_mode: &str) -> CommandResult<
             }
         }
 
-        return Ok(to_public_window_entry(window));
+        Ok(to_public_window_entry(window))
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -499,7 +499,7 @@ pub fn activate_window_by_program(
             }
         }
 
-        return Ok(to_public_window_entry(window));
+        Ok(to_public_window_entry(window))
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -543,7 +543,7 @@ pub fn activate_window(query: &WindowMatchQuery) -> CommandResult<OpenWindowEntr
             }
         }
 
-        return Ok(to_public_window_entry(window));
+        Ok(to_public_window_entry(window))
     }
 
     #[cfg(not(target_os = "windows"))]

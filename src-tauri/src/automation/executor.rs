@@ -1786,7 +1786,7 @@ fn set_node_output(ctx: &mut ExecutionContext, node: &WorkflowNode, handle: &str
     let outputs = ctx
         .node_outputs
         .entry(node.id.clone())
-        .or_insert_with(HashMap::new);
+        .or_default();
     outputs.insert(handle.to_string(), value);
 }
 

@@ -295,7 +295,7 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
 
     control.cancel_requested.store(false, Ordering::SeqCst);
 
-    let executor = WorkflowExecutor::default();
+    let executor = WorkflowExecutor;
     let mut emit_progress = |node: &crate::workflow::node::WorkflowNode| {
         let _ = app.emit(
             "workflow-node-started",
@@ -601,12 +601,12 @@ pub async fn get_cursor_position() -> Result<CoordinateInfo, String> {
     #[cfg(target_os = "windows")]
     {
         let (x, y) = read_cursor_virtual_screen_point()?;
-        return Ok(CoordinateInfo {
+        Ok(CoordinateInfo {
             x,
             y,
             is_physical_pixel: true,
             mode: "virtualScreen".to_string(),
-        });
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -631,7 +631,7 @@ pub async fn confirm_coordinate_pick(app: AppHandle) -> Result<(), String> {
             let _ = overlay.close();
         }
 
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -683,7 +683,7 @@ pub async fn confirm_ui_element_pick(app: AppHandle) -> Result<(), String> {
             let _ = overlay.close();
         }
 
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -892,7 +892,7 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
 
         // 获取窗口外边框尺寸，用于精确计算位置
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let outer_size = window.outer_size().unwrap_or_else(|_| PhysicalSize {
+        let outer_size = window.outer_size().unwrap_or(PhysicalSize {
             width: compact_width,
             height: compact_height,
         });

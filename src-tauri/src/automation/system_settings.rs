@@ -620,7 +620,7 @@ pub async fn set_brightness_percent(percent: u8) -> CommandResult<()> {
 
             for mut display in displays.drain(..) {
                 let display_name = format!("{}", display.info);
-                let feature_code: FeatureCode = 0x10u8.into();
+                let feature_code: FeatureCode = 0x10u8;
                 let result = display.handle.set_vcp_feature(feature_code, target);
                 match result {
                     Ok(_) => success_count += 1,

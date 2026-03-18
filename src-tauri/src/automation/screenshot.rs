@@ -378,7 +378,7 @@ fn monitor_candidates() -> CommandResult<Vec<Monitor>> {
     let mut monitors =
         Monitor::all().map_err(|error| CommandFlowError::Automation(error.to_string()))?;
 
-    if let Some(from_point) = Monitor::from_point(0, 0).ok() {
+    if let Ok(from_point) = Monitor::from_point(0, 0) {
         monitors.insert(0, from_point);
     }
 

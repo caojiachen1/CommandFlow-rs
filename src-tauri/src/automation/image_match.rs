@@ -123,7 +123,7 @@ fn evaluate_template_cpu(
         };
     }
 
-    let (coarse_source, coarse_template, scale) = build_coarse_images(&source, &template);
+    let (coarse_source, coarse_template, scale) = build_coarse_images(source, template);
     let coarse_best = find_best_position(&coarse_source, &coarse_template, 0, 0, None);
     let Some((coarse_x, coarse_y, _)) = coarse_best else {
         return MatchEvaluation {
@@ -143,7 +143,7 @@ fn evaluate_template_cpu(
     let max_x = (coarse_ref_x + radius).min(sw.saturating_sub(tw));
     let max_y = (coarse_ref_y + radius).min(sh.saturating_sub(th));
 
-    let refine_best = find_best_position(&source, &template, min_x, min_y, Some((max_x, max_y)));
+    let refine_best = find_best_position(source, template, min_x, min_y, Some((max_x, max_y)));
     let Some((x, y, best_score)) = refine_best else {
         return MatchEvaluation {
             matched_point: None,

@@ -1048,7 +1048,7 @@ fn render_hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<
     let bitmap = unsafe {
         CreateDIBSection(
             dc,
-            &mut bitmap_info,
+            &bitmap_info,
             DIB_RGB_COLORS,
             &mut bits,
             ptr::null_mut(),
