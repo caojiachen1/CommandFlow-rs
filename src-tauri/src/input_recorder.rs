@@ -552,8 +552,8 @@ fn rdp_indices(points: &[RecordedCursorPoint], epsilon: f64) -> Vec<usize> {
         let mut max_distance = -1.0;
         let mut max_index = start;
 
-        for index in (start + 1)..end {
-            let distance = perpendicular_distance(&points[index], a, b);
+        for (index, point) in points.iter().enumerate().take(end).skip(start + 1) {
+            let distance = perpendicular_distance(point, a, b);
             if distance > max_distance {
                 max_distance = distance;
                 max_index = index;

@@ -192,6 +192,7 @@ impl WorkflowExecutor {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_targets(
         &self,
         targets: &[String],
@@ -222,6 +223,7 @@ impl WorkflowExecutor {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_from_node(
         &self,
         start_id: &str,
@@ -1662,20 +1664,22 @@ fn is_trigger_node(node: &WorkflowNode) -> bool {
 }
 
 fn is_control_source_handle(handle: Option<&str>) -> bool {
-    match handle {
-        None => true,
-        Some("next") | Some("true") | Some("false") | Some("loop") | Some("done")
-        | Some("success") | Some("error") | Some("finally") => true,
-        _ => false,
-    }
+    matches!(
+        handle,
+        None
+            | Some("next")
+            | Some("true")
+            | Some("false")
+            | Some("loop")
+            | Some("done")
+            | Some("success")
+            | Some("error")
+            | Some("finally")
+    )
 }
 
 fn is_control_target_handle(handle: Option<&str>) -> bool {
-    match handle {
-        None => true,
-        Some("in") => true,
-        _ => false,
-    }
+    matches!(handle, None | Some("in"))
 }
 
 fn is_param_handle(handle: Option<&str>) -> bool {
@@ -2685,6 +2689,7 @@ async fn evaluate_ocr_path_blocking(
     .map_err(|error| CommandFlowError::Automation(format!("OCR 任务线程执行失败：{}", error)))?
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn evaluate_ocr_rgba_blocking(
     rgba: Vec<u8>,
     width: u32,
@@ -4245,6 +4250,7 @@ fn prepare_ocr_match_debug_dir(node: &WorkflowNode) -> CommandResult<PathBuf> {
     Ok(run_dir)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn save_ocr_static_debug_artifacts(
     debug_dir: &Path,
     source_path: &str,
@@ -4292,6 +4298,7 @@ fn save_ocr_static_debug_artifacts(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn save_ocr_frame_debug_artifacts(
     debug_dir: &Path,
     frame: u64,
@@ -4391,6 +4398,7 @@ fn render_ocr_debug_overlay(
     Ok(image)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_ocr_debug_metadata(
     output_path: &Path,
     evaluation: &ocr_match::OcrMatchEvaluation,

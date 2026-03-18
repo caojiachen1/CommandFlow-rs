@@ -73,19 +73,22 @@ pub struct CoordinateInfo {
     pub mode: String,
 }
 
+type CoordinatePickResult = Result<CoordinateInfo, String>;
+type CoordinatePickSender = oneshot::Sender<CoordinatePickResult>;
+type UiElementPickResult = Result<uia::UiElementPreview, String>;
+type UiElementPickSender = oneshot::Sender<UiElementPickResult>;
+
 fn coordinate_pick_sender_store(
-) -> &'static Mutex<Option<oneshot::Sender<Result<CoordinateInfo, String>>>> {
-    static COORDINATE_PICK_SENDER: OnceLock<
-        Mutex<Option<oneshot::Sender<Result<CoordinateInfo, String>>>>,
-    > = OnceLock::new();
+) -> &'static Mutex<Option<CoordinatePickSender>> {
+    static COORDINATE_PICK_SENDER: OnceLock<Mutex<Option<CoordinatePickSender>>> =
+        OnceLock::new();
     COORDINATE_PICK_SENDER.get_or_init(|| Mutex::new(None))
 }
 
 fn ui_element_pick_sender_store(
-) -> &'static Mutex<Option<oneshot::Sender<Result<uia::UiElementPreview, String>>>> {
-    static UI_ELEMENT_PICK_SENDER: OnceLock<
-        Mutex<Option<oneshot::Sender<Result<uia::UiElementPreview, String>>>>,
-    > = OnceLock::new();
+) -> &'static Mutex<Option<UiElementPickSender>> {
+    static UI_ELEMENT_PICK_SENDER: OnceLock<Mutex<Option<UiElementPickSender>>> =
+        OnceLock::new();
     UI_ELEMENT_PICK_SENDER.get_or_init(|| Mutex::new(None))
 }
 

@@ -343,8 +343,10 @@ fn switch_windows_network_adapter(adapter_name: Option<&str>, mode: &str) -> Com
         ));
     };
 
-    let mut if_row = MIB_IFROW::default();
-    if_row.dwIndex = interface_index;
+    let mut if_row = MIB_IFROW {
+        dwIndex: interface_index,
+        ..Default::default()
+    };
 
     let query_status = unsafe { GetIfEntry(&mut if_row) };
     if query_status != 0 {

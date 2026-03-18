@@ -1023,7 +1023,7 @@ fn render_hicon_to_png_data_url(icon_handle: HICON, size: i32) -> CommandResult<
     }
 
     let mut bits = ptr::null_mut();
-    let mut bitmap_info = BITMAPINFO {
+    let bitmap_info = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
             biWidth: size,

@@ -74,6 +74,7 @@ pub fn evaluate_path(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate_rgba(
     rgba: Vec<u8>,
     width: u32,
