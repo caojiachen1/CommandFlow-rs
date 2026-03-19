@@ -1028,6 +1028,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "ddc-hi",
+ "encoding_rs",
  "enigo",
  "image 0.25.10",
  "lnk_parser",

@@ -6,6 +6,9 @@ import {
   useCallback,
   type ChangeEvent,
 } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import FlowEditor from "./components/FlowEditor";
@@ -30,7 +33,12 @@ import {
 import { useShortcutBindings } from "./hooks/useShortcutBindings";
 import { listen } from "@tauri-apps/api/event";
 import {
+  checkPackagingEnvironment,
   getCursorPosition,
+  type PackageBuildOptionsPayload,
+  type PackagingEnvironmentReportPayload,
+  startPackageWorkflowAsExe,
+  type PackageWorkflowProgressPayload,
   pickUiElement,
   pickCoordinate,
   playCompletionBeep,
@@ -60,7 +68,7 @@ const RIGHT_PANE_RATIO_STORAGE_KEY =
   "commandflow.layout.right-pane-top-ratio.v1";
 
 const menuGroups = {
-  文件: ["新建", "打开", "保存", "另存为"],
+  文件: ["新建", "打开", "保存", "另存为", "打包EXE"],
   编辑: ["撤销", "重做", "复制", "粘贴"],
   视图: ["放大", "缩小", "重置缩放", "后台模式"],
   运行: ["运行", "停止", "单步", "拾取坐标", "提取元素"],
@@ -76,6 +84,36 @@ interface StepRuntimeContext {
   startQueue: string[];
   pendingBranchQueue: string[];
 }
+
+interface PackageJobViewItem {
+  jobId: string;
+  workflowName: string;
+  targetPath: string;
+  status: "running" | "success" | "error";
+  stage: string;
+  progress: number;
+  message: string;
+  logs: string[];
+  startedAt: number;
+  updatedAt: number;
+  executablePath?: string;
+  binaryName?: string;
+  sourcePath?: string;
+}
+
+interface PackageBuildConfigViewModel {
+  ltoMode: PackageBuildOptionsPayload["ltoMode"];
+  optLevel: PackageBuildOptionsPayload["optLevel"];
+  codegenUnits: number;
+  strip: PackageBuildOptionsPayload["strip"];
+}
+
+const defaultPackageBuildConfig: PackageBuildConfigViewModel = {
+  ltoMode: "fat",
+  optLevel: "3",
+  codegenUnits: 1,
+  strip: "debuginfo",
+};
 
 function truncateParams(params: Record<string, unknown>, maxLen = 80): string {
   const truncated = Object.fromEntries(
@@ -365,6 +403,23 @@ function App() {
     }
   });
   const [isResizingRightPane, setIsResizingRightPane] = useState(false);
+  const [packageConfigOpen, setPackageConfigOpen] = useState(false);
+  const [packageOutputPath, setPackageOutputPath] = useState("");
+  const [packageBuildConfig, setPackageBuildConfig] =
+    useState<PackageBuildConfigViewModel>(defaultPackageBuildConfig);
+  const [packageEnvironmentReport, setPackageEnvironmentReport] =
+    useState<PackagingEnvironmentReportPayload | null>(null);
+  const [packageEnvironmentChecking, setPackageEnvironmentChecking] =
+    useState(false);
+  const [packageLaunching, setPackageLaunching] = useState(false);
+  const [packageProgressOpen, setPackageProgressOpen] = useState(false);
+  const [packageJobs, setPackageJobs] = useState<PackageJobViewItem[]>([]);
+  const packageTerminalHostRefs = useRef<Record<string, HTMLDivElement | null>>(
+    {},
+  );
+  const packageTerminalRefs = useRef<
+    Record<string, { terminal: Terminal; fitAddon: FitAddon; written: number }>
+  >({});
 
   const menuRef = useRef<HTMLDivElement>(null);
   const rightPaneRef = useRef<HTMLDivElement>(null);
@@ -420,6 +475,60 @@ function App() {
           },
         ].slice(-1000),
       );
+    },
+    [],
+  );
+
+  const upsertPackageJob = useCallback(
+    (payload: PackageWorkflowProgressPayload) => {
+      const now = Date.now();
+      const logLine = payload.log_line?.trim();
+
+      setPackageJobs((state) => {
+        const index = state.findIndex((item) => item.jobId === payload.job_id);
+        if (index < 0) {
+          const next: PackageJobViewItem = {
+            jobId: payload.job_id,
+            workflowName: payload.workflow_name,
+            targetPath: payload.target_path,
+            status: payload.status,
+            stage: payload.stage,
+            progress: Math.max(0, Math.min(100, payload.progress ?? 0)),
+            message: payload.message,
+            logs: logLine ? [logLine] : [],
+            startedAt: now,
+            updatedAt: now,
+            executablePath: payload.result?.executable_path,
+            binaryName: payload.result?.binary_name,
+            sourcePath: payload.result?.source_path,
+          };
+          return [next, ...state].slice(0, 20);
+        }
+
+        const current = state[index];
+        const logs = logLine
+          ? [...current.logs, logLine].slice(-500)
+          : current.logs;
+        const updated: PackageJobViewItem = {
+          ...current,
+          workflowName: payload.workflow_name || current.workflowName,
+          targetPath: payload.target_path || current.targetPath,
+          status: payload.status,
+          stage: payload.stage,
+          progress: Math.max(0, Math.min(100, payload.progress ?? current.progress)),
+          message: payload.message || current.message,
+          logs,
+          updatedAt: now,
+          executablePath:
+            payload.result?.executable_path ?? current.executablePath,
+          binaryName: payload.result?.binary_name ?? current.binaryName,
+          sourcePath: payload.result?.source_path ?? current.sourcePath,
+        };
+
+        const nextState = [...state];
+        nextState[index] = updated;
+        return nextState;
+      });
     },
     [],
   );
@@ -994,6 +1103,18 @@ function App() {
     setLastFileName(toDisplayFileName(targetPath));
     addLog("success", `已另存为：${toDisplayFileName(targetPath)}`);
   };
+
+  const packageCurrentWorkflowAsExe = useCallback(async () => {
+    if (!isTauriRuntime) {
+      addLog("warn", "浏览器预览模式不支持打包 EXE，请在 Tauri 桌面端运行。");
+      return;
+    }
+
+    const workflowFile = exportWorkflow();
+    setPackageOutputPath(`${workflowFile.graph.name || "workflow"}.exe`);
+    setPackageBuildConfig(defaultPackageBuildConfig);
+    setPackageConfigOpen(true);
+  }, [addLog, exportWorkflow, isTauriRuntime]);
 
   const handleOpenFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1916,6 +2037,46 @@ function App() {
     stopInputRecorderSession,
   ]);
 
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void listen<PackageWorkflowProgressPayload>(
+      "workflow-package-progress",
+      (event) => {
+        if (disposed || !event.payload) return;
+
+        const payload = event.payload;
+        upsertPackageJob(payload);
+        setPackageProgressOpen(true);
+
+        if (payload.status === "success") {
+          addLog(
+            "success",
+            `打包完成 [${payload.job_id}]：${payload.result?.executable_path ?? payload.target_path}`,
+          );
+        } else if (payload.status === "error") {
+          addLog("error", `打包失败 [${payload.job_id}]：${payload.message}`);
+        }
+      },
+    )
+      .then((cleanup) => {
+        unlisten = cleanup;
+      })
+      .catch((error) => {
+        addLog("warn", `监听打包进度失败：${String(error)}`);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [addLog, upsertPackageJob]);
+
   const handleMenuAction = async (item: string) => {
     setActiveMenu(null);
     switch (item) {
@@ -1963,6 +2124,9 @@ function App() {
         }
         break;
       }
+      case "打包EXE":
+        await packageCurrentWorkflowAsExe();
+        break;
       case "撤销":
         undo();
         break;
@@ -2119,6 +2283,198 @@ function App() {
     }
   };
 
+  const handlePackageProgressBackdropClick = (event: React.MouseEvent) => {
+    if (event.target === event.currentTarget) {
+      setPackageProgressOpen(false);
+    }
+  };
+
+  const refreshPackagingEnvironment = useCallback(async () => {
+    setPackageEnvironmentChecking(true);
+    try {
+      const report = await checkPackagingEnvironment();
+      setPackageEnvironmentReport(report);
+      return report;
+    } catch (error) {
+      const fallback: PackagingEnvironmentReportPayload = {
+        ready: false,
+        summary: `环境检测失败：${String(error)}`,
+        tools: [],
+      };
+      setPackageEnvironmentReport(fallback);
+      return fallback;
+    } finally {
+      setPackageEnvironmentChecking(false);
+    }
+  }, []);
+
+  const browsePackageOutputPath = useCallback(async () => {
+    const workflowFile = exportWorkflow();
+    const currentName =
+      packageOutputPath.trim() || `${workflowFile.graph.name || "workflow"}.exe`;
+    const targetPath = await save({
+      defaultPath: currentName,
+      filters: [{ name: "Windows Executable", extensions: ["exe"] }],
+    });
+
+    if (targetPath) {
+      setPackageOutputPath(targetPath);
+    }
+  }, [exportWorkflow, packageOutputPath]);
+
+  const confirmPackageWorkflowAsExe = useCallback(async () => {
+    if (!isTauriRuntime) {
+      addLog("warn", "浏览器预览模式不支持打包 EXE，请在 Tauri 桌面端运行。");
+      return;
+    }
+
+    const trimmedTargetPath = packageOutputPath.trim();
+    if (!trimmedTargetPath) {
+      addLog("warn", "请先填写或浏览选择 EXE 输出路径。"
+      );
+      return;
+    }
+
+    setPackageLaunching(true);
+    try {
+      const report = packageEnvironmentReport ?? (await refreshPackagingEnvironment());
+      if (!report.ready) {
+        addLog("warn", report.summary);
+        return;
+      }
+
+      const workflowFile = exportWorkflow();
+      const graph = toBackendGraph(workflowFile);
+      const started = await startPackageWorkflowAsExe(graph, trimmedTargetPath, {
+        ltoMode: packageBuildConfig.ltoMode,
+        optLevel: packageBuildConfig.optLevel,
+        codegenUnits: Math.max(1, Math.min(64, Math.floor(packageBuildConfig.codegenUnits || 1))),
+        strip: packageBuildConfig.strip,
+      });
+
+      setPackageConfigOpen(false);
+      setPackageProgressOpen(true);
+      setPackageJobs((state) => {
+        if (state.some((item) => item.jobId === started.job_id)) {
+          return state;
+        }
+
+        const now = Date.now();
+        return [
+          {
+            jobId: started.job_id,
+            workflowName: started.workflow_name,
+            targetPath: started.target_path,
+            status: "running" as const,
+            stage: "queued",
+            progress: 0,
+            message: "打包任务已启动，等待后端处理...",
+            logs: [],
+            startedAt: now,
+            updatedAt: now,
+          },
+          ...state,
+        ].slice(0, 20);
+      });
+
+      addLog(
+        "info",
+        `已启动后台打包任务 [${started.job_id}]：${started.workflow_name}`,
+      );
+    } catch (error) {
+      addLog("error", `打包 EXE 失败：${String(error)}`);
+    } finally {
+      setPackageLaunching(false);
+    }
+  }, [
+    addLog,
+    exportWorkflow,
+    isTauriRuntime,
+    packageBuildConfig,
+    packageEnvironmentReport,
+    packageOutputPath,
+    refreshPackagingEnvironment,
+  ]);
+
+  useEffect(() => {
+    if (!packageConfigOpen) {
+      return;
+    }
+    void refreshPackagingEnvironment();
+  }, [packageConfigOpen, refreshPackagingEnvironment]);
+
+  useEffect(() => {
+    const activeJobIds = new Set(packageJobs.map((job) => job.jobId));
+
+    for (const [jobId, holder] of Object.entries(packageTerminalRefs.current)) {
+      if (!activeJobIds.has(jobId)) {
+        holder.terminal.dispose();
+        delete packageTerminalRefs.current[jobId];
+      }
+    }
+
+    for (const job of packageJobs) {
+      const host = packageTerminalHostRefs.current[job.jobId];
+      if (!host) continue;
+
+      if (!packageTerminalRefs.current[job.jobId]) {
+        const terminal = new Terminal({
+          convertEol: false,
+          scrollback: 5000,
+          fontSize: 12,
+          fontFamily:
+            'Consolas, "Cascadia Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace',
+          theme: {
+            background: "#0b1220",
+            foreground: "#dbe7ff",
+          },
+        });
+        const fitAddon = new FitAddon();
+        terminal.loadAddon(fitAddon);
+        terminal.open(host);
+        fitAddon.fit();
+        packageTerminalRefs.current[job.jobId] = {
+          terminal,
+          fitAddon,
+          written: 0,
+        };
+      }
+
+      const holder = packageTerminalRefs.current[job.jobId];
+      const pending = job.logs.slice(holder.written);
+      if (pending.length > 0) {
+        for (const chunk of pending) {
+          holder.terminal.write(chunk.endsWith("\n") ? chunk : `${chunk}\r\n`);
+        }
+        holder.written = job.logs.length;
+        holder.terminal.scrollToBottom();
+      }
+    }
+  }, [packageJobs]);
+
+  useEffect(() => {
+    if (!packageProgressOpen) return;
+
+    for (const holder of Object.values(packageTerminalRefs.current)) {
+      holder.fitAddon.fit();
+      holder.terminal.scrollToBottom();
+    }
+  }, [packageProgressOpen]);
+
+  useEffect(() => {
+    return () => {
+      for (const holder of Object.values(packageTerminalRefs.current)) {
+        holder.terminal.dispose();
+      }
+      packageTerminalRefs.current = {};
+      packageTerminalHostRefs.current = {};
+    };
+  }, []);
+
+  const runningPackageCount = packageJobs.filter(
+    (item) => item.status === "running",
+  ).length;
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#202020] text-slate-900 selection:bg-cyan-100 dark:bg-[#202020] dark:text-slate-100 dark:selection:bg-cyan-900/30">
       {!backgroundMode && (
@@ -2265,6 +2621,334 @@ function App() {
         </div>
       )}
 
+      {packageConfigOpen && (
+        <div
+          className="fixed inset-0 z-[305] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setPackageConfigOpen(false);
+            }
+          }}
+        >
+          <div className="flex max-h-[92vh] w-[880px] max-w-[96vw] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+              <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                EXE 打包配置
+              </h2>
+              <button
+                type="button"
+                onClick={() => setPackageConfigOpen(false)}
+                className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
+              <section className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-neutral-800">
+                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  输出路径
+                </h3>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={packageOutputPath}
+                    onChange={(event) => setPackageOutputPath(event.target.value)}
+                    placeholder="请选择输出 EXE 文件路径"
+                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none focus:border-cyan-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void browsePackageOutputPath();
+                    }}
+                    className="shrink-0 rounded-md border border-slate-300 px-2.5 py-2 text-[11px] text-slate-700 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-200 dark:hover:bg-neutral-800"
+                  >
+                    浏览
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  可直接输入文件名或点击浏览。建议保留 <code>.exe</code> 后缀。
+                </p>
+              </section>
+
+              <section className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-neutral-800">
+                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  编译选项
+                </h3>
+                <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  LTO
+                  <select
+                    value={packageBuildConfig.ltoMode}
+                    onChange={(event) =>
+                      setPackageBuildConfig((state) => ({
+                        ...state,
+                        ltoMode: event.target.value as PackageBuildOptionsPayload["ltoMode"],
+                      }))
+                    }
+                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
+                  >
+                    <option value="none">none（关闭）</option>
+                    <option value="thin">thin</option>
+                    <option value="fat">fat</option>
+                  </select>
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    优化等级
+                    <select
+                      value={packageBuildConfig.optLevel}
+                      onChange={(event) =>
+                        setPackageBuildConfig((state) => ({
+                          ...state,
+                          optLevel: event.target.value as PackageBuildOptionsPayload["optLevel"],
+                        }))
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
+                    >
+                      <option value="0">0 (无优化)</option>
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3 (最高)</option>
+                      <option value="s">s (体积优先)</option>
+                      <option value="z">z (最小体积)</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    codegen-units
+                    <input
+                      type="number"
+                      min={1}
+                      max={64}
+                      value={packageBuildConfig.codegenUnits}
+                      onChange={(event) =>
+                        setPackageBuildConfig((state) => ({
+                          ...state,
+                          codegenUnits: Number(event.target.value || 1),
+                        }))
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
+                    />
+                  </label>
+                </div>
+
+                <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  strip
+                  <select
+                    value={packageBuildConfig.strip}
+                    onChange={(event) =>
+                      setPackageBuildConfig((state) => ({
+                        ...state,
+                        strip: event.target.value as PackageBuildOptionsPayload["strip"],
+                      }))
+                    }
+                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
+                  >
+                    <option value="none">none</option>
+                    <option value="debuginfo">debuginfo</option>
+                    <option value="symbols">symbols</option>
+                  </select>
+                </label>
+              </section>
+
+              <section className="space-y-2 rounded-xl border border-slate-200 p-4 dark:border-neutral-800 md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    编译环境检测
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void refreshPackagingEnvironment();
+                    }}
+                    disabled={packageEnvironmentChecking}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                  >
+                    {packageEnvironmentChecking ? "检测中..." : "重新检测"}
+                  </button>
+                </div>
+                <p
+                  className={`text-[11px] ${
+                    packageEnvironmentReport?.ready
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-amber-600 dark:text-amber-400"
+                  }`}
+                >
+                  {packageEnvironmentReport?.summary ?? "尚未检测。"}
+                </p>
+                <div className="space-y-1">
+                  {(packageEnvironmentReport?.tools ?? []).map((tool) => (
+                    <div
+                      key={tool.command}
+                      className="rounded-md bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-neutral-800/70 dark:text-slate-300"
+                    >
+                      <span
+                        className={
+                          tool.available
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-rose-600 dark:text-rose-400"
+                        }
+                      >
+                        {tool.available ? "✓" : "✗"}
+                      </span>{" "}
+                      {tool.name} ({tool.command})
+                      {tool.path ? `：${tool.path}` : ""}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+              <button
+                type="button"
+                onClick={() => setPackageConfigOpen(false)}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={packageLaunching}
+                onClick={() => {
+                  void confirmPackageWorkflowAsExe();
+                }}
+                className="rounded-md bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {packageLaunching ? "启动中..." : "开始打包"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {packageProgressOpen && (
+        <div
+          className="fixed inset-0 z-[310] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={handlePackageProgressBackdropClick}
+        >
+          <div className="flex max-h-[92vh] w-[980px] max-w-[96vw] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+              <div>
+                <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                  EXE 打包进度
+                </h2>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  当前运行中任务：{runningPackageCount} / 总任务：
+                  {packageJobs.length}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPackageJobs((state) =>
+                      state.filter((item) => item.status === "running"),
+                    );
+                  }}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                >
+                  清理已完成
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPackageProgressOpen(false)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-4 overflow-y-auto p-5">
+              {packageJobs.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-xs text-slate-500 dark:border-neutral-700 dark:text-slate-400">
+                  暂无打包任务。
+                </div>
+              ) : (
+                packageJobs.map((job) => {
+                  const statusClass =
+                    job.status === "success"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : job.status === "error"
+                        ? "text-rose-600 dark:text-rose-400"
+                        : "text-cyan-600 dark:text-cyan-400";
+
+                  return (
+                    <section
+                      key={job.jobId}
+                      className="rounded-xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900/70"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">
+                            {job.workflowName}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                            输出：{job.targetPath}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                            任务ID：{job.jobId}
+                          </p>
+                        </div>
+                        <span className={`text-xs font-semibold ${statusClass}`}>
+                          {job.status.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                          <span>阶段：{job.stage}</span>
+                          <span>{Math.round(job.progress)}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-neutral-800">
+                          <div
+                            className={`h-full transition-all ${
+                              job.status === "success"
+                                ? "bg-emerald-500"
+                                : job.status === "error"
+                                  ? "bg-rose-500"
+                                  : "bg-cyan-500"
+                            }`}
+                            style={{
+                              width: `${Math.max(0, Math.min(100, job.progress))}%`,
+                            }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">
+                          {job.message}
+                        </p>
+                      </div>
+
+                      {(job.executablePath || job.sourcePath) && (
+                        <div className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-neutral-800/70 dark:text-slate-300">
+                          {job.executablePath && <p>EXE：{job.executablePath}</p>}
+                          {job.binaryName && <p>Bin：{job.binaryName}</p>}
+                          {job.sourcePath && <p>源码：{job.sourcePath}</p>}
+                        </div>
+                      )}
+
+                      <div className="mt-3">
+                        <p className="mb-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                          详细日志
+                        </p>
+                        <div
+                          ref={(node) => {
+                            packageTerminalHostRefs.current[job.jobId] = node;
+                          }}
+                          className="h-56 overflow-hidden rounded-md bg-[#0b1220] p-1"
+                        />
+                      </div>
+                    </section>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <LlmSettingsModal
         open={llmSettingsOpen}
         onClose={() => setLlmSettingsOpen(false)}
@@ -2347,6 +3031,9 @@ function App() {
               backgroundMode={backgroundMode}
               coordinatePicking={coordinatePicking}
               elementPicking={elementPicking}
+              onPackageWorkflow={() => {
+                void packageCurrentWorkflowAsExe();
+              }}
               onPickCoordinate={startCoordinatePicking}
               onPickElement={startElementPicking}
               onToggleBackgroundMode={() => {

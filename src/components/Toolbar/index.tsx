@@ -8,12 +8,13 @@ import {
 } from "../../utils/workflowCompletion";
 import { toBackendGraph } from "../../utils/workflowBridge";
 import { useState } from "react";
-import { Moon, Play, Redo2, StepForward, Undo2 } from "lucide-react";
+import { Box, Moon, Play, Redo2, StepForward, Undo2 } from "lucide-react";
 import CoordinatePicker from "../CoordinatePicker";
 
 interface ToolbarProps {
   backgroundMode: boolean;
   onToggleBackgroundMode: () => void;
+  onPackageWorkflow: () => void;
   onPickCoordinate: () => void;
   onPickElement: () => void;
   coordinatePicking: boolean;
@@ -23,6 +24,7 @@ interface ToolbarProps {
 export default function Toolbar({
   backgroundMode,
   onToggleBackgroundMode,
+  onPackageWorkflow,
   onPickCoordinate,
   onPickElement,
   coordinatePicking,
@@ -113,6 +115,16 @@ export default function Toolbar({
       >
         <div className="h-2.5 w-2.5 rounded-sm bg-white" />
         F6 停止
+      </button>
+
+      <button
+        type="button"
+        onClick={onPackageWorkflow}
+        className="flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 hover:shadow-emerald-500/30 active:scale-95 disabled:bg-slate-400"
+        disabled={running}
+      >
+        <Box className="h-4 w-4" />
+        打包 EXE
       </button>
 
       <div className="mx-2 h-5 w-[1px] bg-slate-200 dark:bg-neutral-800" />

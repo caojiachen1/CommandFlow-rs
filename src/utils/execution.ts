@@ -122,6 +122,52 @@ export interface UiElementPreviewPayload {
   summary: string
 }
 
+export interface PackageWorkflowResultPayload {
+  executable_path: string
+  binary_name: string
+  source_path: string
+  build_output: string
+}
+
+export interface PackageWorkflowJobStartedPayload {
+  job_id: string
+  workflow_name: string
+  target_path: string
+}
+
+export interface PackageBuildOptionsPayload {
+  ltoMode: 'none' | 'thin' | 'fat'
+  optLevel: '0' | '1' | '2' | '3' | 's' | 'z'
+  codegenUnits: number
+  strip: 'none' | 'debuginfo' | 'symbols'
+}
+
+export interface PackagingToolStatusPayload {
+  name: string
+  command: string
+  available: boolean
+  path?: string | null
+  message?: string | null
+}
+
+export interface PackagingEnvironmentReportPayload {
+  ready: boolean
+  tools: PackagingToolStatusPayload[]
+  summary: string
+}
+
+export interface PackageWorkflowProgressPayload {
+  job_id: string
+  workflow_name: string
+  target_path: string
+  status: 'running' | 'success' | 'error'
+  stage: string
+  progress: number
+  message: string
+  log_line?: string | null
+  result?: PackageWorkflowResultPayload | null
+}
+
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 let startMenuAppsCache: StartMenuAppPayload[] | null = null
 let startMenuAppsPromise: Promise<StartMenuAppPayload[]> | null = null
@@ -140,6 +186,34 @@ export const runWorkflow = async (graph: BackendWorkflowGraph): Promise<string> 
     return '当前为浏览器预览模式，未连接 Tauri 后端，已跳过真实执行。'
   }
   return invoke<string>('run_workflow', { graph })
+}
+
+export const startPackageWorkflowAsExe = async (
+  graph: BackendWorkflowGraph,
+  targetPath: string,
+  buildOptions?: PackageBuildOptionsPayload,
+): Promise<PackageWorkflowJobStartedPayload> => {
+  if (!isTauriRuntime()) {
+    throw new Error('当前为浏览器预览模式，未连接 Tauri 后端，无法打包 EXE。')
+  }
+
+  return invoke<PackageWorkflowJobStartedPayload>('start_package_workflow_as_exe', {
+    graph,
+    targetPath,
+    buildOptions: buildOptions ?? null,
+  })
+}
+
+export const checkPackagingEnvironment = async (): Promise<PackagingEnvironmentReportPayload> => {
+  if (!isTauriRuntime()) {
+    return {
+      ready: false,
+      summary: '当前为浏览器预览模式，无法检测桌面端编译环境。',
+      tools: [],
+    }
+  }
+
+  return invoke<PackagingEnvironmentReportPayload>('check_packaging_environment')
 }
 
 export const stopWorkflow = async (): Promise<string> => {

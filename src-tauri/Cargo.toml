@@ -22,6 +22,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 enigo = "0.2"
 ddc-hi = "0.4.1"
+encoding_rs = "0.8"
 image = "0.25"
 paddle-ocr-rs = { git = "https://github.com/caojiachen1/paddle-ocr-rs", package = "paddle-ocr-rs" }
 lnk_parser = "0.4.3"
