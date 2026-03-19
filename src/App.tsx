@@ -2675,23 +2675,43 @@ function App() {
                 <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                   编译选项
                 </h3>
-                <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  LTO
-                  <select
-                    value={packageBuildConfig.ltoMode}
-                    onChange={(event) =>
-                      setPackageBuildConfig((state) => ({
-                        ...state,
-                        ltoMode: event.target.value as PackageBuildOptionsPayload["ltoMode"],
-                      }))
-                    }
-                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
-                  >
-                    <option value="none">none（关闭）</option>
-                    <option value="thin">thin</option>
-                    <option value="fat">fat</option>
-                  </select>
-                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    LTO
+                    <select
+                      value={packageBuildConfig.ltoMode}
+                      onChange={(event) =>
+                        setPackageBuildConfig((state) => ({
+                          ...state,
+                          ltoMode: event.target.value as PackageBuildOptionsPayload["ltoMode"],
+                        }))
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
+                    >
+                      <option value="none">none（关闭）</option>
+                      <option value="thin">thin</option>
+                      <option value="fat">fat</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    strip
+                    <select
+                      value={packageBuildConfig.strip}
+                      onChange={(event) =>
+                        setPackageBuildConfig((state) => ({
+                          ...state,
+                          strip: event.target.value as PackageBuildOptionsPayload["strip"],
+                        }))
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
+                    >
+                      <option value="none">none</option>
+                      <option value="debuginfo">debuginfo</option>
+                      <option value="symbols">symbols</option>
+                    </select>
+                  </label>
+                </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
@@ -2732,24 +2752,6 @@ function App() {
                     />
                   </label>
                 </div>
-
-                <label className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  strip
-                  <select
-                    value={packageBuildConfig.strip}
-                    onChange={(event) =>
-                      setPackageBuildConfig((state) => ({
-                        ...state,
-                        strip: event.target.value as PackageBuildOptionsPayload["strip"],
-                      }))
-                    }
-                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200"
-                  >
-                    <option value="none">none</option>
-                    <option value="debuginfo">debuginfo</option>
-                    <option value="symbols">symbols</option>
-                  </select>
-                </label>
               </section>
 
               <section className="space-y-2 rounded-xl border border-slate-200 p-4 dark:border-neutral-800 md:col-span-2">
