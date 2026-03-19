@@ -11,6 +11,7 @@ use crate::workflow::node::{NodeKind, WorkflowNode};
 use arboard::{Clipboard, ImageData};
 use base64::engine::general_purpose;
 use base64::Engine as _;
+use chrono::{Datelike, Local, SecondsFormat, Timelike, Utc};
 use image::{ImageBuffer, Rgba, RgbaImage};
 use regex::Regex;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -1628,6 +1629,13 @@ impl WorkflowExecutor {
 
                 Ok(NextDirective::Default)
             }
+            NodeKind::CurrentTime => {
+                let outputs = build_current_time_outputs();
+                for (handle, value) in outputs {
+                    set_node_output(ctx, node, &handle, value);
+                }
+                Ok(NextDirective::Default)
+            }
             NodeKind::JsonExtract => {
                 let source = parse_json_extract_source(node)?;
                 let key_path = get_string(node, "keyPath", "");
@@ -1766,6 +1774,10 @@ fn resolve_source_fallback_value(
     source_handle: &str,
     ctx: &ExecutionContext,
 ) -> Option<Value> {
+    if matches!(source_node.kind, NodeKind::CurrentTime) {
+        return build_current_time_outputs().get(source_handle).cloned();
+    }
+
     if source_handle == "value" {
         match source_node.kind {
             NodeKind::ConstValue | NodeKind::VarDefine | NodeKind::VarSet => {
@@ -2107,6 +2119,90 @@ fn value_from_f64(value: f64) -> Value {
     Number::from_f64(value)
         .map(Value::Number)
         .unwrap_or(Value::Null)
+}
+
+fn weekday_name(weekday: u32) -> &'static str {
+    match weekday {
+        1 => "周一",
+        2 => "周二",
+        3 => "周三",
+        4 => "周四",
+        5 => "周五",
+        6 => "周六",
+        7 => "周日",
+        _ => "",
+    }
+}
+
+fn build_current_time_outputs() -> HashMap<String, Value> {
+    let now_local = Local::now();
+    let now_utc = Utc::now();
+    let timestamp_ms = now_local.timestamp_millis();
+    let timestamp_sec = now_local.timestamp();
+    let weekday = now_local.weekday().number_from_monday();
+    let timezone_offset_minutes = now_local.offset().local_minus_utc() / 60;
+
+    let mut value = Map::new();
+    value.insert(
+        "iso".to_string(),
+        Value::String(now_utc.to_rfc3339_opts(SecondsFormat::Millis, true)),
+    );
+    value.insert(
+        "localDateTime".to_string(),
+        Value::String(now_local.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+    );
+    value.insert(
+        "localDate".to_string(),
+        Value::String(now_local.format("%Y-%m-%d").to_string()),
+    );
+    value.insert(
+        "localTime".to_string(),
+        Value::String(now_local.format("%H:%M:%S%.3f").to_string()),
+    );
+    value.insert("year".to_string(), value_from_u64(now_local.year() as u64));
+    value.insert(
+        "month".to_string(),
+        value_from_u64(now_local.month() as u64),
+    );
+    value.insert("day".to_string(), value_from_u64(now_local.day() as u64));
+    value.insert("hour".to_string(), value_from_u64(now_local.hour() as u64));
+    value.insert(
+        "minute".to_string(),
+        value_from_u64(now_local.minute() as u64),
+    );
+    value.insert(
+        "second".to_string(),
+        value_from_u64(now_local.second() as u64),
+    );
+    value.insert(
+        "millisecond".to_string(),
+        value_from_u64(now_local.timestamp_subsec_millis() as u64),
+    );
+    value.insert("weekday".to_string(), value_from_u64(weekday as u64));
+    value.insert(
+        "weekdayName".to_string(),
+        Value::String(weekday_name(weekday).to_string()),
+    );
+    value.insert(
+        "timestampMs".to_string(),
+        Value::Number(Number::from(timestamp_ms)),
+    );
+    value.insert(
+        "timestampSec".to_string(),
+        Value::Number(Number::from(timestamp_sec)),
+    );
+    value.insert(
+        "timezoneOffsetMinutes".to_string(),
+        Value::Number(Number::from(timezone_offset_minutes as i64)),
+    );
+
+    let mut outputs = HashMap::new();
+    outputs.insert("value".to_string(), Value::Object(value.clone()));
+    for (key, value) in value {
+        outputs.insert(key, value);
+    }
+
+    outputs
 }
 
 async fn run_python_code(
@@ -3192,7 +3288,27 @@ async fn execute_keyboard_operation(
         }
         "input" => {
             let text = get_string(node, "text", "");
-            keyboard::text_input(&text)?;
+            let input_mode_raw = get_string(node, "inputMode", "bulk");
+            let input_mode = normalize_system_operation_name(&input_mode_raw);
+
+            if input_mode == "charbychar" {
+                let interval_ms = get_u64(node, "inputIntervalMs", 35);
+                let chars = text.chars().collect::<Vec<_>>();
+                for (index, ch) in chars.iter().enumerate() {
+                    if should_cancel() {
+                        return Err(CommandFlowError::Canceled);
+                    }
+
+                    keyboard::text_input(&ch.to_string())?;
+
+                    if interval_ms > 0 && index + 1 < chars.len() {
+                        interruptible_sleep(Duration::from_millis(interval_ms), should_cancel)
+                            .await?;
+                    }
+                }
+            } else {
+                keyboard::text_input(&text)?;
+            }
             set_node_output(ctx, node, "text", Value::String(text));
         }
         "down" => {

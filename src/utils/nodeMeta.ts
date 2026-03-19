@@ -30,6 +30,7 @@ export type FileOperationKind = 'copy' | 'move' | 'delete' | 'readText' | 'write
 export type MouseOperationKind = 'click' | 'move' | 'drag' | 'wheel' | 'down' | 'up'
 
 export type KeyboardOperationKind = 'key' | 'input' | 'down' | 'up' | 'shortcut'
+export type KeyboardInputMode = 'bulk' | 'charByChar'
 export type InputPresetReplayMode = 'originalTiming' | 'compressed' | 'step'
 
 export type LaunchApplicationMode = 'auto' | 'direct' | 'shell'
@@ -126,6 +127,11 @@ export const KEYBOARD_OPERATION_OPTIONS: Array<{ label: string; value: KeyboardO
   { label: '组合键', value: 'shortcut' },
 ]
 
+export const KEYBOARD_INPUT_MODE_OPTIONS: Array<{ label: string; value: KeyboardInputMode }> = [
+  { label: '整体输入', value: 'bulk' },
+  { label: '逐字符输入', value: 'charByChar' },
+]
+
 export const INPUT_PRESET_REPLAY_MODE_OPTIONS: Array<{ label: string; value: InputPresetReplayMode }> = [
   { label: '按原始节奏回放', value: 'originalTiming' },
   { label: '压缩间隔回放', value: 'compressed' },
@@ -191,7 +197,7 @@ const MOUSE_OPERATION_FIELD_KEYS: Record<MouseOperationKind, string[]> = {
 
 const KEYBOARD_OPERATION_FIELD_KEYS: Record<KeyboardOperationKind, string[]> = {
   key: ['key'],
-  input: ['text'],
+  input: ['text', 'inputMode', 'inputIntervalMs'],
   down: ['key', 'simulateRepeat', 'repeatCount', 'repeatIntervalMs'],
   up: ['key'],
   shortcut: ['modifiers', 'key'],
@@ -235,6 +241,16 @@ export const getKeyboardOperationKind = (
   return KEYBOARD_OPERATION_OPTIONS.some((item) => item.value === operation)
     ? (operation as KeyboardOperationKind)
     : defaultOperation
+}
+
+export const getKeyboardInputMode = (
+  params: Record<string, unknown>,
+  defaultMode: KeyboardInputMode = 'bulk',
+): KeyboardInputMode => {
+  const mode = String(params.inputMode ?? defaultMode)
+  return KEYBOARD_INPUT_MODE_OPTIONS.some((item) => item.value === mode)
+    ? (mode as KeyboardInputMode)
+    : defaultMode
 }
 
 export const getLaunchApplicationMode = (
@@ -447,6 +463,10 @@ export const isNodeFieldVisible = (
     }
     if ((field.key === 'repeatCount' || field.key === 'repeatIntervalMs') && operation === 'down') {
       return Boolean(params.simulateRepeat ?? defaultParams.simulateRepeat ?? false)
+    }
+    if (field.key === 'inputIntervalMs' && operation === 'input') {
+      const inputMode = getKeyboardInputMode(params, getKeyboardInputMode(defaultParams, 'bulk'))
+      return inputMode === 'charByChar'
     }
     return true
   }
@@ -794,6 +814,22 @@ const resolveKeyboardOperationField = (
     }
   }
 
+  if (field.key === 'inputMode') {
+    return {
+      ...field,
+      label: '输入方式',
+      options: KEYBOARD_INPUT_MODE_OPTIONS,
+    }
+  }
+
+  if (field.key === 'inputIntervalMs') {
+    return {
+      ...field,
+      label: '字符间隔(ms)',
+      description: '仅在“逐字符输入”时生效。',
+    }
+  }
+
   if (field.key === 'modifiers') {
     return {
       ...field,
@@ -946,6 +982,8 @@ const metas: Record<NodeKind, NodeMeta> = {
       operation: 'key',
       key: 'Enter',
       text: 'Hello CommandFlow',
+      inputMode: 'bulk',
+      inputIntervalMs: 35,
       simulateRepeat: false,
       repeatCount: 8,
       repeatIntervalMs: 35,
@@ -955,6 +993,8 @@ const metas: Record<NodeKind, NodeMeta> = {
       { key: 'operation', label: '操作类型', type: 'select', options: KEYBOARD_OPERATION_OPTIONS },
       { key: 'key', label: '按键', type: 'string', placeholder: 'Enter' },
       { key: 'text', label: '文本', type: 'string', placeholder: '请输入文本' },
+      { key: 'inputMode', label: '输入方式', type: 'select', options: KEYBOARD_INPUT_MODE_OPTIONS },
+      { key: 'inputIntervalMs', label: '字符间隔(ms)', type: 'number', min: 0, step: 1 },
       {
         key: 'simulateRepeat',
         label: '模拟长按重复输入',
@@ -2009,6 +2049,12 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       },
       { key: 'valueJson', label: '常量值(JSON)', type: 'json', description: '对象/数组等复杂值。' },
     ],
+  },
+  currentTime: {
+    label: '当前时间',
+    description: '纯输出节点：输出当前时刻的详细日期时间信息。',
+    defaultParams: {},
+    fields: [],
   },
   jsonExtract: {
     label: '提取 JSON 值',

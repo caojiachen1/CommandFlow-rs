@@ -20,6 +20,7 @@ export type ActionNodeKind =
   | 'guiAgentActionParser'
 export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch' | 'ocrMatch' | 'tryCatch'
 export type DataNodeKind = 'varDefine' | 'varSet' | 'varMath' | 'varGet' | 'constValue'
+  | 'currentTime'
   | 'jsonExtract'
 
 export type NodeKind = TriggerNodeKind | ActionNodeKind | ControlNodeKind | DataNodeKind

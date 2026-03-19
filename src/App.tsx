@@ -169,6 +169,7 @@ const workflowNodeKinds = [
   "varMath",
   "varGet",
   "constValue",
+  "currentTime",
   "jsonExtract",
 ] as const satisfies ReadonlyArray<WorkflowNode["data"]["kind"]>;
 

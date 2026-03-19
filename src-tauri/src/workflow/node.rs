@@ -70,6 +70,7 @@ pub enum NodeKind {
     VarMath,
     VarGet,
     ConstValue,
+    CurrentTime,
     JsonExtract,
 }
 

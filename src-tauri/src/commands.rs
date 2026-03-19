@@ -992,8 +992,7 @@ async fn resolve_command_path(program: &str) -> Option<String> {
         }
 
         let text = decode_process_output_line(&output.stdout);
-        text
-            .lines()
+        text.lines()
             .map(str::trim)
             .find(|line| !line.is_empty())
             .map(ToString::to_string)

@@ -81,6 +81,7 @@ const categories: NodePaletteCategory[] = [
       { label: '变量运算', kind: 'varMath', color: 'bg-teal-500', icon: Calculator, category: '变量与数据' },
       { label: '获取变量值', kind: 'varGet', color: 'bg-cyan-500', icon: Braces, category: '变量与数据' },
       { label: '常量输出', kind: 'constValue', color: 'bg-slate-500', icon: Braces, category: '变量与数据' },
+      { label: '当前时间', kind: 'currentTime', color: 'bg-violet-500', icon: Clock3, category: '变量与数据' },
       { label: '提取 JSON 值', kind: 'jsonExtract', color: 'bg-indigo-500', icon: Braces, category: '变量与数据' },
     ],
   },
