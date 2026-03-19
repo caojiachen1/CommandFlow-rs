@@ -135,6 +135,27 @@ export interface PackageWorkflowJobStartedPayload {
   target_path: string
 }
 
+export interface PackageBuildOptionsPayload {
+  ltoMode: 'none' | 'thin' | 'fat'
+  optLevel: '0' | '1' | '2' | '3' | 's' | 'z'
+  codegenUnits: number
+  strip: 'none' | 'debuginfo' | 'symbols'
+}
+
+export interface PackagingToolStatusPayload {
+  name: string
+  command: string
+  available: boolean
+  path?: string | null
+  message?: string | null
+}
+
+export interface PackagingEnvironmentReportPayload {
+  ready: boolean
+  tools: PackagingToolStatusPayload[]
+  summary: string
+}
+
 export interface PackageWorkflowProgressPayload {
   job_id: string
   workflow_name: string
@@ -170,6 +191,7 @@ export const runWorkflow = async (graph: BackendWorkflowGraph): Promise<string> 
 export const startPackageWorkflowAsExe = async (
   graph: BackendWorkflowGraph,
   targetPath: string,
+  buildOptions?: PackageBuildOptionsPayload,
 ): Promise<PackageWorkflowJobStartedPayload> => {
   if (!isTauriRuntime()) {
     throw new Error('当前为浏览器预览模式，未连接 Tauri 后端，无法打包 EXE。')
@@ -178,7 +200,20 @@ export const startPackageWorkflowAsExe = async (
   return invoke<PackageWorkflowJobStartedPayload>('start_package_workflow_as_exe', {
     graph,
     targetPath,
+    buildOptions: buildOptions ?? null,
   })
+}
+
+export const checkPackagingEnvironment = async (): Promise<PackagingEnvironmentReportPayload> => {
+  if (!isTauriRuntime()) {
+    return {
+      ready: false,
+      summary: '当前为浏览器预览模式，无法检测桌面端编译环境。',
+      tools: [],
+    }
+  }
+
+  return invoke<PackagingEnvironmentReportPayload>('check_packaging_environment')
 }
 
 export const stopWorkflow = async (): Promise<string> => {

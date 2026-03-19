@@ -3,6 +3,7 @@ use crate::automation::screenshot;
 use crate::automation::start_menu;
 use crate::automation::uia;
 use crate::automation::window;
+use encoding_rs::GBK;
 use crate::input_recorder;
 use crate::workflow::graph::WorkflowGraph;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -11,7 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -431,6 +432,42 @@ pub struct PackageWorkflowJobStarted {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PackagingToolStatus {
+    pub name: String,
+    pub command: String,
+    pub available: bool,
+    pub path: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackagingEnvironmentReport {
+    pub ready: bool,
+    pub tools: Vec<PackagingToolStatus>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageBuildOptions {
+    pub lto_mode: String,
+    pub opt_level: String,
+    pub codegen_units: u16,
+    pub strip: String,
+}
+
+impl Default for PackageBuildOptions {
+    fn default() -> Self {
+        Self {
+            lto_mode: "fat".to_string(),
+            opt_level: "3".to_string(),
+            codegen_units: 1,
+            strip: "debuginfo".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PackageWorkflowProgressPayload {
     pub job_id: String,
     pub workflow_name: String,
@@ -493,11 +530,14 @@ pub async fn start_package_workflow_as_exe(
     app: AppHandle,
     graph: WorkflowGraph,
     target_path: String,
+    build_options: Option<PackageBuildOptions>,
 ) -> Result<PackageWorkflowJobStarted, String> {
     let requested_target = target_path.trim().to_string();
     if requested_target.is_empty() {
         return Err("输出路径不能为空。".to_string());
     }
+
+    let normalized_build_options = normalize_build_options(build_options);
 
     let job_id = next_package_job_id();
     let workflow_name = graph.name.clone();
@@ -505,6 +545,7 @@ pub async fn start_package_workflow_as_exe(
     let job_id_for_task = job_id.clone();
     let target_for_task = requested_target.clone();
     let workflow_for_task = workflow_name.clone();
+    let build_options_for_task = normalized_build_options.clone();
 
     tokio::spawn(async move {
         run_package_workflow_job(
@@ -513,6 +554,7 @@ pub async fn start_package_workflow_as_exe(
             target_for_task,
             job_id_for_task,
             workflow_for_task,
+            build_options_for_task,
         )
         .await;
     });
@@ -524,12 +566,18 @@ pub async fn start_package_workflow_as_exe(
     })
 }
 
+#[tauri::command]
+pub async fn check_packaging_environment() -> Result<PackagingEnvironmentReport, String> {
+    Ok(inspect_packaging_environment().await)
+}
+
 async fn run_package_workflow_job(
     app: AppHandle,
     graph: WorkflowGraph,
     target_path: String,
     job_id: String,
     workflow_name: String,
+    build_options: PackageBuildOptions,
 ) {
     emit_package_progress(
         &app,
@@ -546,7 +594,16 @@ async fn run_package_workflow_job(
         },
     );
 
-    match package_workflow_job_inner(&app, &graph, &target_path, &job_id, &workflow_name).await {
+    match package_workflow_job_inner(
+        &app,
+        &graph,
+        &target_path,
+        &job_id,
+        &workflow_name,
+        &build_options,
+    )
+    .await
+    {
         Ok(result) => {
             emit_package_progress(
                 &app,
@@ -588,10 +645,12 @@ async fn package_workflow_job_inner(
     target_path: &str,
     job_id: &str,
     workflow_name: &str,
+    build_options: &PackageBuildOptions,
 ) -> Result<PackageWorkflowResult, String> {
     let manifest_dir = resolve_manifest_dir()?;
     let target_path = target_path.trim();
     let target_candidate = PathBuf::from(target_path);
+    let workspace_dir = build_short_temp_workspace_dir(job_id);
 
     emit_package_progress(
         app,
@@ -602,8 +661,12 @@ async fn package_workflow_job_inner(
             status: "running".to_string(),
             stage: "prepare".to_string(),
             progress: 5.0,
-            message: "准备打包环境...".to_string(),
-            log_line: Some(format!("manifest_dir={}", manifest_dir.display())),
+            message: "准备独立临时打包工程...".to_string(),
+            log_line: Some(format!(
+                "manifest_dir={}, workspace_dir={}",
+                manifest_dir.display(),
+                workspace_dir.display()
+            )),
             result: None,
         },
     );
@@ -616,20 +679,32 @@ async fn package_workflow_job_inner(
         .unwrap_or_else(|| graph.name.as_str());
     let bin_name = sanitize_bin_name(requested_name);
 
-    let source_dir = manifest_dir.join("src").join("bin");
-    fs::create_dir_all(&source_dir).map_err(|error| {
+    if workspace_dir.exists() {
+        fs::remove_dir_all(&workspace_dir).map_err(|error| {
+            format!(
+                "清理旧临时工程失败（{}）：{}",
+                workspace_dir.display(),
+                error
+            )
+        })?;
+    }
+
+    fs::create_dir_all(workspace_dir.join("src")).map_err(|error| {
         format!(
-            "创建打包源码目录失败（{}）：{}",
-            source_dir.display(),
+            "创建临时工程目录失败（{}）：{}",
+            workspace_dir.display(),
             error
         )
     })?;
 
-    let source_path = source_dir.join(format!("{}.rs", bin_name));
+    copy_packaging_runtime_sources(&manifest_dir, &workspace_dir)?;
+    write_packaging_runtime_cargo_toml(&workspace_dir, &bin_name, build_options)?;
+
+    let source_path = workspace_dir.join("src").join("main.rs");
     let source_code = generate_workflow_bin_source(&graph)?;
     fs::write(&source_path, source_code).map_err(|error| {
         format!(
-            "写入打包源码失败（{}）：{}",
+            "写入临时打包入口源码失败（{}）：{}",
             source_path.display(),
             error
         )
@@ -644,7 +719,7 @@ async fn package_workflow_job_inner(
             status: "running".to_string(),
             stage: "generate".to_string(),
             progress: 12.0,
-            message: "已生成 Rust 源码，开始调用 Cargo 编译...".to_string(),
+            message: "已生成独立 Rust 临时工程，开始调用 Cargo 编译...".to_string(),
             log_line: Some(format!("source={}", source_path.display())),
             result: None,
         },
@@ -654,9 +729,15 @@ async fn package_workflow_job_inner(
     command
         .arg("build")
         .arg("--release")
+        .arg("--color")
+        .arg("always")
+        .arg("--manifest-path")
+        .arg(workspace_dir.join("Cargo.toml"))
         .arg("--bin")
         .arg(&bin_name)
-        .current_dir(&manifest_dir)
+        .current_dir(&workspace_dir)
+        .env("CARGO_TERM_COLOR", "always")
+        .env("CLICOLOR_FORCE", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -682,17 +763,41 @@ async fn package_workflow_job_inner(
 
     let out_tx = line_tx.clone();
     let stdout_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = out_tx.send(("stdout".to_string(), line));
+        let mut reader = BufReader::new(stdout);
+        let mut buffer = Vec::with_capacity(512);
+        loop {
+            buffer.clear();
+            match reader.read_until(b'\n', &mut buffer).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    let line = decode_process_output_line(&buffer);
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let _ = out_tx.send(("stdout".to_string(), line));
+                }
+                Err(_) => break,
+            }
         }
     });
 
     let err_tx = line_tx.clone();
     let stderr_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = err_tx.send(("stderr".to_string(), line));
+        let mut reader = BufReader::new(stderr);
+        let mut buffer = Vec::with_capacity(512);
+        loop {
+            buffer.clear();
+            match reader.read_until(b'\n', &mut buffer).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    let line = decode_process_output_line(&buffer);
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let _ = err_tx.send(("stderr".to_string(), line));
+                }
+                Err(_) => break,
+            }
         }
     });
 
@@ -752,7 +857,7 @@ async fn package_workflow_job_inner(
         },
     );
 
-    let compiled_path = manifest_dir
+    let compiled_path = workspace_dir
         .join("target")
         .join("release")
         .join(format!("{}.exe", bin_name));
@@ -793,6 +898,28 @@ async fn package_workflow_job_inner(
         )
     })?;
 
+    emit_package_progress(
+        app,
+        PackageWorkflowProgressPayload {
+            job_id: job_id.to_string(),
+            workflow_name: workflow_name.to_string(),
+            target_path: target_path.to_string(),
+            status: "running".to_string(),
+            stage: "clean".to_string(),
+            progress: 98.0,
+            message: "已复制 EXE，正在清理临时工程构建产物（cargo clean）...".to_string(),
+            log_line: None,
+            result: None,
+        },
+    );
+
+    let clean_output = run_cargo_clean_in_workspace(&workspace_dir).await;
+    let build_output = if clean_output.trim().is_empty() {
+        build_output
+    } else {
+        format!("{}\n\n[cargo clean]\n{}", build_output, clean_output)
+    };
+
     Ok(PackageWorkflowResult {
         executable_path: final_target.to_string_lossy().to_string(),
         binary_name: bin_name,
@@ -819,6 +946,350 @@ fn resolve_manifest_dir() -> Result<PathBuf, String> {
     }
 
     Err("无法定位 src-tauri/Cargo.toml，请确保在项目源码目录运行。".to_string())
+}
+
+async fn inspect_packaging_environment() -> PackagingEnvironmentReport {
+    let checks = [
+        ("Rust/Cargo", "cargo"),
+        ("CMake", "cmake"),
+        ("Visual C++ Build Tools", "cl"),
+    ];
+
+    let mut tools = Vec::<PackagingToolStatus>::new();
+    for (name, command) in checks {
+        let path = resolve_command_path(command).await;
+        let available = path.is_some();
+        let message = if available {
+            Some("已检测到".to_string())
+        } else {
+            Some("未检测到，请安装并将其加入 PATH。".to_string())
+        };
+
+        tools.push(PackagingToolStatus {
+            name: name.to_string(),
+            command: command.to_string(),
+            available,
+            path,
+            message,
+        });
+    }
+
+    let ready = tools.iter().all(|tool| tool.available);
+    let summary = if ready {
+        "编译环境检测通过：可进行 EXE 打包。".to_string()
+    } else {
+        "检测到编译环境缺失。打包 EXE 属于开发者行为，请先安装 Rust/Cargo、CMake、Visual Studio Build Tools(C++)。".to_string()
+    };
+
+    PackagingEnvironmentReport {
+        ready,
+        tools,
+        summary,
+    }
+}
+
+async fn resolve_command_path(program: &str) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("where");
+        command.arg(program);
+        command.stdout(std::process::Stdio::piped());
+        command.stderr(std::process::Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let output = command.output().await.ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let text = decode_process_output_line(&output.stdout);
+        return text
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(ToString::to_string);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("which")
+            .arg(program)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .await
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(ToString::to_string)
+    }
+}
+
+fn normalize_build_options(input: Option<PackageBuildOptions>) -> PackageBuildOptions {
+    let mut options = input.unwrap_or_default();
+
+    options.lto_mode = match options.lto_mode.trim().to_ascii_lowercase().as_str() {
+        "none" | "thin" | "fat" => options.lto_mode.trim().to_ascii_lowercase(),
+        _ => "fat".to_string(),
+    };
+
+    options.opt_level = match options.opt_level.trim() {
+        "0" | "1" | "2" | "3" | "s" | "z" => options.opt_level.trim().to_string(),
+        _ => "3".to_string(),
+    };
+
+    options.codegen_units = options.codegen_units.clamp(1, 64);
+
+    options.strip = match options.strip.trim().to_ascii_lowercase().as_str() {
+        "none" | "debuginfo" | "symbols" => options.strip.trim().to_ascii_lowercase(),
+        _ => "debuginfo".to_string(),
+    };
+
+    options
+}
+
+fn decode_process_output_line(raw: &[u8]) -> String {
+    let bytes = trim_line_endings(raw);
+    if bytes.is_empty() {
+        return String::new();
+    }
+
+    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        return text;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let (decoded, _, had_errors) = GBK.decode(bytes);
+        if !had_errors {
+            return decoded.into_owned();
+        }
+    }
+
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn trim_line_endings(raw: &[u8]) -> &[u8] {
+    let mut end = raw.len();
+    while end > 0 && matches!(raw[end - 1], b'\n' | b'\r') {
+        end -= 1;
+    }
+    &raw[..end]
+}
+
+fn build_short_temp_workspace_dir(job_id: &str) -> PathBuf {
+    let digits = job_id
+        .chars()
+        .filter(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+
+    let short_numeric = if digits.is_empty() {
+        package_job_counter().load(Ordering::Relaxed).to_string()
+    } else {
+        digits
+            .chars()
+            .rev()
+            .take(10)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect::<String>()
+    };
+
+    std::env::temp_dir().join("cfw").join(short_numeric)
+}
+
+fn copy_packaging_runtime_sources(
+    manifest_dir: &Path,
+    workspace_dir: &Path,
+) -> Result<(), String> {
+    let src_root = manifest_dir.join("src");
+    let runtime_files = ["error.rs", "secure_settings.rs"];
+    for file_name in runtime_files {
+        let from = src_root.join(file_name);
+        let to = workspace_dir.join("src").join(file_name);
+        copy_file_with_parent(&from, &to)?;
+    }
+
+    let runtime_dirs = ["automation", "workflow"];
+    for dir_name in runtime_dirs {
+        let from = src_root.join(dir_name);
+        let to = workspace_dir.join("src").join(dir_name);
+        copy_dir_recursive(&from, &to)?;
+    }
+
+    Ok(())
+}
+
+fn copy_file_with_parent(from: &Path, to: &Path) -> Result<(), String> {
+    if !from.exists() {
+        return Err(format!("运行时源码文件不存在：{}", from.display()));
+    }
+
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "创建目标目录失败（{}）：{}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+
+    fs::copy(from, to).map_err(|error| {
+        format!(
+            "复制运行时源码文件失败（{} -> {}）：{}",
+            from.display(),
+            to.display(),
+            error
+        )
+    })?;
+
+    Ok(())
+}
+
+fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), String> {
+    if !from.exists() {
+        return Err(format!("运行时源码目录不存在：{}", from.display()));
+    }
+
+    fs::create_dir_all(to).map_err(|error| {
+        format!("创建目录失败（{}）：{}", to.display(), error)
+    })?;
+
+    for entry in fs::read_dir(from)
+        .map_err(|error| format!("读取目录失败（{}）：{}", from.display(), error))?
+    {
+        let entry = entry.map_err(|error| {
+            format!("读取目录项失败（{}）：{}", from.display(), error)
+        })?;
+        let entry_path = entry.path();
+        let target_path = to.join(entry.file_name());
+
+        if entry_path.is_dir() {
+            copy_dir_recursive(&entry_path, &target_path)?;
+        } else {
+            copy_file_with_parent(&entry_path, &target_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_packaging_runtime_cargo_toml(
+    workspace_dir: &Path,
+    bin_name: &str,
+    build_options: &PackageBuildOptions,
+) -> Result<(), String> {
+    let package_name = sanitize_bin_name(bin_name);
+    let lto_literal = match build_options.lto_mode.as_str() {
+        "none" => "false".to_string(),
+        "thin" => "\"thin\"".to_string(),
+        "fat" => "\"fat\"".to_string(),
+        _ => "\"fat\"".to_string(),
+    };
+    let opt_level_literal = match build_options.opt_level.as_str() {
+        "0" | "1" | "2" | "3" => build_options.opt_level.clone(),
+        "s" | "z" => format!("\"{}\"", build_options.opt_level),
+        _ => "3".to_string(),
+    };
+    let cargo_toml = format!(
+        r#"[package]
+name = "{package_name}"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[dependencies]
+anyhow = "1"
+arboard = "3"
+base64 = "0.22"
+chrono = {{ version = "0.4", features = ["serde"] }}
+ddc-hi = "0.4.1"
+enigo = "0.2"
+image = "0.25"
+lnk_parser = "0.4.3"
+ort = {{ version = "2.0.0-rc.10", default-features = false, features = ["ndarray", "std", "download-binaries", "copy-dylibs"] }}
+paddle-ocr-rs = {{ git = "https://github.com/caojiachen1/paddle-ocr-rs", package = "paddle-ocr-rs" }}
+regex = "1"
+reqwest = {{ version = "0.12", default-features = false, features = ["json", "rustls-tls"] }}
+rfd = "0.15"
+rusqlite = {{ version = "0.32", features = ["bundled"] }}
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"
+template-matching = {{ version = "0.2", features = ["image"] }}
+thiserror = "2"
+tokio = {{ version = "1", features = ["rt-multi-thread", "macros", "time", "process", "sync"] }}
+xcap = {{ version = "0.8", features = ["image"] }}
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = {{ version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_Threading"] }}
+windows = {{ version = "0.60", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_System_Registry", "Win32_System_Power", "Win32_UI_Accessibility", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Devices_Radios", "Foundation"] }}
+
+[profile.release]
+lto = {lto_literal}
+codegen-units = {codegen_units}
+opt-level = {opt_level}
+strip = "{strip}"
+"#
+    ,
+    lto_literal = lto_literal,
+    codegen_units = build_options.codegen_units,
+        opt_level = opt_level_literal,
+    strip = build_options.strip,
+    );
+
+    let cargo_toml_path = workspace_dir.join("Cargo.toml");
+    fs::write(&cargo_toml_path, cargo_toml).map_err(|error| {
+        format!(
+            "写入临时工程 Cargo.toml 失败（{}）：{}",
+            cargo_toml_path.display(),
+            error
+        )
+    })
+}
+
+async fn run_cargo_clean_in_workspace(workspace_dir: &Path) -> String {
+    let mut command = Command::new("cargo");
+    command
+        .arg("clean")
+        .current_dir(workspace_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    match command.output().await {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let mut lines = Vec::new();
+
+            lines.push(format!("exit={}", output.status));
+            if !stdout.is_empty() {
+                lines.push(format!("stdout:\n{}", stdout));
+            }
+            if !stderr.is_empty() {
+                lines.push(format!("stderr:\n{}", stderr));
+            }
+
+            lines.join("\n")
+        }
+        Err(error) => format!("failed to run cargo clean: {}", error),
+    }
 }
 
 fn sanitize_bin_name(raw: &str) -> String {
@@ -874,10 +1345,17 @@ fn format_option_string(value: &Option<String>) -> String {
 
 fn generate_workflow_bin_source(graph: &WorkflowGraph) -> Result<String, String> {
     let mut source = String::new();
-    source.push_str("use commandflow_rs_lib::automation::executor::WorkflowExecutor;\n");
-    source.push_str("use commandflow_rs_lib::workflow::edge::WorkflowEdge;\n");
-    source.push_str("use commandflow_rs_lib::workflow::graph::WorkflowGraph;\n");
-    source.push_str("use commandflow_rs_lib::workflow::node::{NodeKind, WorkflowNode};\n\n");
+    source.push_str("#[cfg(not(target_os = \"windows\"))]\n");
+    source.push_str("compile_error!(\"CommandFlow runtime package currently only supports Windows.\");\n\n");
+    source.push_str("mod automation;\n");
+    source.push_str("mod error;\n");
+    source.push_str("mod secure_settings;\n");
+    source.push_str("mod workflow;\n\n");
+
+    source.push_str("use crate::automation::executor::WorkflowExecutor;\n");
+    source.push_str("use crate::workflow::edge::WorkflowEdge;\n");
+    source.push_str("use crate::workflow::graph::WorkflowGraph;\n");
+    source.push_str("use crate::workflow::node::{NodeKind, WorkflowNode};\n\n");
 
     source.push_str("fn build_graph() -> WorkflowGraph {\n");
     let _ = writeln!(

@@ -68,6 +68,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::run_workflow,
             commands::stop_workflow,
+            commands::check_packaging_environment,
             commands::start_package_workflow_as_exe,
             commands::save_workflow,
             commands::load_workflow,
