@@ -1666,8 +1666,7 @@ fn is_trigger_node(node: &WorkflowNode) -> bool {
 fn is_control_source_handle(handle: Option<&str>) -> bool {
     matches!(
         handle,
-        None
-            | Some("next")
+        None | Some("next")
             | Some("true")
             | Some("false")
             | Some("loop")

@@ -3,9 +3,9 @@ use crate::automation::screenshot;
 use crate::automation::start_menu;
 use crate::automation::uia;
 use crate::automation::window;
-use encoding_rs::GBK;
 use crate::input_recorder;
 use crate::workflow::graph::WorkflowGraph;
+use encoding_rs::GBK;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -89,17 +89,13 @@ type CoordinatePickSender = oneshot::Sender<CoordinatePickResult>;
 type UiElementPickResult = Result<uia::UiElementPreview, String>;
 type UiElementPickSender = oneshot::Sender<UiElementPickResult>;
 
-fn coordinate_pick_sender_store(
-) -> &'static Mutex<Option<CoordinatePickSender>> {
-    static COORDINATE_PICK_SENDER: OnceLock<Mutex<Option<CoordinatePickSender>>> =
-        OnceLock::new();
+fn coordinate_pick_sender_store() -> &'static Mutex<Option<CoordinatePickSender>> {
+    static COORDINATE_PICK_SENDER: OnceLock<Mutex<Option<CoordinatePickSender>>> = OnceLock::new();
     COORDINATE_PICK_SENDER.get_or_init(|| Mutex::new(None))
 }
 
-fn ui_element_pick_sender_store(
-) -> &'static Mutex<Option<UiElementPickSender>> {
-    static UI_ELEMENT_PICK_SENDER: OnceLock<Mutex<Option<UiElementPickSender>>> =
-        OnceLock::new();
+fn ui_element_pick_sender_store() -> &'static Mutex<Option<UiElementPickSender>> {
+    static UI_ELEMENT_PICK_SENDER: OnceLock<Mutex<Option<UiElementPickSender>>> = OnceLock::new();
     UI_ELEMENT_PICK_SENDER.get_or_init(|| Mutex::new(None))
 }
 
@@ -494,10 +490,7 @@ fn next_package_job_id() -> String {
     format!("pkg-{}-{}", now_ms, index)
 }
 
-fn emit_package_progress(
-    app: &AppHandle,
-    payload: PackageWorkflowProgressPayload,
-) {
+fn emit_package_progress(app: &AppHandle, payload: PackageWorkflowProgressPayload) {
     let _ = app.emit(WORKFLOW_PACKAGE_PROGRESS_EVENT, payload);
 }
 
@@ -676,7 +669,7 @@ async fn package_workflow_job_inner(
         .and_then(|stem| stem.to_str())
         .map(str::trim)
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| graph.name.as_str());
+        .unwrap_or(graph.name.as_str());
     let bin_name = sanitize_bin_name(requested_name);
 
     if workspace_dir.exists() {
@@ -701,7 +694,7 @@ async fn package_workflow_job_inner(
     write_packaging_runtime_cargo_toml(&workspace_dir, &bin_name, build_options)?;
 
     let source_path = workspace_dir.join("src").join("main.rs");
-    let source_code = generate_workflow_bin_source(&graph)?;
+    let source_code = generate_workflow_bin_source(graph)?;
     fs::write(&source_path, source_code).map_err(|error| {
         format!(
             "写入临时打包入口源码失败（{}）：{}",
@@ -836,9 +829,7 @@ async fn package_workflow_job_inner(
     if !status.success() {
         return Err(format!(
             "Cargo 编译失败（bin={}，exit={}）。\n{}",
-            bin_name,
-            status,
-            build_output
+            bin_name, status, build_output
         ));
     }
 
@@ -880,13 +871,8 @@ async fn package_workflow_job_inner(
     }
 
     if let Some(parent) = final_target.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            format!(
-                "创建输出目录失败（{}）：{}",
-                parent.display(),
-                error
-            )
-        })?;
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("创建输出目录失败（{}）：{}", parent.display(), error))?;
     }
 
     fs::copy(&compiled_path, &final_target).map_err(|error| {
@@ -1006,11 +992,11 @@ async fn resolve_command_path(program: &str) -> Option<String> {
         }
 
         let text = decode_process_output_line(&output.stdout);
-        return text
+        text
             .lines()
             .map(str::trim)
             .find(|line| !line.is_empty())
-            .map(ToString::to_string);
+            .map(ToString::to_string)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1109,10 +1095,7 @@ fn build_short_temp_workspace_dir(job_id: &str) -> PathBuf {
     std::env::temp_dir().join("cfw").join(short_numeric)
 }
 
-fn copy_packaging_runtime_sources(
-    manifest_dir: &Path,
-    workspace_dir: &Path,
-) -> Result<(), String> {
+fn copy_packaging_runtime_sources(manifest_dir: &Path, workspace_dir: &Path) -> Result<(), String> {
     let src_root = manifest_dir.join("src");
     let runtime_files = ["error.rs", "secure_settings.rs"];
     for file_name in runtime_files {
@@ -1137,13 +1120,8 @@ fn copy_file_with_parent(from: &Path, to: &Path) -> Result<(), String> {
     }
 
     if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            format!(
-                "创建目标目录失败（{}）：{}",
-                parent.display(),
-                error
-            )
-        })?;
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("创建目标目录失败（{}）：{}", parent.display(), error))?;
     }
 
     fs::copy(from, to).map_err(|error| {
@@ -1163,16 +1141,14 @@ fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), String> {
         return Err(format!("运行时源码目录不存在：{}", from.display()));
     }
 
-    fs::create_dir_all(to).map_err(|error| {
-        format!("创建目录失败（{}）：{}", to.display(), error)
-    })?;
+    fs::create_dir_all(to)
+        .map_err(|error| format!("创建目录失败（{}）：{}", to.display(), error))?;
 
     for entry in fs::read_dir(from)
         .map_err(|error| format!("读取目录失败（{}）：{}", from.display(), error))?
     {
-        let entry = entry.map_err(|error| {
-            format!("读取目录项失败（{}）：{}", from.display(), error)
-        })?;
+        let entry =
+            entry.map_err(|error| format!("读取目录项失败（{}）：{}", from.display(), error))?;
         let entry_path = entry.path();
         let target_path = to.join(entry.file_name());
 
@@ -1241,12 +1217,11 @@ lto = {lto_literal}
 codegen-units = {codegen_units}
 opt-level = {opt_level}
 strip = "{strip}"
-"#
-    ,
-    lto_literal = lto_literal,
-    codegen_units = build_options.codegen_units,
+"#,
+        lto_literal = lto_literal,
+        codegen_units = build_options.codegen_units,
         opt_level = opt_level_literal,
-    strip = build_options.strip,
+        strip = build_options.strip,
     );
 
     let cargo_toml_path = workspace_dir.join("Cargo.toml");
@@ -1297,13 +1272,7 @@ fn sanitize_bin_name(raw: &str) -> String {
         .trim()
         .to_lowercase()
         .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch
-            } else {
-                '_'
-            }
-        })
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
         .collect::<String>();
 
     while normalized.contains("__") {
@@ -1346,7 +1315,9 @@ fn format_option_string(value: &Option<String>) -> String {
 fn generate_workflow_bin_source(graph: &WorkflowGraph) -> Result<String, String> {
     let mut source = String::new();
     source.push_str("#[cfg(not(target_os = \"windows\"))]\n");
-    source.push_str("compile_error!(\"CommandFlow runtime package currently only supports Windows.\");\n\n");
+    source.push_str(
+        "compile_error!(\"CommandFlow runtime package currently only supports Windows.\");\n\n",
+    );
     source.push_str("mod automation;\n");
     source.push_str("mod error;\n");
     source.push_str("mod secure_settings;\n");
@@ -1402,28 +1373,28 @@ fn generate_workflow_bin_source(graph: &WorkflowGraph) -> Result<String, String>
         "    println!(\"[CommandFlow] 开始执行工作流: {} (nodes={}, edges={})\", graph.name, graph.nodes.len(), graph.edges.len());\n",
     );
     source.push_str("    let executor = WorkflowExecutor::default();\n");
-    source.push_str("\n");
+    source.push('\n');
     source.push_str("    let mut on_node_start = |node: &WorkflowNode| {\n");
     source.push_str("        let params_json = serde_json::to_string(&node.params).unwrap_or_else(|_| \"{}\".to_string());\n");
     source.push_str("        println!(\"[NODE_START] id={} kind={:?} label={} params={}\", node.id, node.kind, node.label, params_json);\n");
     source.push_str("    };\n");
-    source.push_str("\n");
+    source.push('\n');
     source.push_str("    let mut on_variables_update = |variables: &std::collections::HashMap<String, serde_json::Value>| {\n");
     source.push_str("        let vars_json = serde_json::to_string(variables).unwrap_or_else(|_| \"{}\".to_string());\n");
     source.push_str("        println!(\"[VARS] {}\", vars_json);\n");
     source.push_str("    };\n");
-    source.push_str("\n");
+    source.push('\n');
     source.push_str("    let mut on_log = |level: &str, message: String| {\n");
     source.push_str("        println!(\"[LOG:{}] {}\", level, message);\n");
     source.push_str("    };\n");
-    source.push_str("\n");
+    source.push('\n');
     source.push_str("    let mut on_node_complete = |node: &WorkflowNode, outputs: &std::collections::HashMap<String, serde_json::Value>, selected_control_output: Option<&str>| {\n");
     source.push_str("        let outputs_json = serde_json::to_string(outputs).unwrap_or_else(|_| \"{}\".to_string());\n");
     source.push_str("        println!(\"[NODE_DONE] id={} kind={:?} label={} selected={} outputs={}\", node.id, node.kind, node.label, selected_control_output.unwrap_or(\"\"), outputs_json);\n");
     source.push_str("    };\n");
-    source.push_str("\n");
+    source.push('\n');
     source.push_str("    let should_cancel = || false;\n");
-    source.push_str("\n");
+    source.push('\n');
     source.push_str("    match executor\n");
     source.push_str("        .execute_with_progress(\n");
     source.push_str("            &graph,\n");
