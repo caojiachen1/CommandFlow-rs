@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
 import { getNodeFields, getNodeMeta, getSystemOperationKind, getTriggerMode, type ParamField } from '../utils/nodeMeta'
-import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../utils/execution'
+import { listOpenWindowEntries, listRunningProcesses, listStartMenuApps, type OpenWindowEntryPayload, type RunningProcessEntryPayload, type StartMenuAppPayload } from '../utils/execution'
 import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../utils/refresh'
 import { buildLaunchApplicationParams, filterStartMenuApps, getStartMenuAppDisplayName } from '../utils/startMenuApp'
 import {
@@ -106,6 +106,10 @@ const isWindowPidField = (kind: NodeKind, params: Record<string, unknown>, field
 
 const isWindowLookupField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
   isWindowLookupNode(kind, params) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
+
+const isTerminateProcessNode = (kind: NodeKind) => kind === 'terminateProcess'
+const isTerminateProcessNameField = (kind: NodeKind, fieldKey: string) => isTerminateProcessNode(kind) && fieldKey === 'processName'
+const isTerminateProcessPidField = (kind: NodeKind, fieldKey: string) => isTerminateProcessNode(kind) && fieldKey === 'processId'
 
 const describeHandleValueType = (valueType?: string) => {
   if (valueType === 'control') return '控制流'
@@ -220,6 +224,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const [openSuggestFieldKey, setOpenSuggestFieldKey] = useState<string | null>(null)
   const [activeSuggestIndex, setActiveSuggestIndex] = useState(0)
   const [openWindows, setOpenWindows] = useState<OpenWindowEntryPayload[]>([])
+  const [runningProcesses, setRunningProcesses] = useState<RunningProcessEntryPayload[]>([])
   const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
   const llmPresets = useSettingsStore((state) => state.llmPresets)
   const inputRecordingPresets = useSettingsStore((state) => state.inputRecordingPresets)
@@ -275,6 +280,16 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   const windowPids = useMemo(
     () => dedupe(openWindows.map((entry) => (entry.processId > 0 ? String(entry.processId) : ''))),
     [openWindows],
+  )
+
+  const processNames = useMemo(
+    () => dedupe(runningProcesses.map((entry) => entry.processName)),
+    [runningProcesses],
+  )
+
+  const processPids = useMemo(
+    () => dedupe(runningProcesses.map((entry) => (entry.pid > 0 ? String(entry.pid) : ''))),
+    [runningProcesses],
   )
 
   const refreshWindowEntries = () => {
@@ -334,6 +349,28 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   }, [data.kind])
 
   useEffect(() => {
+    if (!isTerminateProcessNode(data.kind)) {
+      setRunningProcesses([])
+      return
+    }
+
+    let cancelled = false
+    void listRunningProcesses()
+      .then((entries) => {
+        if (cancelled) return
+        setRunningProcesses(entries)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setRunningProcesses([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [data.kind])
+
+  useEffect(() => {
     const handleGlobalRefresh = () => {
       if (isWindowLookupNode(data.kind, params)) {
         void listOpenWindowEntries()
@@ -342,6 +379,16 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           })
           .catch(() => {
             setOpenWindows([])
+          })
+      }
+
+      if (isTerminateProcessNode(data.kind)) {
+        void listRunningProcesses(true)
+          .then((entries) => {
+            setRunningProcesses(entries)
+          })
+          .catch(() => {
+            setRunningProcesses([])
           })
       }
 
@@ -383,6 +430,14 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
     if (isWindowPidField(kind, params, field.key)) {
       return windowPids
+    }
+
+    if (isTerminateProcessNameField(kind, field.key)) {
+      return processNames
+    }
+
+    if (isTerminateProcessPidField(kind, field.key)) {
+      return processPids
     }
 
     const variableReferenceField =
@@ -450,6 +505,47 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       delete nextState.processId
       return nextState
     })
+    return true
+  }
+
+  const findRunningProcessEntry = (fieldKey: string, value: string) => {
+    const normalizedValue = value.trim().toLowerCase()
+    if (!normalizedValue) return null
+
+    return runningProcesses.find((entry) => {
+      if (fieldKey === 'processName') return entry.processName.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'processId') return String(entry.pid) === value.trim()
+      return false
+    }) ?? null
+  }
+
+  const applyRunningProcessSelection = (fieldKey: string, value: string) => {
+    if (!isTerminateProcessNode(data.kind) || !['processName', 'processId'].includes(fieldKey)) {
+      return false
+    }
+
+    const matchedEntry = findRunningProcessEntry(fieldKey, value)
+    if (!matchedEntry) {
+      return false
+    }
+
+    updateNodeParams(id, {
+      ...params,
+      processName: matchedEntry.processName,
+      processId: matchedEntry.pid,
+    })
+    setDrafts((state) => ({
+      ...state,
+      processName: matchedEntry.processName,
+      processId: matchedEntry.pid > 0 ? String(matchedEntry.pid) : '',
+    }))
+    setErrors((state) => {
+      const nextState = { ...state }
+      delete nextState.processName
+      delete nextState.processId
+      return nextState
+    })
+
     return true
   }
 
@@ -678,10 +774,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const isBoolean = field.type === 'boolean'
     const isNumber = field.type === 'number'
     const isWindowPidSuggestionField = isWindowPidField(data.kind, params, field.key)
+    const isTerminateProcessPidSuggestionField = isTerminateProcessPidField(data.kind, field.key)
+    const isPidSuggestionField = isWindowPidSuggestionField || isTerminateProcessPidSuggestionField
     const isSelect = field.type === 'select'
     const isJson = field.type === 'json'
     const isSensitiveField = data.kind === 'guiAgent' && field.key === 'apiKey'
-    const canUseArrows = isNumber && !isWindowPidSuggestionField
+    const canUseArrows = isNumber && !isPidSuggestionField
     const isPathField = isFilePathField(data.kind, field.key)
     const isScreenshotSizeFieldDisabled =
       data.kind === 'screenshot' &&
@@ -1024,6 +1122,8 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const supportsWindowProgramPathSuggestions = isWindowProgramPathField(data.kind, params, field.key)
     const supportsWindowClassSuggestions = isWindowClassField(data.kind, params, field.key)
     const supportsWindowPidSuggestions = isWindowPidSuggestionField
+    const supportsProcessNameSuggestions = isTerminateProcessNameField(data.kind, field.key)
+    const supportsProcessPidSuggestions = isTerminateProcessPidSuggestionField
     const supportsGuiModelSuggestions = false
     const supportsWindowSuggestions =
       supportsWindowTitleSuggestions ||
@@ -1031,10 +1131,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       supportsWindowProgramPathSuggestions ||
       supportsWindowClassSuggestions ||
       supportsWindowPidSuggestions
-    const supportsInlineSuggestions = supportsVariableSuggestions || supportsWindowSuggestions || supportsGuiModelSuggestions
+    const supportsProcessSuggestions = supportsProcessNameSuggestions || supportsProcessPidSuggestions
+    const supportsInlineSuggestions =
+      supportsVariableSuggestions || supportsWindowSuggestions || supportsProcessSuggestions || supportsGuiModelSuggestions
 
-    const canShowSuggestions = !connectedToInput && (!isNumber || isWindowPidSuggestionField) && !isSelect && !isJson && !isPathField && !isSensitiveField && supportsInlineSuggestions
-    const usesFloatingTextEditor = !connectedToInput && !isWindowPidSuggestionField && !isNumber && !isSelect && !isPathField && !isSensitiveField && !supportsInlineSuggestions
+    const canShowSuggestions = !connectedToInput && (!isNumber || isPidSuggestionField) && !isSelect && !isJson && !isPathField && !isSensitiveField && supportsInlineSuggestions
+    const usesFloatingTextEditor = !connectedToInput && !isPidSuggestionField && !isNumber && !isSelect && !isPathField && !isSensitiveField && !supportsInlineSuggestions
     const filteredSuggestions = canShowSuggestions
       ? (supportsWindowSuggestions
         ? suggestions
@@ -1046,8 +1148,12 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
         return
       }
 
+      if (applyRunningProcessSelection(field.key, value)) {
+        return
+      }
+
       setDrafts((state) => ({ ...state, [field.key]: value }))
-      if (isWindowPidSuggestionField) {
+      if (isPidSuggestionField) {
         updateParam(field.key, value.trim() ? Number(value) : 0)
       } else {
         updateParam(field.key, value)
@@ -1149,7 +1255,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               }
               const nextRaw = event.target.value
 
-              if (isWindowPidSuggestionField) {
+              if (isPidSuggestionField) {
                 if (!/^\d*$/.test(nextRaw)) {
                   return
                 }
@@ -1225,6 +1331,15 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             onFocus={() => {
               if (supportsWindowSuggestions) {
                 refreshWindowEntries()
+              }
+              if (supportsProcessNameSuggestions || supportsProcessPidSuggestions) {
+                void listRunningProcesses(true)
+                  .then((entries) => {
+                    setRunningProcesses(entries)
+                  })
+                  .catch(() => {
+                    setRunningProcesses([])
+                  })
               }
               if (canShowSuggestions) {
                 setOpenSelectFieldKey(null)

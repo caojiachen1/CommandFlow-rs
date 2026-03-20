@@ -244,6 +244,16 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'fingerprint', label: 'fingerprint', maxConnections: MANY, valueType: 'string' },
     ],
   },
+  getMousePosition: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'x', label: 'x', maxConnections: MANY, valueType: 'number' },
+      { id: 'y', label: 'y', maxConnections: MANY, valueType: 'number' },
+      { id: 'isPhysicalPixel', label: 'isPhysicalPixel', maxConnections: MANY, valueType: 'any' },
+      { id: 'mode', label: 'mode', maxConnections: MANY, valueType: 'string' },
+    ],
+  },
   mouseOperation: {
     inputs: singleIn(),
     outputs: singleOut(),
@@ -281,6 +291,17 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'programPath', label: 'programPath', maxConnections: MANY, valueType: 'string' },
       { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
       { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
+    ],
+  },
+  terminateProcess: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'targetType', label: 'targetType', maxConnections: MANY, valueType: 'string' },
+      { id: 'targetValue', label: 'targetValue', maxConnections: MANY, valueType: 'string' },
+      { id: 'killedCount', label: 'killedCount', maxConnections: MANY, valueType: 'number' },
+      { id: 'stdout', label: 'stdout', maxConnections: MANY, valueType: 'string' },
+      { id: 'stderr', label: 'stderr', maxConnections: MANY, valueType: 'string' },
     ],
   },
   launchApplication: {

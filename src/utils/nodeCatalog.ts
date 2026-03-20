@@ -51,6 +51,7 @@ const categories: NodePaletteCategory[] = [
     title: '输入控制',
     items: [
       { label: 'UIA 获取控件', kind: 'uiaElement', color: 'bg-cyan-700', icon: Search, category: '输入控制' },
+      { label: '获取鼠标坐标', kind: 'getMousePosition', color: 'bg-sky-500', icon: MousePointerClick, category: '输入控制' },
       { label: '鼠标操作', kind: 'mouseOperation', color: 'bg-cyan-500', icon: MousePointerClick, category: '输入控制' },
       { label: '键盘操作', kind: 'keyboardOperation', color: 'bg-sky-600', icon: Keyboard, category: '输入控制' },
       { label: '回放键鼠预设', kind: 'inputPresetReplay', color: 'bg-cyan-600', icon: Repeat, category: '输入控制' },
@@ -62,6 +63,7 @@ const categories: NodePaletteCategory[] = [
       { label: '系统操作', kind: 'systemOperation', color: 'bg-red-500', icon: Settings, category: '系统与文件' },
       { label: '屏幕截图', kind: 'screenshot', color: 'bg-indigo-500', icon: Camera, category: '系统与文件' },
       { label: '切换窗口', kind: 'windowActivate', color: 'bg-violet-500', icon: Monitor, category: '系统与文件' },
+      { label: '终止程序', kind: 'terminateProcess', color: 'bg-rose-600', icon: Monitor, category: '系统与文件' },
       { label: '启动应用', kind: 'launchApplication', color: 'bg-emerald-600', icon: Rocket, category: '系统与文件' },
       { label: '文件操作', kind: 'fileOperation', color: 'bg-fuchsia-500', icon: FileText, category: '系统与文件' },
       { label: '执行 Python', kind: 'pythonCode', color: 'bg-blue-600', icon: Code2, category: '系统与文件' },

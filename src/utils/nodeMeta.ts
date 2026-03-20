@@ -34,6 +34,7 @@ export type KeyboardInputMode = 'bulk' | 'charByChar'
 export type InputPresetReplayMode = 'originalTiming' | 'compressed' | 'step'
 
 export type LaunchApplicationMode = 'auto' | 'direct' | 'shell'
+export type TerminateProcessMatchBy = 'pid' | 'name'
 
 export type ClipboardReadMode = 'auto' | 'text' | 'image'
 export type ClipboardWriteContentType = 'text' | 'image'
@@ -142,6 +143,11 @@ export const LAUNCH_APPLICATION_MODE_OPTIONS: Array<{ label: string; value: Laun
   { label: '自动（优先直启，必要时回退 Shell API）', value: 'auto' },
   { label: '直接启动（尽量获取 PID）', value: 'direct' },
   { label: 'Shell API 启动（兼容性更高）', value: 'shell' },
+]
+
+export const TERMINATE_PROCESS_MATCH_BY_OPTIONS: Array<{ label: string; value: TerminateProcessMatchBy }> = [
+  { label: '按 PID', value: 'pid' },
+  { label: '按程序名称', value: 'name' },
 ]
 
 export const TRIGGER_MODE_OPTIONS: Array<{ label: string; value: TriggerMode }> = [
@@ -495,6 +501,14 @@ export const isNodeFieldVisible = (
     if (mode === 'shortcut') {
       return !['title', 'program', 'matchMode', ...WINDOW_ADVANCED_FIELD_KEYS].includes(field.key)
     }
+  }
+
+  if (kind === 'terminateProcess') {
+    if (field.key === 'matchBy' || field.key === 'force' || field.key === 'killTree') return true
+    const matchBy = String(params.matchBy ?? defaultParams.matchBy ?? 'name')
+    if (field.key === 'processId') return matchBy === 'pid'
+    if (field.key === 'processName') return matchBy === 'name'
+    return false
   }
 
   if (kind === 'clipboardRead') {
@@ -975,6 +989,12 @@ const metas: Record<NodeKind, NodeMeta> = {
       },
     ],
   },
+  getMousePosition: {
+    label: '获取鼠标坐标',
+    description: '读取系统当前鼠标坐标（x/y），可直接连接到鼠标操作节点。',
+    defaultParams: {},
+    fields: [],
+  },
   keyboardOperation: {
     label: '键盘操作',
     description: '统一的键盘操作节点；选择操作类型后动态显示对应参数与输出。',
@@ -1248,6 +1268,29 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
       },
       { key: 'shortcutTimes', label: '快捷键次数', type: 'number', min: 1, step: 1 },
       { key: 'shortcutIntervalMs', label: '快捷键间隔(ms)', type: 'number', min: 1, step: 1 },
+    ],
+  },
+  terminateProcess: {
+    label: '终止程序',
+    description: '按 PID 或程序名称终止进程。支持手动输入或从当前运行进程下拉选择。',
+    defaultParams: {
+      matchBy: 'name',
+      processId: 0,
+      processName: 'notepad.exe',
+      force: true,
+      killTree: false,
+    },
+    fields: [
+      {
+        key: 'matchBy',
+        label: '匹配方式',
+        type: 'select',
+        options: TERMINATE_PROCESS_MATCH_BY_OPTIONS,
+      },
+      { key: 'processId', label: 'PID', type: 'number', min: 1, step: 1 },
+      { key: 'processName', label: '程序名称', type: 'string', placeholder: 'notepad.exe' },
+      { key: 'force', label: '强制终止 (/F)', type: 'boolean' },
+      { key: 'killTree', label: '终止子进程 (/T)', type: 'boolean' },
     ],
   },
   launchApplication: {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, getTriggerMode, type ParamField } from '../../utils/nodeMeta'
-import { listOpenWindowEntries, listStartMenuApps, type OpenWindowEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
+import { listOpenWindowEntries, listRunningProcesses, listStartMenuApps, type OpenWindowEntryPayload, type RunningProcessEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
 import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../../utils/refresh'
 import type { NodeKind } from '../../types/workflow'
 import { buildLaunchApplicationParams } from '../../utils/startMenuApp'
@@ -145,6 +145,8 @@ const isHotkeyTriggerNode = (kind: NodeKind, params: Record<string, unknown> = {
 const isWindowLookupField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
   isWindowLookupNode(kind, params) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
 
+const isTerminateProcessNode = (kind: NodeKind) => kind === 'terminateProcess'
+
 export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps) {
   const { selectedNodeId, nodes, updateNodeParams } = useWorkflowStore()
   const selectedNode = useMemo(
@@ -163,6 +165,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [openWindows, setOpenWindows] = useState<OpenWindowEntryPayload[]>([])
+  const [runningProcesses, setRunningProcesses] = useState<RunningProcessEntryPayload[]>([])
   const [startMenuApps, setStartMenuApps] = useState<StartMenuAppPayload[]>([])
 
   const variableNames = useMemo(
@@ -200,6 +203,16 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     [openWindows],
   )
 
+  const processNames = useMemo(
+    () => dedupe(runningProcesses.map((entry) => entry.processName)),
+    [runningProcesses],
+  )
+
+  const processPids = useMemo(
+    () => dedupe(runningProcesses.map((entry) => (entry.pid > 0 ? String(entry.pid) : ''))),
+    [runningProcesses],
+  )
+
   useEffect(() => {
     if (!selectedNode || !selectedMeta) {
       setJsonDrafts({})
@@ -232,6 +245,28 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       cancelled = true
     }
   }, [expanded, selectedNode, selectedTriggerMode])
+
+  useEffect(() => {
+    if (!selectedNode || !expanded || !isTerminateProcessNode(selectedNode.data.kind)) {
+      setRunningProcesses([])
+      return
+    }
+
+    let cancelled = false
+    void listRunningProcesses()
+      .then((entries) => {
+        if (cancelled) return
+        setRunningProcesses(entries)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setRunningProcesses([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [expanded, selectedNode])
 
   useEffect(() => {
     if (!selectedNode || !expanded || selectedNode.data.kind !== 'launchApplication') {
@@ -278,6 +313,16 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
             setStartMenuApps([])
           })
       }
+
+      if (isTerminateProcessNode(selectedNode.data.kind)) {
+        void listRunningProcesses(true)
+          .then((entries) => {
+            setRunningProcesses(entries)
+          })
+          .catch(() => {
+            setRunningProcesses([])
+          })
+      }
     }
 
     window.addEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
@@ -302,6 +347,12 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     }
     if (isWindowLookupNode(kind, params) && field.key === 'className') {
       return windowClassNames
+    }
+    if (isTerminateProcessNode(kind) && field.key === 'processName') {
+      return processNames
+    }
+    if (isTerminateProcessNode(kind) && field.key === 'processId') {
+      return processPids
     }
     if (kind === 'windowActivate' && field.key === 'shortcut') {
       return COMMON_HOTKEYS
@@ -372,6 +423,35 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       programPath: matchedEntry.programPath,
       className: matchedEntry.className,
       processId: matchedEntry.processId,
+    })
+    return true
+  }
+
+  const findRunningProcessEntry = (fieldKey: string, value: string) => {
+    const normalizedValue = value.trim().toLowerCase()
+    if (!normalizedValue) return null
+
+    return runningProcesses.find((entry) => {
+      if (fieldKey === 'processName') return entry.processName.trim().toLowerCase() === normalizedValue
+      if (fieldKey === 'processId') return String(entry.pid) === value.trim()
+      return false
+    }) ?? null
+  }
+
+  const applyRunningProcessSelection = (fieldKey: string, value: string) => {
+    if (!selectedNode || !isTerminateProcessNode(selectedNode.data.kind)) {
+      return false
+    }
+
+    const matched = findRunningProcessEntry(fieldKey, value)
+    if (!matched) {
+      return false
+    }
+
+    updateNodeParams(selectedNode.id, {
+      ...selectedNode.data.params,
+      processName: matched.processName,
+      processId: matched.pid,
     })
     return true
   }
@@ -542,16 +622,18 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       )
     }
 
-    if (isWindowLookupField(selectedNode.data.kind, field.key, selectedNode.data.params) && field.key === 'processId') {
+    if ((isWindowLookupField(selectedNode.data.kind, field.key, selectedNode.data.params) || (isTerminateProcessNode(selectedNode.data.kind) && field.key === 'processId')) && field.key === 'processId') {
       return (
         <SmartInputSelect
           value={String(Number(currentValue ?? 0) > 0 ? currentValue : '')}
           placeholder={field.placeholder}
-          options={windowPids}
+          options={isTerminateProcessNode(selectedNode.data.kind) ? processPids : windowPids}
           onChange={(nextValue) => updateParam(field.key, nextValue.trim() ? Number(nextValue) : 0)}
           onOptionSelect={(nextValue) => {
             if (!applyWindowEntrySelection(field.key, nextValue)) {
-              updateParam(field.key, nextValue.trim() ? Number(nextValue) : 0)
+              if (!applyRunningProcessSelection(field.key, nextValue)) {
+                updateParam(field.key, nextValue.trim() ? Number(nextValue) : 0)
+              }
             }
           }}
           hint="可下拉选择当前窗口 PID，也可手动输入"
@@ -690,7 +772,9 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
               onChange={(nextValue) => updateParam(field.key, nextValue)}
               onOptionSelect={(nextValue) => {
                 if (!applyWindowEntrySelection(field.key, nextValue)) {
-                  updateParam(field.key, nextValue)
+                  if (!applyRunningProcessSelection(field.key, nextValue)) {
+                    updateParam(field.key, nextValue)
+                  }
                 }
               }}
               hint="支持下拉选择，也可手动输入"

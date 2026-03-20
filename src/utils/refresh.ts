@@ -1,4 +1,4 @@
-import { invalidateDynamicOptionCaches, listOpenWindowEntries, listStartMenuApps } from './execution'
+import { invalidateDynamicOptionCaches, listOpenWindowEntries, listRunningProcesses, listStartMenuApps } from './execution'
 
 export const COMMAND_FLOW_REFRESH_ALL_EVENT = 'commandflow:refresh-all'
 
@@ -11,6 +11,7 @@ export const triggerGlobalRefresh = async () => {
 
   await Promise.allSettled([
     listOpenWindowEntries(),
+    listRunningProcesses(true),
     listStartMenuApps(true),
   ])
 

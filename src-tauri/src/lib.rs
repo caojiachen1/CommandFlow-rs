@@ -82,6 +82,7 @@ pub fn run() {
             commands::cancel_ui_element_pick,
             commands::list_open_windows,
             commands::list_open_window_details,
+            commands::list_running_processes,
             commands::list_start_menu_apps,
             commands::resolve_start_menu_app_icon,
             commands::fetch_llm_models,

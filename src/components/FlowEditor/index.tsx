@@ -224,6 +224,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   const nodeTypes = useMemo(
     () => ({
       uiaElement: ClickNode,
+      getMousePosition: ClickNode,
       mouseOperation: ClickNode,
       screenshot: ScreenshotNode,
       keyboardOperation: KeyPressNode,
@@ -243,6 +244,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       jsonExtract: VariableNode,
       trigger: VariableNode,
       windowActivate: ClickNode,
+      terminateProcess: ClickNode,
       launchApplication: ClickNode,
       fileOperation: ClickNode,
       pythonCode: ClickNode,

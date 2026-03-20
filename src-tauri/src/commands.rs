@@ -3,6 +3,7 @@ use crate::automation::screenshot;
 use crate::automation::start_menu;
 use crate::automation::uia;
 use crate::automation::window;
+use crate::automation::process;
 use crate::input_recorder;
 use crate::workflow::graph::WorkflowGraph;
 use encoding_rs::GBK;
@@ -1705,6 +1706,11 @@ pub async fn list_open_windows() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn list_open_window_details() -> Result<Vec<window::OpenWindowEntry>, String> {
     window::list_open_window_entries().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_running_processes() -> Result<Vec<process::RunningProcessEntry>, String> {
+    process::list_running_processes().map_err(|error| error.to_string())
 }
 
 #[tauri::command]

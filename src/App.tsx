@@ -143,11 +143,13 @@ type WorkflowNodeCompletedPayload = WorkflowNodeEventPayload & {
 const workflowNodeKinds = [
   "trigger",
   "uiaElement",
+  "getMousePosition",
   "mouseOperation",
   "keyboardOperation",
   "inputPresetReplay",
   "screenshot",
   "windowActivate",
+  "terminateProcess",
   "launchApplication",
   "fileOperation",
   "pythonCode",

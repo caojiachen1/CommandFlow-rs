@@ -5,12 +5,38 @@ use enigo::{Axis, Button, Coordinate, Direction, Enigo, Mouse, Settings};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_WHEEL, MOUSEINPUT,
 };
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::POINT;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 fn parse_button(name: &str) -> Button {
     match name.to_lowercase().as_str() {
         "right" => Button::Right,
         "middle" => Button::Middle,
         _ => Button::Left,
+    }
+}
+
+pub fn cursor_position() -> CommandResult<(i32, i32)> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut point: POINT = unsafe { std::mem::zeroed() };
+        let ok = unsafe { GetCursorPos(&mut point as *mut POINT) };
+        if ok == 0 {
+            return Err(CommandFlowError::Automation(
+                "获取当前鼠标坐标失败。".to_string(),
+            ));
+        }
+
+        Ok((point.x, point.y))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(CommandFlowError::Automation(
+            "当前平台尚未支持系统级鼠标坐标读取。".to_string(),
+        ))
     }
 }
 

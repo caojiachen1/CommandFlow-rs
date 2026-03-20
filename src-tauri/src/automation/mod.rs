@@ -5,6 +5,7 @@ pub mod keyboard;
 pub mod mouse;
 pub mod ocr_match;
 pub mod power;
+pub mod process;
 pub mod screenshot;
 pub mod start_menu;
 pub mod system_settings;

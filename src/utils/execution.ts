@@ -83,6 +83,11 @@ export interface OpenWindowEntryPayload {
   processId: number
 }
 
+export interface RunningProcessEntryPayload {
+  processName: string
+  pid: number
+}
+
 export interface UiElementRectPayload {
   left: number
   top: number
@@ -171,12 +176,16 @@ export interface PackageWorkflowProgressPayload {
 const isTauriRuntime = () => '__TAURI_INTERNALS__' in window
 let startMenuAppsCache: StartMenuAppPayload[] | null = null
 let startMenuAppsPromise: Promise<StartMenuAppPayload[]> | null = null
+let runningProcessesCache: RunningProcessEntryPayload[] | null = null
+let runningProcessesPromise: Promise<RunningProcessEntryPayload[]> | null = null
 const startMenuIconCache = new Map<string, string | null>()
 const startMenuIconPromises = new Map<string, Promise<string | null>>()
 
 export const invalidateDynamicOptionCaches = () => {
   startMenuAppsCache = null
   startMenuAppsPromise = null
+  runningProcessesCache = null
+  runningProcessesPromise = null
   startMenuIconCache.clear()
   startMenuIconPromises.clear()
 }
@@ -235,6 +244,31 @@ export const listOpenWindowEntries = async (): Promise<OpenWindowEntryPayload[]>
     return []
   }
   return invoke<OpenWindowEntryPayload[]>('list_open_window_details')
+}
+
+export const listRunningProcesses = async (forceRefresh = false): Promise<RunningProcessEntryPayload[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+
+  if (!forceRefresh && runningProcessesCache) {
+    return runningProcessesCache
+  }
+
+  if (!forceRefresh && runningProcessesPromise) {
+    return runningProcessesPromise
+  }
+
+  runningProcessesPromise = invoke<RunningProcessEntryPayload[]>('list_running_processes')
+    .then((entries) => {
+      runningProcessesCache = entries
+      return entries
+    })
+    .finally(() => {
+      runningProcessesPromise = null
+    })
+
+  return runningProcessesPromise
 }
 
 export const listStartMenuApps = async (forceRefresh = false): Promise<StartMenuAppPayload[]> => {

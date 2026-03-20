@@ -1,6 +1,6 @@
 use crate::automation::{
     file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu,
-    system_settings, uia, window,
+    system_settings, uia, window, process,
 };
 use crate::error::{CommandFlowError, CommandResult};
 use crate::secure_settings::{
@@ -725,6 +725,7 @@ impl WorkflowExecutor {
                 execute_trigger_node(node, ctx, should_cancel, Some("window")).await
             }
             NodeKind::UiaElement => execute_uia_element(node, ctx),
+            NodeKind::GetMousePosition => execute_get_mouse_position(node, ctx),
             NodeKind::MouseOperation => execute_mouse_operation(node, ctx, None),
             NodeKind::MouseClick => execute_mouse_operation(node, ctx, Some("click")),
             NodeKind::MouseMove => execute_mouse_operation(node, ctx, Some("move")),
@@ -847,6 +848,7 @@ impl WorkflowExecutor {
                 }
                 Ok(NextDirective::Default)
             }
+            NodeKind::TerminateProcess => execute_terminate_process(node, ctx, on_log),
             NodeKind::LaunchApplication => execute_launch_application(node, ctx, on_log),
             NodeKind::FileOperation => execute_file_operation(node, ctx, None, on_log),
             NodeKind::FileCopy => execute_file_operation(node, ctx, Some("copy"), on_log),
@@ -1658,6 +1660,90 @@ impl WorkflowExecutor {
             }
         }
     }
+}
+
+fn execute_get_mouse_position(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+) -> CommandResult<NextDirective> {
+    let (x, y) = mouse::cursor_position()?;
+    set_node_output(ctx, node, "x", value_from_i32(x));
+    set_node_output(ctx, node, "y", value_from_i32(y));
+    set_node_output(ctx, node, "isPhysicalPixel", Value::Bool(true));
+    set_node_output(
+        ctx,
+        node,
+        "mode",
+        Value::String("virtualScreen".to_string()),
+    );
+
+    Ok(NextDirective::Default)
+}
+
+fn execute_terminate_process(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    on_log: &mut impl FnMut(&str, String),
+) -> CommandResult<NextDirective> {
+    let match_by_raw = get_string(node, "matchBy", "name");
+    let match_by = normalize_system_operation_name(&match_by_raw);
+    let force = get_bool(node, "force", true);
+    let kill_tree = get_bool(node, "killTree", false);
+
+    let (target_type, target_value, outcome) = match match_by.as_str() {
+        "pid" => {
+            let pid = get_u64(node, "processId", 0) as u32;
+            if pid == 0 {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' processId must be greater than 0",
+                    node.id
+                )));
+            }
+
+            let outcome = process::terminate_process_by_pid(pid, force, kill_tree)?;
+            ("pid".to_string(), pid.to_string(), outcome)
+        }
+        "name" => {
+            let process_name = get_string(node, "processName", "");
+            let process_name = process_name.trim().to_string();
+            if process_name.is_empty() {
+                return Err(CommandFlowError::Validation(format!(
+                    "node '{}' processName cannot be empty",
+                    node.id
+                )));
+            }
+
+            let outcome = process::terminate_process_by_name(&process_name, force, kill_tree)?;
+            ("name".to_string(), process_name, outcome)
+        }
+        _ => {
+            return Err(CommandFlowError::Validation(format!(
+                "node '{}' has unsupported terminate mode '{}'",
+                node.id, match_by_raw
+            )));
+        }
+    };
+
+    set_node_output(ctx, node, "targetType", Value::String(target_type));
+    set_node_output(ctx, node, "targetValue", Value::String(target_value.clone()));
+    set_node_output(
+        ctx,
+        node,
+        "killedCount",
+        value_from_u64(outcome.killed_count as u64),
+    );
+    set_node_output(ctx, node, "stdout", Value::String(outcome.stdout.clone()));
+    set_node_output(ctx, node, "stderr", Value::String(outcome.stderr.clone()));
+
+    on_log(
+        "info",
+        format!(
+            "终止程序节点 '{}' 执行完成：target={}，killedCount={}。",
+            node.label, target_value, outcome.killed_count
+        ),
+    );
+
+    Ok(NextDirective::Default)
 }
 
 fn is_trigger_node(node: &WorkflowNode) -> bool {
