@@ -28,7 +28,7 @@ use windows_sys::Win32::Foundation::{POINT, RECT};
 use windows_sys::Win32::System::Diagnostics::Debug::Beep;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
+    GetAsyncKeyState, VK_ESCAPE,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -144,11 +144,6 @@ fn has_pending_ui_element_pick() -> bool {
 
 #[cfg(target_os = "windows")]
 async fn run_ui_element_pick_clickthrough_loop(app: AppHandle) {
-    let start = std::time::Instant::now();
-    let mut left_armed = !is_vk_pressed(VK_LBUTTON as i32);
-    let mut prev_left = is_vk_pressed(VK_LBUTTON as i32);
-    let mut prev_right = is_vk_pressed(VK_RBUTTON as i32);
-    let mut prev_middle = is_vk_pressed(VK_MBUTTON as i32);
     let mut prev_escape = is_vk_pressed(VK_ESCAPE as i32);
 
     loop {
@@ -156,49 +151,7 @@ async fn run_ui_element_pick_clickthrough_loop(app: AppHandle) {
             break;
         }
 
-        let left_pressed = is_vk_pressed(VK_LBUTTON as i32);
-        let right_pressed = is_vk_pressed(VK_RBUTTON as i32);
-        let middle_pressed = is_vk_pressed(VK_MBUTTON as i32);
         let escape_pressed = is_vk_pressed(VK_ESCAPE as i32);
-
-        if !left_armed {
-            if !left_pressed && start.elapsed() >= Duration::from_millis(120) {
-                left_armed = true;
-            }
-        } else if left_pressed && !prev_left {
-            let confirm_result = read_cursor_virtual_screen_point()
-                .and_then(|(x, y)| {
-                    uia::inspect_element_at_point(x, y)
-                        .map_err(|error| error.to_string())?
-                        .ok_or_else(|| "当前鼠标位置未检测到可用元素。".to_string())
-                })
-                .and_then(|preview| complete_ui_element_pick(Ok(preview)));
-
-            if confirm_result.is_err() {
-                let _ = complete_ui_element_pick(Err("当前鼠标位置未检测到可用元素。".to_string()));
-            }
-
-            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
-                let _ = overlay.close();
-            }
-            break;
-        }
-
-        if right_pressed && !prev_right {
-            let _ = complete_ui_element_pick(Err("用户取消元素提取（右键）。".to_string()));
-            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
-                let _ = overlay.close();
-            }
-            break;
-        }
-
-        if middle_pressed && !prev_middle {
-            let _ = complete_ui_element_pick(Err("用户取消元素提取（中键）。".to_string()));
-            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
-                let _ = overlay.close();
-            }
-            break;
-        }
 
         if escape_pressed && !prev_escape {
             let _ = complete_ui_element_pick(Err("用户取消元素提取（Esc）。".to_string()));
@@ -208,9 +161,6 @@ async fn run_ui_element_pick_clickthrough_loop(app: AppHandle) {
             break;
         }
 
-        prev_left = left_pressed;
-        prev_right = right_pressed;
-        prev_middle = middle_pressed;
         prev_escape = escape_pressed;
 
         tokio::time::sleep(Duration::from_millis(8)).await;
@@ -1540,12 +1490,12 @@ pub async fn pick_ui_element(app: AppHandle) -> Result<uia::UiElementPreview, St
         "coordinate-overlay",
         tauri::WebviewUrl::App("index.html?coordinateOverlay=1&pickMode=element".into()),
     )
-    .title("UI Element Overlay")
+    .title("")
     .decorations(false)
     .resizable(false)
     .always_on_top(true)
     .skip_taskbar(true)
-    .focused(true)
+    .focused(false)
     .transparent(true)
     .build()
     .map_err(|error| {
@@ -1558,19 +1508,15 @@ pub async fn pick_ui_element(app: AppHandle) -> Result<uia::UiElementPreview, St
 
     #[cfg(target_os = "windows")]
     {
-        if let Err(fullscreen_error) = window.set_fullscreen(true) {
-            let (x, y, width, height) = get_virtual_screen_bounds();
-            window
-                .set_position(Position::Physical(PhysicalPosition { x, y }))
-                .map_err(|error| format!("设置 Overlay 位置失败：{}", error))?;
-            window
-                .set_size(Size::Physical(PhysicalSize { width, height }))
-                .map_err(|error| format!("设置 Overlay 尺寸失败：{}", error))?;
-            eprintln!(
-                "[ui-element-overlay] set_fullscreen failed on windows, fallback to virtual screen bounds: {}",
-                fullscreen_error
-            );
-        }
+        let _ = window.set_shadow(false);
+
+        let (x, y, width, height) = get_virtual_screen_bounds();
+        window
+            .set_position(Position::Physical(PhysicalPosition { x, y }))
+            .map_err(|error| format!("设置 Overlay 位置失败：{}", error))?;
+        window
+            .set_size(Size::Physical(PhysicalSize { width, height }))
+            .map_err(|error| format!("设置 Overlay 尺寸失败：{}", error))?;
     }
 
     #[cfg(not(target_os = "windows"))]

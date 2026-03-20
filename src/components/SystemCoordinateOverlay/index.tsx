@@ -91,7 +91,7 @@ export default function SystemCoordinateOverlay() {
       try {
         const current = getCurrentWindow()
         const [position, scale] = await Promise.all([
-          current.outerPosition(),
+          current.innerPosition().catch(() => current.outerPosition()),
           current.scaleFactor(),
         ])
 
@@ -243,11 +243,11 @@ export default function SystemCoordinateOverlay() {
       onMouseDown={onMouseDown}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 rounded-xl border border-white/20 bg-black/45 px-4 py-2 text-xs font-semibold text-white backdrop-blur">
-        {isElementMode
-          ? '元素提取中（穿透模式）：悬停高亮，左键确认加入工作流，右键或 Esc 取消'
-          : '坐标拾取中：单击确认，右键或 Esc 取消'}
-      </div>
+      {!isElementMode ? (
+        <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 rounded-xl border border-white/20 bg-black/45 px-4 py-2 text-xs font-semibold text-white backdrop-blur">
+          坐标拾取中：单击确认，右键或 Esc 取消
+        </div>
+      ) : null}
 
       {isElementMode && hoveredElement && displayRect && detailPanelPosition ? (
         <>
