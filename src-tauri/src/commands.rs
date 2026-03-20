@@ -28,7 +28,7 @@ use windows_sys::Win32::Foundation::{POINT, RECT};
 use windows_sys::Win32::System::Diagnostics::Debug::Beep;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_ESCAPE,
+    GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LBUTTON,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -144,6 +144,9 @@ fn has_pending_ui_element_pick() -> bool {
 
 #[cfg(target_os = "windows")]
 async fn run_ui_element_pick_clickthrough_loop(app: AppHandle) {
+    let start = std::time::Instant::now();
+    let mut left_armed = !is_vk_pressed(VK_LBUTTON as i32);
+    let mut prev_left = is_vk_pressed(VK_LBUTTON as i32);
     let mut prev_escape = is_vk_pressed(VK_ESCAPE as i32);
 
     loop {
@@ -151,7 +154,32 @@ async fn run_ui_element_pick_clickthrough_loop(app: AppHandle) {
             break;
         }
 
+        let left_pressed = is_vk_pressed(VK_LBUTTON as i32);
+        let ctrl_pressed = is_vk_pressed(VK_CONTROL as i32);
         let escape_pressed = is_vk_pressed(VK_ESCAPE as i32);
+
+        if !left_armed {
+            if !left_pressed && start.elapsed() >= Duration::from_millis(120) {
+                left_armed = true;
+            }
+        } else if left_pressed && !prev_left && ctrl_pressed {
+            let confirm_result = read_cursor_virtual_screen_point()
+                .and_then(|(x, y)| {
+                    uia::inspect_element_at_point(x, y)
+                        .map_err(|error| error.to_string())?
+                        .ok_or_else(|| "当前鼠标位置未检测到可用元素。".to_string())
+                })
+                .and_then(|preview| complete_ui_element_pick(Ok(preview)));
+
+            if confirm_result.is_err() {
+                let _ = complete_ui_element_pick(Err("当前鼠标位置未检测到可用元素。".to_string()));
+            }
+
+            if let Some(overlay) = app.get_webview_window("coordinate-overlay") {
+                let _ = overlay.close();
+            }
+            break;
+        }
 
         if escape_pressed && !prev_escape {
             let _ = complete_ui_element_pick(Err("用户取消元素提取（Esc）。".to_string()));
@@ -161,6 +189,7 @@ async fn run_ui_element_pick_clickthrough_loop(app: AppHandle) {
             break;
         }
 
+        prev_left = left_pressed;
         prev_escape = escape_pressed;
 
         tokio::time::sleep(Duration::from_millis(8)).await;

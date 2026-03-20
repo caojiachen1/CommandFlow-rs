@@ -1388,7 +1388,7 @@ function App() {
     setElementPicking(true);
     addLog(
       "info",
-      "进入元素提取（Accessibility）模式：请将鼠标悬停到目标元素后单击确认。",
+      "进入元素提取（Accessibility）模式：请将鼠标悬停到目标元素后CTRL+鼠标左键单击确认。",
     );
 
     try {
