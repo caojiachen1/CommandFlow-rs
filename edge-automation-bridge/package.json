@@ -1,0 +1,17 @@
+{
+  "name": "edge-automation-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Enterprise MV3 browser automation bridge for Edge/Chrome + Tauri",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "watch": "node ./scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.17",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Edge Automation Bridge</title>
+    <style>
+      body { font-family: Segoe UI, system-ui, sans-serif; margin: 12px; min-width: 320px; }
+      .row { margin-bottom: 8px; }
+      input { width: 100%; box-sizing: border-box; }
+      .status { font-weight: 600; }
+      button { width: 100%; padding: 8px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; }
+      small { color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <div class="row"><div class="status" id="status">状态: -</div></div>
+    <div class="row">
+      <label>本地 WS 地址</label>
+      <input id="endpoint" placeholder="ws://127.0.0.1:17324/bridge" />
+    </div>
+    <div class="row">
+      <label>Token</label>
+      <input id="token" placeholder="CHANGE_ME_TOKEN" />
+    </div>
+    <div class="row"><button id="save">保存并重连</button></div>
+    <small>建议 Tauri 仅监听 127.0.0.1，并启用 Token 验证。</small>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

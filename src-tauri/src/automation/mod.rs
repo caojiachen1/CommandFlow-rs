@@ -1,4 +1,5 @@
 pub mod executor;
+pub mod edge_bridge;
 pub mod file_ops;
 pub mod image_match;
 pub mod keyboard;

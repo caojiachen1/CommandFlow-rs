@@ -95,6 +95,10 @@ pub fn run() {
             commands::set_background_mode,
             commands::start_input_recording,
             commands::stop_input_recording,
+            commands::edge_bridge_start_server,
+            commands::edge_bridge_stop_server,
+            commands::edge_bridge_status,
+            commands::edge_bridge_execute_plan,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");

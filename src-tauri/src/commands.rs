@@ -1,4 +1,5 @@
 use crate::automation::executor::WorkflowExecutor;
+use crate::automation::edge_bridge;
 use crate::automation::screenshot;
 use crate::automation::start_menu;
 use crate::automation::uia;
@@ -1985,4 +1986,34 @@ pub async fn play_completion_beep() -> Result<String, String> {
     }
 
     Ok("played".to_string())
+}
+
+#[tauri::command]
+pub async fn edge_bridge_start_server(
+    config: Option<edge_bridge::BridgeServerConfig>,
+) -> Result<edge_bridge::BridgeRuntimeStatus, String> {
+    edge_bridge::start_server(config)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn edge_bridge_stop_server() -> Result<edge_bridge::BridgeRuntimeStatus, String> {
+    edge_bridge::stop_server()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn edge_bridge_status() -> Result<edge_bridge::BridgeRuntimeStatus, String> {
+    edge_bridge::status().await.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn edge_bridge_execute_plan(
+    plan: edge_bridge::AutomationExecutionPlan,
+) -> Result<edge_bridge::ExecutionPlanReport, String> {
+    edge_bridge::execute_plan(plan)
+        .await
+        .map_err(|error| error.to_string())
 }
