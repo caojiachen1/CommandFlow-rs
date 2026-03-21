@@ -7,6 +7,7 @@ import {
   Clock3,
   Code2,
   FileText,
+  Globe,
   GitBranch,
   Keyboard,
   MessageSquare,
@@ -30,7 +31,7 @@ export interface NodePaletteItem {
 }
 
 export interface NodePaletteCategory {
-  title: '触发与流程' | '输入控制' | '系统与文件' | '变量与数据'
+  title: '触发与流程' | '输入控制' | '网页自动化' | '系统与文件' | '变量与数据'
   items: NodePaletteItem[]
 }
 
@@ -55,6 +56,17 @@ const categories: NodePaletteCategory[] = [
       { label: '鼠标操作', kind: 'mouseOperation', color: 'bg-cyan-500', icon: MousePointerClick, category: '输入控制' },
       { label: '键盘操作', kind: 'keyboardOperation', color: 'bg-sky-600', icon: Keyboard, category: '输入控制' },
       { label: '回放键鼠预设', kind: 'inputPresetReplay', color: 'bg-cyan-600', icon: Repeat, category: '输入控制' },
+    ],
+  },
+  {
+    title: '网页自动化',
+    items: [
+      { label: '打开网页', kind: 'webOpenPage', color: 'bg-blue-600', icon: Globe, category: '网页自动化' },
+      { label: '获取网页对象', kind: 'webGetOpenedPage', color: 'bg-blue-500', icon: Globe, category: '网页自动化' },
+      { label: '点击元素(Web)', kind: 'webElementClick', color: 'bg-cyan-600', icon: MousePointerClick, category: '网页自动化' },
+      { label: '悬停元素(Web)', kind: 'webElementHover', color: 'bg-sky-600', icon: MousePointerClick, category: '网页自动化' },
+      { label: '填写输入框(Web)', kind: 'webInputFill', color: 'bg-indigo-600', icon: Keyboard, category: '网页自动化' },
+      { label: '关闭网页', kind: 'webClosePage', color: 'bg-rose-600', icon: Globe, category: '网页自动化' },
     ],
   },
   {

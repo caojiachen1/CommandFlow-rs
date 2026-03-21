@@ -225,6 +225,75 @@ function getTabsBySession(sessionId: string): number[] {
     .map((item) => item.tabId);
 }
 
+function upsertTabSession(tabId: number, sessionId: string): void {
+  const current = state.sessions.get(tabId) ?? {
+    tabId,
+    sessionId,
+    frameIds: new Set<number>(),
+    connectedAt: Date.now(),
+    lastSeenAt: Date.now()
+  };
+  current.sessionId = sessionId;
+  current.lastSeenAt = Date.now();
+  state.sessions.set(tabId, current);
+}
+
+async function waitForTabCompleted(tabId: number, timeoutMs: number): Promise<void> {
+  const timeout = Math.max(300, timeoutMs);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ext.tabs.onUpdated.removeListener(listener);
+      reject(new Error(`Tab ${tabId} load timeout after ${timeout}ms`));
+    }, timeout);
+
+    const listener = (updatedTabId: number, changeInfo: { status?: string }) => {
+      if (updatedTabId !== tabId) {
+        return;
+      }
+
+      if (changeInfo.status === "complete") {
+        clearTimeout(timer);
+        ext.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+
+    ext.tabs.onUpdated.addListener(listener);
+  });
+}
+
+type BrowserTabLike = {
+  id?: number;
+  windowId?: number;
+  url?: string;
+  title?: string;
+  active?: boolean;
+};
+
+function pickTabByPayload(tabs: BrowserTabLike[], payload: Record<string, unknown>): BrowserTabLike | undefined {
+  const matchBy = String(payload.matchBy ?? "active");
+  if (matchBy === "active") {
+    return tabs.find((tab) => tab.active) ?? tabs[0];
+  }
+
+  if (matchBy === "tabId") {
+    const tabId = Number(payload.tabId ?? 0);
+    return tabs.find((tab) => tab.id === tabId);
+  }
+
+  if (matchBy === "urlContains") {
+    const keyword = String(payload.urlKeyword ?? "").trim().toLowerCase();
+    return tabs.find((tab) => (tab.url ?? "").toLowerCase().includes(keyword));
+  }
+
+  if (matchBy === "titleContains") {
+    const keyword = String(payload.titleKeyword ?? "").trim().toLowerCase();
+    return tabs.find((tab) => (tab.title ?? "").toLowerCase().includes(keyword));
+  }
+
+  return tabs[0];
+}
+
 async function executeCommand(command: AutomationCommand): Promise<CommandResult> {
   try {
     if (command.action === "PING") {
@@ -273,6 +342,132 @@ async function executeCommand(command: AutomationCommand): Promise<CommandResult
         status: "ok",
         action: command.action,
         data: { base64PngDataUrl: image }
+      };
+    }
+
+    if (command.action === "OPEN_PAGE") {
+      const payload = command.payload ?? {};
+      const url = String(payload.url ?? "").trim();
+      if (!url) {
+        throw new Error("OPEN_PAGE requires url");
+      }
+
+      const createNewTab = Boolean(payload.createNewTab ?? true);
+      const waitForLoad = Boolean(payload.waitForLoad ?? true);
+      const timeoutMs = Number(command.timeoutMs ?? payload.timeoutMs ?? 10000);
+
+      let tab: BrowserTabLike;
+      if (createNewTab) {
+        tab = await ext.tabs.create({ url, active: true });
+      } else {
+        const [activeTab] = await ext.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab?.id) {
+          throw new Error("No active tab found to navigate");
+        }
+        const updated = await ext.tabs.update(activeTab.id, { url, active: true });
+        if (!updated) {
+          throw new Error("Failed to update active tab with target url");
+        }
+        tab = updated;
+      }
+
+      if (!tab.id) {
+        throw new Error("Failed to open page: missing tab id");
+      }
+
+      if (waitForLoad) {
+        await waitForTabCompleted(tab.id, timeoutMs);
+      }
+
+      upsertTabSession(tab.id, command.sessionId);
+      await persistStatus();
+
+      return {
+        commandId: command.commandId,
+        sessionId: command.sessionId,
+        tabId: tab.id,
+        action: command.action,
+        status: "ok",
+        data: {
+          tabId: tab.id,
+          windowId: tab.windowId,
+          url: tab.url ?? url,
+          title: tab.title ?? ""
+        }
+      };
+    }
+
+    if (command.action === "GET_OPENED_PAGE") {
+      const payload = command.payload ?? {};
+      const sessionTabs = getTabsBySession(command.sessionId);
+      const tabs = sessionTabs.length > 0
+        ? (await Promise.all(sessionTabs.map((tabId) => ext.tabs.get(tabId).catch(() => null)))).filter(Boolean) as BrowserTabLike[]
+        : await ext.tabs.query({ currentWindow: true });
+
+      if (tabs.length === 0) {
+        throw new Error(`No opened page found for session ${command.sessionId}`);
+      }
+
+      const matched = pickTabByPayload(tabs, payload);
+      if (!matched?.id) {
+        throw new Error("No matched tab found by current criteria");
+      }
+
+      upsertTabSession(matched.id, command.sessionId);
+      await persistStatus();
+
+      return {
+        commandId: command.commandId,
+        sessionId: command.sessionId,
+        tabId: matched.id,
+        action: command.action,
+        status: "ok",
+        data: {
+          tabId: matched.id,
+          windowId: matched.windowId,
+          url: matched.url ?? "",
+          title: matched.title ?? "",
+          active: Boolean(matched.active)
+        }
+      };
+    }
+
+    if (command.action === "CLOSE_PAGE") {
+      const payload = command.payload ?? {};
+      const closeMode = String(payload.closeMode ?? "currentTab");
+
+      let targets: number[] = [];
+      if (closeMode === "sessionAll") {
+        targets = getTabsBySession(command.sessionId);
+      } else if (closeMode === "byTabId") {
+        const tabId = Number(payload.tabId ?? command.tabId ?? 0);
+        if (tabId > 0) {
+          targets = [tabId];
+        }
+      } else {
+        const resolved = resolveTargetTabs(command);
+        if (resolved.length > 0) {
+          targets = [resolved[0]];
+        }
+      }
+
+      if (targets.length === 0) {
+        throw new Error("No tabs resolved for CLOSE_PAGE");
+      }
+
+      await ext.tabs.remove(targets);
+      targets.forEach((tabId) => state.sessions.delete(tabId));
+      await persistStatus();
+
+      return {
+        commandId: command.commandId,
+        sessionId: command.sessionId,
+        action: command.action,
+        status: "ok",
+        data: {
+          closed: targets.length,
+          tabIds: targets
+        }
       };
     }
 

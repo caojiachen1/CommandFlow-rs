@@ -225,6 +225,11 @@ async function execute(command: CommandPayload): Promise<Record<string, unknown>
       (element as HTMLElement).click();
       return { clicked: true };
     }
+    case "HOVER": {
+      const element = await waitForVisible(payload);
+      await humanLikeHover(element);
+      return { hovered: true };
+    }
     case "TYPE": {
       const element = await waitForVisible(payload);
       const value = String(payload.value ?? "");

@@ -227,6 +227,53 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: [],
     outputs: singleOut(),
   },
+  webOpenPage: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'tabId', label: 'tabId', maxConnections: MANY, valueType: 'number' },
+      { id: 'url', label: 'url', maxConnections: MANY, valueType: 'string' },
+      { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
+    ],
+  },
+  webGetOpenedPage: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'tabId', label: 'tabId', maxConnections: MANY, valueType: 'number' },
+      { id: 'url', label: 'url', maxConnections: MANY, valueType: 'string' },
+      { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
+      { id: 'windowId', label: 'windowId', maxConnections: MANY, valueType: 'number' },
+    ],
+  },
+  webElementClick: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'clicked', label: 'clicked', maxConnections: MANY, valueType: 'any' },
+    ],
+  },
+  webElementHover: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'hovered', label: 'hovered', maxConnections: MANY, valueType: 'any' },
+    ],
+  },
+  webInputFill: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'typedLength', label: 'typedLength', maxConnections: MANY, valueType: 'number' },
+    ],
+  },
+  webClosePage: {
+    inputs: singleIn(),
+    outputs: [
+      ...singleOut(),
+      { id: 'closed', label: 'closed', maxConnections: MANY, valueType: 'number' },
+    ],
+  },
   uiaElement: {
     inputs: singleIn(),
     outputs: [

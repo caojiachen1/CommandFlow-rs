@@ -6,6 +6,12 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub enum NodeKind {
     Trigger,
+    WebOpenPage,
+    WebGetOpenedPage,
+    WebElementClick,
+    WebElementHover,
+    WebInputFill,
+    WebClosePage,
     HotkeyTrigger,
     TimerTrigger,
     ManualTrigger,

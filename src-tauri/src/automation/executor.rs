@@ -1,5 +1,5 @@
 use crate::automation::{
-    file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu,
+    edge_bridge, file_ops, image_match, keyboard, mouse, ocr_match, power, screenshot, start_menu,
     system_settings, uia, window, process,
 };
 use crate::error::{CommandFlowError, CommandResult};
@@ -712,6 +712,12 @@ impl WorkflowExecutor {
 
         match node.kind {
             NodeKind::Trigger => execute_trigger_node(node, ctx, should_cancel, None).await,
+            NodeKind::WebOpenPage => execute_web_bridge_node(node, ctx, "OPEN_PAGE").await,
+            NodeKind::WebGetOpenedPage => execute_web_bridge_node(node, ctx, "GET_OPENED_PAGE").await,
+            NodeKind::WebElementClick => execute_web_bridge_node(node, ctx, "CLICK").await,
+            NodeKind::WebElementHover => execute_web_bridge_node(node, ctx, "HOVER").await,
+            NodeKind::WebInputFill => execute_web_bridge_node(node, ctx, "TYPE").await,
+            NodeKind::WebClosePage => execute_web_bridge_node(node, ctx, "CLOSE_PAGE").await,
             NodeKind::HotkeyTrigger => {
                 execute_trigger_node(node, ctx, should_cancel, Some("hotkey")).await
             }
@@ -1676,6 +1682,100 @@ fn execute_get_mouse_position(
         "mode",
         Value::String("virtualScreen".to_string()),
     );
+
+    Ok(NextDirective::Default)
+}
+
+async fn execute_web_bridge_node(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    action: &str,
+) -> CommandResult<NextDirective> {
+    let session_id = get_string(node, "sessionId", "default");
+    let tab_id = node
+        .params
+        .get("tabId")
+        .and_then(Value::as_u64)
+        .map(|value| value as u32)
+        .filter(|value| *value > 0);
+
+    let timeout_ms = get_u64(node, "timeoutMs", 8000).max(200);
+    let retry_count = get_u64(node, "retryCount", 0) as u32;
+    let retry_delay_ms = get_u64(node, "retryDelayMs", 800).max(100);
+
+    let mut payload = node.params.clone();
+    payload.remove("sessionId");
+    payload.remove("tabId");
+    payload.remove("timeoutMs");
+    payload.remove("retryCount");
+    payload.remove("retryDelayMs");
+
+    let plan = edge_bridge::AutomationExecutionPlan {
+        session_id: session_id.clone(),
+        tab_id,
+        nodes: vec![edge_bridge::AutomationDslNode {
+            id: node.id.clone(),
+            node_type: action.to_string(),
+            payload,
+            timeout_ms: Some(timeout_ms),
+            retry_count: Some(retry_count),
+            retry_delay_ms: Some(retry_delay_ms),
+        }],
+    };
+
+    let report = edge_bridge::execute_plan(plan).await?;
+    let node_report = report.reports.last().ok_or_else(|| {
+        CommandFlowError::Automation(format!(
+            "web bridge node '{}' returned empty report",
+            node.label
+        ))
+    })?;
+
+    if !report.success {
+        return Err(CommandFlowError::Automation(
+            node_report
+                .error
+                .clone()
+                .unwrap_or_else(|| format!("web action '{}' failed", action)),
+        ));
+    }
+
+    let result = node_report.result.clone().ok_or_else(|| {
+        CommandFlowError::Automation(format!(
+            "web bridge node '{}' returned no command result",
+            node.label
+        ))
+    })?;
+
+    set_node_output(ctx, node, "status", Value::String(result.status.clone()));
+    set_node_output(ctx, node, "action", Value::String(result.action.clone()));
+    set_node_output(
+        ctx,
+        node,
+        "sessionId",
+        Value::String(result.session_id.clone()),
+    );
+
+    if let Some(tab_id) = result.tab_id {
+        set_node_output(ctx, node, "tabId", value_from_u64(tab_id as u64));
+    }
+
+    if let Some(frame_id) = result.frame_id {
+        set_node_output(ctx, node, "frameId", value_from_u64(frame_id as u64));
+    }
+
+    if let Some(message) = result.message {
+        set_node_output(ctx, node, "message", Value::String(message));
+    }
+
+    if let Some(data) = result.data {
+        let mut object = Map::new();
+        for (key, value) in data {
+            set_node_output(ctx, node, &key, value.clone());
+            object.insert(key, value);
+        }
+        set_node_output(ctx, node, "data", Value::Object(object));
+    }
 
     Ok(NextDirective::Default)
 }

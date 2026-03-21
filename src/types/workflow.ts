@@ -2,6 +2,12 @@ import type { Edge, Node } from '@xyflow/react'
 
 export type TriggerNodeKind = 'trigger'
 export type ActionNodeKind =
+  | 'webOpenPage'
+  | 'webGetOpenedPage'
+  | 'webElementClick'
+  | 'webElementHover'
+  | 'webInputFill'
+  | 'webClosePage'
   | 'uiaElement'
   | 'getMousePosition'
   | 'mouseOperation'

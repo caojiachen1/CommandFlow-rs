@@ -40,6 +40,9 @@ export type ClipboardReadMode = 'auto' | 'text' | 'image'
 export type ClipboardWriteContentType = 'text' | 'image'
 export type ClipboardImageSource = 'literal' | 'var' | 'file'
 export type CommandShellType = 'cmd' | 'powershell' | 'pwsh'
+export type WebSelectorType = 'css' | 'xpath' | 'text'
+export type WebPageMatchBy = 'active' | 'tabId' | 'urlContains' | 'titleContains'
+export type WebCloseMode = 'currentTab' | 'byTabId' | 'sessionAll'
 
 export interface ParamField {
   key: string
@@ -101,6 +104,25 @@ export const COMMAND_SHELL_TYPE_OPTIONS: Array<{ label: string; value: CommandSh
   { label: 'cmd', value: 'cmd' },
   { label: 'PowerShell', value: 'powershell' },
   { label: 'pwsh (PowerShell 7+)', value: 'pwsh' },
+]
+
+export const WEB_SELECTOR_TYPE_OPTIONS: Array<{ label: string; value: WebSelectorType }> = [
+  { label: 'CSS Selector', value: 'css' },
+  { label: 'XPath', value: 'xpath' },
+  { label: '文本模糊匹配', value: 'text' },
+]
+
+export const WEB_PAGE_MATCH_BY_OPTIONS: Array<{ label: string; value: WebPageMatchBy }> = [
+  { label: '当前活动标签页', value: 'active' },
+  { label: '按标签页 ID', value: 'tabId' },
+  { label: 'URL 包含关键词', value: 'urlContains' },
+  { label: '标题包含关键词', value: 'titleContains' },
+]
+
+export const WEB_CLOSE_MODE_OPTIONS: Array<{ label: string; value: WebCloseMode }> = [
+  { label: '关闭当前标签页', value: 'currentTab' },
+  { label: '按 tabId 关闭', value: 'byTabId' },
+  { label: '关闭当前会话全部标签页', value: 'sessionAll' },
 ]
 
 export const FILE_OPERATION_OPTIONS: Array<{ label: string; value: FileOperationKind }> = [
@@ -501,6 +523,18 @@ export const isNodeFieldVisible = (
     if (mode === 'shortcut') {
       return !['title', 'program', 'matchMode', ...WINDOW_ADVANCED_FIELD_KEYS].includes(field.key)
     }
+  }
+
+  if (kind === 'webGetOpenedPage') {
+    const matchBy = String(params.matchBy ?? defaultParams.matchBy ?? 'active')
+    if (field.key === 'urlKeyword') return matchBy === 'urlContains'
+    if (field.key === 'titleKeyword') return matchBy === 'titleContains'
+    if (field.key === 'tabId') return matchBy === 'tabId'
+  }
+
+  if (kind === 'webClosePage') {
+    const closeMode = String(params.closeMode ?? defaultParams.closeMode ?? 'currentTab')
+    if (field.key === 'tabId') return closeMode === 'byTabId'
   }
 
   if (kind === 'terminateProcess') {
@@ -1539,6 +1573,140 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
     description: '暂停指定时间后继续。',
     defaultParams: { ms: 500 },
     fields: [{ key: 'ms', label: '毫秒', type: 'number', min: 0, step: 100 }],
+  },
+  webOpenPage: {
+    label: '打开网页',
+    description: '在 Edge/Chrome 中打开网页，并绑定到指定会话 ID。需要先启动 edge bridge。',
+    defaultParams: {
+      sessionId: 'default',
+      url: 'https://example.com',
+      createNewTab: true,
+      waitForLoad: true,
+      timeoutMs: 15000,
+      retryCount: 1,
+      retryDelayMs: 1200,
+    },
+    fields: [
+      { key: 'sessionId', label: '会话 ID', type: 'string', placeholder: 'default' },
+      { key: 'url', label: '网页地址', type: 'string', placeholder: 'https://example.com' },
+      { key: 'createNewTab', label: '新建标签页', type: 'boolean' },
+      { key: 'waitForLoad', label: '等待页面加载完成', type: 'boolean' },
+      { key: 'timeoutMs', label: '超时(ms)', type: 'number', min: 200, step: 100 },
+      { key: 'retryCount', label: '失败重试次数', type: 'number', min: 0, step: 1 },
+      { key: 'retryDelayMs', label: '重试间隔(ms)', type: 'number', min: 100, step: 100 },
+    ],
+  },
+  webGetOpenedPage: {
+    label: '获取网页对象',
+    description: '获取已打开网页对象（tabId / url / title），可为后续 Web 节点提供目标页上下文。',
+    defaultParams: {
+      sessionId: 'default',
+      matchBy: 'active',
+      urlKeyword: '',
+      titleKeyword: '',
+      tabId: 0,
+      timeoutMs: 8000,
+      retryCount: 0,
+      retryDelayMs: 1000,
+    },
+    fields: [
+      { key: 'sessionId', label: '会话 ID', type: 'string', placeholder: 'default' },
+      { key: 'matchBy', label: '匹配方式', type: 'select', options: WEB_PAGE_MATCH_BY_OPTIONS },
+      { key: 'urlKeyword', label: 'URL 关键词', type: 'string', placeholder: 'example.com/dashboard' },
+      { key: 'titleKeyword', label: '标题关键词', type: 'string', placeholder: '控制台' },
+      { key: 'tabId', label: '标签页 ID', type: 'number', min: 1, step: 1 },
+      { key: 'timeoutMs', label: '超时(ms)', type: 'number', min: 200, step: 100 },
+      { key: 'retryCount', label: '失败重试次数', type: 'number', min: 0, step: 1 },
+      { key: 'retryDelayMs', label: '重试间隔(ms)', type: 'number', min: 100, step: 100 },
+    ],
+  },
+  webElementClick: {
+    label: '点击元素(Web)',
+    description: '在网页中按智能选择器定位元素并点击（支持 CSS / XPath / 文本模糊）。',
+    defaultParams: {
+      sessionId: 'default',
+      tabId: 0,
+      selectorType: 'css',
+      selector: '#submit',
+      timeoutMs: 8000,
+      retryCount: 1,
+      retryDelayMs: 800,
+    },
+    fields: [
+      { key: 'sessionId', label: '会话 ID', type: 'string', placeholder: 'default' },
+      { key: 'tabId', label: '标签页 ID(可选)', type: 'number', min: 0, step: 1 },
+      { key: 'selectorType', label: '选择器类型', type: 'select', options: WEB_SELECTOR_TYPE_OPTIONS },
+      { key: 'selector', label: '选择器', type: 'string', placeholder: '#submit 或 //button[text()="登录"]' },
+      { key: 'timeoutMs', label: '超时(ms)', type: 'number', min: 200, step: 100 },
+      { key: 'retryCount', label: '失败重试次数', type: 'number', min: 0, step: 1 },
+      { key: 'retryDelayMs', label: '重试间隔(ms)', type: 'number', min: 100, step: 100 },
+    ],
+  },
+  webElementHover: {
+    label: '悬停元素(Web)',
+    description: '在网页中定位目标元素并执行鼠标悬停（适用于浮层菜单、提示框触发等）。',
+    defaultParams: {
+      sessionId: 'default',
+      tabId: 0,
+      selectorType: 'css',
+      selector: '.menu-item',
+      timeoutMs: 8000,
+      retryCount: 1,
+      retryDelayMs: 800,
+    },
+    fields: [
+      { key: 'sessionId', label: '会话 ID', type: 'string', placeholder: 'default' },
+      { key: 'tabId', label: '标签页 ID(可选)', type: 'number', min: 0, step: 1 },
+      { key: 'selectorType', label: '选择器类型', type: 'select', options: WEB_SELECTOR_TYPE_OPTIONS },
+      { key: 'selector', label: '选择器', type: 'string', placeholder: '.menu-item' },
+      { key: 'timeoutMs', label: '超时(ms)', type: 'number', min: 200, step: 100 },
+      { key: 'retryCount', label: '失败重试次数', type: 'number', min: 0, step: 1 },
+      { key: 'retryDelayMs', label: '重试间隔(ms)', type: 'number', min: 100, step: 100 },
+    ],
+  },
+  webInputFill: {
+    label: '填写输入框(Web)',
+    description: '定位网页输入框并进行拟人化输入（带随机字符间隔）。',
+    defaultParams: {
+      sessionId: 'default',
+      tabId: 0,
+      selectorType: 'css',
+      selector: 'input[name="keyword"]',
+      value: 'CommandFlow',
+      timeoutMs: 8000,
+      retryCount: 1,
+      retryDelayMs: 800,
+    },
+    fields: [
+      { key: 'sessionId', label: '会话 ID', type: 'string', placeholder: 'default' },
+      { key: 'tabId', label: '标签页 ID(可选)', type: 'number', min: 0, step: 1 },
+      { key: 'selectorType', label: '选择器类型', type: 'select', options: WEB_SELECTOR_TYPE_OPTIONS },
+      { key: 'selector', label: '选择器', type: 'string', placeholder: 'input[name="keyword"]' },
+      { key: 'value', label: '输入内容', type: 'text', placeholder: '请输入要填写的内容' },
+      { key: 'timeoutMs', label: '超时(ms)', type: 'number', min: 200, step: 100 },
+      { key: 'retryCount', label: '失败重试次数', type: 'number', min: 0, step: 1 },
+      { key: 'retryDelayMs', label: '重试间隔(ms)', type: 'number', min: 100, step: 100 },
+    ],
+  },
+  webClosePage: {
+    label: '关闭网页',
+    description: '关闭当前标签页、指定标签页，或关闭当前会话下全部标签页。',
+    defaultParams: {
+      sessionId: 'default',
+      closeMode: 'currentTab',
+      tabId: 0,
+      timeoutMs: 5000,
+      retryCount: 0,
+      retryDelayMs: 600,
+    },
+    fields: [
+      { key: 'sessionId', label: '会话 ID', type: 'string', placeholder: 'default' },
+      { key: 'closeMode', label: '关闭方式', type: 'select', options: WEB_CLOSE_MODE_OPTIONS },
+      { key: 'tabId', label: '标签页 ID', type: 'number', min: 1, step: 1 },
+      { key: 'timeoutMs', label: '超时(ms)', type: 'number', min: 200, step: 100 },
+      { key: 'retryCount', label: '失败重试次数', type: 'number', min: 0, step: 1 },
+      { key: 'retryDelayMs', label: '重试间隔(ms)', type: 'number', min: 100, step: 100 },
+    ],
   },
   systemOperation: {
     label: '系统操作',
