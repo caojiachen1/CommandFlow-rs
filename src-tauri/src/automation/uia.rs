@@ -1,5 +1,6 @@
 use crate::error::{CommandFlowError, CommandResult};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use windows::core::{Interface, HRESULT};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::System::Com::{
@@ -11,6 +12,9 @@ use windows::Win32::UI::Accessibility::{
 };
 
 const RPC_E_CHANGED_MODE: HRESULT = HRESULT(0x80010106u32 as i32);
+const UIA_TAB_ITEM_CONTROL_TYPE_ID: i32 = 50019;
+const POINT_HIT_SEARCH_MAX_DEPTH: u32 = 14;
+const POINT_HIT_SEARCH_MAX_ANCESTOR_HOPS: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,8 +94,215 @@ fn inspect_element_at_point_with_automation(
     let walker = unsafe { automation.ControlViewWalker() }.map_err(|error| {
         CommandFlowError::Automation(format!("UIA 获取 TreeWalker 失败：{}", error))
     })?;
-    let snapshot = snapshot_element(automation, &walker, &element)?;
+    let refined = refine_point_hit_element(automation, &element, x, y)?;
+    let snapshot = snapshot_element(automation, &walker, &refined)?;
     Ok(Some(to_preview(snapshot)))
+}
+
+fn refine_point_hit_element(
+    automation: &IUIAutomation,
+    seed: &IUIAutomationElement,
+    x: i32,
+    y: i32,
+) -> CommandResult<IUIAutomationElement> {
+    let seed_control_type = safe_current_control_type(seed);
+    if seed_control_type == UIA_TAB_ITEM_CONTROL_TYPE_ID {
+        return Ok(seed.clone());
+    }
+
+    let control_walker = unsafe { automation.ControlViewWalker() }.map_err(|error| {
+        CommandFlowError::Automation(format!("UIA 获取 ControlViewWalker 失败：{}", error))
+    })?;
+    let raw_walker = unsafe { automation.RawViewWalker() }.ok();
+
+    let search_roots = collect_search_roots(seed, &control_walker, raw_walker.as_ref());
+    let mut best = make_point_hit_candidate(seed, 0);
+
+    for root in search_roots {
+        if let Some(candidate) = find_best_point_hit_in_subtree(
+            &control_walker,
+            &root,
+            x,
+            y,
+            0,
+            POINT_HIT_SEARCH_MAX_DEPTH,
+        ) {
+            best = pick_better_point_hit_candidate(best, Some(candidate));
+        }
+
+        if let Some(raw) = raw_walker.as_ref() {
+            if let Some(candidate) =
+                find_best_point_hit_in_subtree(raw, &root, x, y, 0, POINT_HIT_SEARCH_MAX_DEPTH)
+            {
+                best = pick_better_point_hit_candidate(best, Some(candidate));
+            }
+        }
+    }
+
+    Ok(best.map(|candidate| candidate.element).unwrap_or_else(|| seed.clone()))
+}
+
+#[derive(Clone)]
+struct PointHitCandidate {
+    element: IUIAutomationElement,
+    area: i64,
+    depth: u32,
+    control_type: i32,
+    class_name: String,
+}
+
+fn make_point_hit_candidate(
+    element: &IUIAutomationElement,
+    depth: u32,
+) -> Option<PointHitCandidate> {
+    let rect = safe_current_rect(element);
+    let area = rect_area(&rect)?;
+    Some(PointHitCandidate {
+        element: element.clone(),
+        area,
+        depth,
+        control_type: safe_current_control_type(element),
+        class_name: safe_current_class_name(element),
+    })
+}
+
+fn is_tabstrip_container_class(class_name: &str) -> bool {
+    let normalized = class_name.trim().to_ascii_lowercase();
+    normalized.contains("tabstrip") || normalized.contains("tab_drag")
+}
+
+fn is_better_point_hit_candidate(a: &PointHitCandidate, b: &PointHitCandidate) -> bool {
+    let a_is_tab = a.control_type == UIA_TAB_ITEM_CONTROL_TYPE_ID;
+    let b_is_tab = b.control_type == UIA_TAB_ITEM_CONTROL_TYPE_ID;
+    if a_is_tab != b_is_tab {
+        return a_is_tab;
+    }
+
+    let a_is_container = is_tabstrip_container_class(&a.class_name);
+    let b_is_container = is_tabstrip_container_class(&b.class_name);
+    if a_is_container != b_is_container {
+        return !a_is_container;
+    }
+
+    if a.depth != b.depth {
+        return a.depth > b.depth;
+    }
+
+    if a.area != b.area {
+        return a.area < b.area;
+    }
+
+    false
+}
+
+fn pick_better_point_hit_candidate(
+    current: Option<PointHitCandidate>,
+    next: Option<PointHitCandidate>,
+) -> Option<PointHitCandidate> {
+    match (current, next) {
+        (None, None) => None,
+        (Some(candidate), None) => Some(candidate),
+        (None, Some(candidate)) => Some(candidate),
+        (Some(existing), Some(candidate)) => {
+            if is_better_point_hit_candidate(&candidate, &existing) {
+                Some(candidate)
+            } else {
+                Some(existing)
+            }
+        }
+    }
+}
+
+fn find_best_point_hit_in_subtree(
+    walker: &IUIAutomationTreeWalker,
+    root: &IUIAutomationElement,
+    x: i32,
+    y: i32,
+    depth: u32,
+    max_depth: u32,
+) -> Option<PointHitCandidate> {
+    if depth > max_depth {
+        return None;
+    }
+
+    let root_rect = safe_current_rect(root);
+    if !rect_contains_point(&root_rect, x, y) {
+        return None;
+    }
+
+    let mut best = make_point_hit_candidate(root, depth);
+
+    let mut next_child = unsafe { walker.GetFirstChildElement(root) }.ok();
+    while let Some(child) = next_child {
+        if let Some(candidate) =
+            find_best_point_hit_in_subtree(walker, &child, x, y, depth + 1, max_depth)
+        {
+            best = pick_better_point_hit_candidate(best, Some(candidate));
+        }
+
+        next_child = unsafe { walker.GetNextSiblingElement(&child) }.ok();
+    }
+
+    best
+}
+
+fn collect_search_roots(
+    seed: &IUIAutomationElement,
+    control_walker: &IUIAutomationTreeWalker,
+    raw_walker: Option<&IUIAutomationTreeWalker>,
+) -> Vec<IUIAutomationElement> {
+    let mut roots = Vec::<IUIAutomationElement>::new();
+    let mut visited = HashSet::<usize>::new();
+
+    let mut push_unique = |element: IUIAutomationElement| {
+        let key = element.as_raw() as usize;
+        if visited.insert(key) {
+            roots.push(element);
+        }
+    };
+
+    push_unique(seed.clone());
+
+    let mut current_control = seed.clone();
+    for _ in 0..POINT_HIT_SEARCH_MAX_ANCESTOR_HOPS {
+        let Some(parent) = unsafe { control_walker.GetParentElement(&current_control) }.ok() else {
+            break;
+        };
+        push_unique(parent.clone());
+        current_control = parent;
+    }
+
+    if let Some(raw) = raw_walker {
+        let mut current_raw = seed.clone();
+        for _ in 0..POINT_HIT_SEARCH_MAX_ANCESTOR_HOPS {
+            let Some(parent) = unsafe { raw.GetParentElement(&current_raw) }.ok() else {
+                break;
+            };
+            push_unique(parent.clone());
+            current_raw = parent;
+        }
+    }
+
+    roots
+}
+
+fn rect_contains_point(rect: &RECT, x: i32, y: i32) -> bool {
+    rect.right > rect.left
+        && rect.bottom > rect.top
+        && x >= rect.left
+        && x < rect.right
+        && y >= rect.top
+        && y < rect.bottom
+}
+
+fn rect_area(rect: &RECT) -> Option<i64> {
+    let width = (rect.right - rect.left) as i64;
+    let height = (rect.bottom - rect.top) as i64;
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+
+    Some(width.saturating_mul(height))
 }
 
 pub fn resolve_locator_center(locator: &UiElementLocator) -> CommandResult<(i32, i32)> {
