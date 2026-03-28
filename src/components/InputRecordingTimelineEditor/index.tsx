@@ -1271,12 +1271,23 @@ export default function InputRecordingTimelineEditor({
                     <div className="sticky top-0 z-50 h-[30px] border-b border-slate-200 bg-slate-50 dark:border-neutral-800 dark:bg-neutral-900">
                       {timelineTicks.map((tickMs) => {
                         const x = (tickMs / durationMs) * timelineWidth
+                        const isFirstTick = tickMs === 0
                         return (
-                          <div key={`tick-${tickMs}`} className="absolute inset-y-0" style={{ left: x }}>
-                            <div className="h-full w-px bg-slate-300/70 dark:bg-neutral-700/70" />
-                            <span className="absolute left-1.5 top-1 text-[10px] tabular-nums text-slate-500 dark:text-slate-400">
+                          <div
+                            key={`tick-${tickMs}`}
+                            className={`absolute inset-y-0 flex flex-col pointer-events-none ${
+                              isFirstTick ? 'items-start' : '-translate-x-1/2 items-center'
+                            }`}
+                            style={{ left: x }}
+                          >
+                            <span
+                              className={`mb-0.5 text-[10px] tabular-nums text-slate-500 dark:text-slate-400 ${
+                                isFirstTick ? 'ml-0' : ''
+                              }`}
+                            >
                               {formatMs(tickMs)}
                             </span>
+                            <div className="w-px flex-1 bg-slate-300/70 dark:bg-neutral-700/70" />
                           </div>
                         )
                       })}
