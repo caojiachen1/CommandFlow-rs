@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSettingsStore, type InputRecordingAction, type InputRecordingOptions } from '../../stores/settingsStore'
 import InputRecordingVisualizer, { computeRecordingBounds, formatMs, getActionTs } from '../InputRecordingVisualizer'
+import InputRecordingTimelineEditor from '../InputRecordingTimelineEditor'
 
 interface InputRecordingSettingsModalProps {
   open: boolean
@@ -72,6 +73,9 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
   const [clipStartMs, setClipStartMs] = useState(0)
   const [clipEndMs, setClipEndMs] = useState(0)
   const [logExpanded, setLogExpanded] = useState(false)
+  const [timelineEditorOpen, setTimelineEditorOpen] = useState(false)
+  const [timelineEditorActionsDraft, setTimelineEditorActionsDraft] = useState<InputRecordingAction[] | null>(null)
+  const [timelineEditorClipDraft, setTimelineEditorClipDraft] = useState<{ startMs: number; endMs: number } | null>(null)
   /** Actions snapshot saved just before the most-recent applyClip, for one-level undo */
   const [preClipActions, setPreClipActions] = useState<InputRecordingAction[] | null>(null)
   /** Incrementing this signals the Visualizer to reset its internal playback position */
@@ -112,6 +116,14 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
     return () => window.clearTimeout(timer)
   }, [saveHint])
 
+  useEffect(() => {
+    if (!open) {
+      setTimelineEditorOpen(false)
+      setTimelineEditorActionsDraft(null)
+      setTimelineEditorClipDraft(null)
+    }
+  }, [open])
+
   const selectedPreset = useMemo(
     () => presets.find((item) => item.id === selectedId) ?? null,
     [presets, selectedId],
@@ -122,6 +134,48 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
   const handleClipChange = (startMs: number, endMs: number) => {
     setClipStartMs(startMs)
     setClipEndMs(endMs)
+  }
+
+  const openTimelineEditor = () => {
+    setTimelineEditorActionsDraft(draft.actions)
+    setTimelineEditorClipDraft({ startMs: clipStartMs, endMs: clipEndMs })
+    setTimelineEditorOpen(true)
+  }
+
+  const handleTimelineEditorActionsChange = (nextActions: InputRecordingAction[]) => {
+    setTimelineEditorActionsDraft(nextActions)
+  }
+
+  const handleTimelineEditorClipChange = (startMs: number, endMs: number) => {
+    setTimelineEditorClipDraft({ startMs, endMs })
+  }
+
+  const closeTimelineEditorWithoutSave = () => {
+    setTimelineEditorOpen(false)
+    setTimelineEditorActionsDraft(null)
+    setTimelineEditorClipDraft(null)
+  }
+
+  const saveTimelineEditorChanges = () => {
+    const nextActions = timelineEditorActionsDraft ?? draft.actions
+    const nextClip = timelineEditorClipDraft ?? { startMs: clipStartMs, endMs: clipEndMs }
+    const nextDuration = computeRecordingBounds(nextActions).durationMs
+    const nextStart = Math.max(0, Math.min(nextClip.startMs, nextDuration))
+    const minWindow = Math.min(50, nextDuration)
+    const endFloor = Math.min(nextDuration, nextStart + minWindow)
+    const nextEnd = Math.max(endFloor, Math.min(nextClip.endMs, nextDuration))
+
+    setDraft((prev) => ({ ...prev, actions: nextActions }))
+    setClipStartMs(nextStart)
+    setClipEndMs(nextEnd)
+    setClipResetSignal((s) => s + 1)
+    setSaveHint('已保存高级编辑变更到草稿，请记得点击“保存修改”')
+    closeTimelineEditorWithoutSave()
+  }
+
+  const handleCloseModal = () => {
+    closeTimelineEditorWithoutSave()
+    onClose()
   }
 
   const applyClip = () => {
@@ -185,7 +239,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
     <div
       className="fixed inset-0 z-[360] flex items-center justify-center bg-black/55 backdrop-blur-sm"
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (event.target === event.currentTarget) handleCloseModal()
       }}
     >
       <div className="flex h-[84vh] w-[1000px] max-w-[95vw] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
@@ -241,7 +295,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseModal}
               className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-neutral-800"
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -332,6 +386,13 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                     </div>
                     {draft.actions.length > 0 && totalDurationMs > 0 && (
                       <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={openTimelineEditor}
+                          className="rounded-full border border-indigo-300 px-4 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900/20"
+                        >
+                          高级编辑器
+                        </button>
                         {preClipActions && (
                           <button
                             type="button"
@@ -413,6 +474,17 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
               </div>
             )}
           </div>
+
+          <InputRecordingTimelineEditor
+            open={timelineEditorOpen}
+            actions={timelineEditorActionsDraft ?? draft.actions}
+            clipStartMs={timelineEditorClipDraft?.startMs ?? clipStartMs}
+            clipEndMs={timelineEditorClipDraft?.endMs ?? clipEndMs}
+            onActionsChange={handleTimelineEditorActionsChange}
+            onClipChange={handleTimelineEditorClipChange}
+            onSave={saveTimelineEditorChanges}
+            onClose={closeTimelineEditorWithoutSave}
+          />
 
           {/* ── Footer actions ── */}
           {selectedPreset && (
