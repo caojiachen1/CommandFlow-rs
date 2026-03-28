@@ -42,7 +42,8 @@ const RULER_HEIGHT = 30
 const LANE_HEIGHT = 46
 const MIN_CLIP_WINDOW_MS = 50
 const PREVIEW_MIN_SCALE = 0.3
-const PREVIEW_MAX_SCALE = 8
+const PREVIEW_MAX_SCALE = 120
+const TIMELINE_MAX_ZOOM_PX_PER_SEC = 5000
 const COMPACT_EDITOR_INPUT_CLASS =
   'h-6 w-full rounded-md border border-slate-300 bg-white px-1.5 py-0 text-[10px] text-slate-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-200'
 const COMPACT_EDITOR_POINT_INPUT_CLASS =
@@ -578,7 +579,7 @@ export default function InputRecordingTimelineEditor({
   )
 
   const applyTimelineZoom = useCallback((nextZoomRaw: number) => {
-    const nextZoom = clamp(nextZoomRaw, minTimelineZoomPxPerSec, 700)
+    const nextZoom = clamp(nextZoomRaw, minTimelineZoomPxPerSec, TIMELINE_MAX_ZOOM_PX_PER_SEC)
     setZoomPxPerSec(nextZoom)
 
     const viewport = timelineViewportRef.current
@@ -963,7 +964,7 @@ export default function InputRecordingTimelineEditor({
               <input
                 type="range"
                 min={minTimelineZoomPxPerSec}
-                max={700}
+                max={TIMELINE_MAX_ZOOM_PX_PER_SEC}
                 step={0.05}
                 value={zoomPxPerSec}
                 onChange={(event) => applyTimelineZoom(toFiniteNumber(event.target.value, zoomPxPerSec))}
