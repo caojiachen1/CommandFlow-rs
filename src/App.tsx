@@ -116,8 +116,23 @@ const defaultPackageBuildConfig: PackageBuildConfigViewModel = {
 };
 
 function truncateParams(params: Record<string, unknown>, maxLen = 80): string {
+  const isSensitiveKey = (key: string) => {
+    const normalized = key.trim().toLowerCase();
+    return (
+      normalized.includes("apikey") ||
+      normalized.includes("api_key") ||
+      normalized.includes("api-key") ||
+      normalized.includes("token") ||
+      normalized.includes("secret") ||
+      normalized.includes("password")
+    );
+  };
+
   const truncated = Object.fromEntries(
     Object.entries(params).map(([k, v]) => {
+      if (isSensitiveKey(k)) {
+        return [k, "********"];
+      }
       if (typeof v === "string" && v.length > maxLen) {
         return [k, `${v.slice(0, maxLen)}...`];
       }

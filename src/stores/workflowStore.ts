@@ -100,6 +100,36 @@ const shallowEqualArray = (a: string[], b: string[]) => {
   return true
 }
 
+const pushHistorySnapshot = (state: WorkflowState, patch: Partial<WorkflowState>): Partial<WorkflowState> => ({
+  past: [...state.past, cloneSnapshot(state.nodes, state.edges)].slice(-100),
+  future: [],
+  ...patch,
+})
+
+const shouldSnapshotNodeChanges = (changes: NodeChange<WorkflowNode>[]) =>
+  changes.some((change) => {
+    if (change.type === 'select' || change.type === 'dimensions') {
+      return false
+    }
+
+    if (change.type === 'position') {
+      return (change as { dragging?: boolean }).dragging !== true
+    }
+
+    return true
+  })
+
+const shouldSnapshotEdgeChanges = (changes: EdgeChange<WorkflowEdge>[]) =>
+  changes.some((change) => change.type !== 'select')
+
+const stableSerialize = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 const initialNodes: WorkflowNode[] = [
   {
     id: crypto.randomUUID(),
@@ -367,33 +397,51 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       if (changes.length === 0) return state
       const nextNodes = applyNodeChanges<WorkflowNode>(changes, state.nodes)
       const selectedNodeIds = deriveSelectedNodeIds(nextNodes)
-      return {
+      const patch: Partial<WorkflowState> = {
         nodes: nextNodes,
         selectedNodeIds,
         selectedNodeId: pickPrimarySelectedId(selectedNodeIds, state.selectedNodeId),
       }
+
+      if (!shouldSnapshotNodeChanges(changes)) {
+        return patch
+      }
+
+      return pushHistorySnapshot(state, patch)
     }),
   onEdgesChange: (changes) =>
     set((state) => {
       if (changes.length === 0) return state
-      return {
+      const patch: Partial<WorkflowState> = {
         edges: applyEdgeChanges<WorkflowEdge>(changes, state.edges),
       }
+
+      if (!shouldSnapshotEdgeChanges(changes)) {
+        return patch
+      }
+
+      return pushHistorySnapshot(state, patch)
     }),
   onConnect: (connection) =>
     set((state) => {
       const nextEdges = applyConnectionWithReplacement(state.edges, state.nodes, connection)
-      if (!nextEdges) return state
-      return { edges: nextEdges }
+      if (!nextEdges || nextEdges === state.edges) return state
+      return pushHistorySnapshot(state, { edges: nextEdges })
     }),
   onReconnect: (oldEdge, connection) =>
     set((state) => {
       const withoutOld = state.edges.filter((edge) => edge.id !== oldEdge.id)
       const nextEdges = applyConnectionWithReplacement(withoutOld, state.nodes, connection)
       if (!nextEdges) {
-        return { edges: withoutOld }
+        if (withoutOld.length === state.edges.length) {
+          return state
+        }
+        return pushHistorySnapshot(state, { edges: withoutOld })
       }
-      return { edges: nextEdges }
+      if (nextEdges === state.edges) {
+        return state
+      }
+      return pushHistorySnapshot(state, { edges: nextEdges })
     }),
   disconnectHandleConnections: (nodeId, handleType, handleId) =>
     set((state) => {
@@ -577,6 +625,15 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
   updateNodeParams: (id, params) =>
     set((state) => {
+      const currentNode = state.nodes.find((node) => node.id === id)
+      if (!currentNode) {
+        return state
+      }
+
+      if (stableSerialize(currentNode.data.params) === stableSerialize(params)) {
+        return state
+      }
+
       const nextNodes = state.nodes.map((node) =>
         node.id === id
           ? (() => {
@@ -595,7 +652,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       const updatedNode = nextNodes.find((node) => node.id === id)
       if (!updatedNode) {
-        return { nodes: nextNodes }
+        return state
       }
 
       const nextEdges = state.edges.filter((edge) => {
@@ -608,10 +665,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         return true
       })
 
-      return {
+      const edgesChanged = nextEdges.length !== state.edges.length
+
+      return pushHistorySnapshot(state, {
         nodes: nextNodes,
-        edges: nextEdges,
-      }
+        edges: edgesChanged ? nextEdges : state.edges,
+      })
     }),
   setGraphName: (name) =>
     set(() => ({

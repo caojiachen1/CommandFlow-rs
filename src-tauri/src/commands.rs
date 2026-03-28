@@ -256,6 +256,52 @@ fn node_kind_key(kind: &crate::workflow::node::NodeKind) -> String {
         .unwrap_or_else(|| format!("{:?}", kind))
 }
 
+fn is_sensitive_param_key(key: &str) -> bool {
+    let normalized = key.trim().to_ascii_lowercase();
+    normalized.contains("apikey")
+        || normalized.contains("api_key")
+        || normalized.contains("api-key")
+        || normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("password")
+}
+
+fn redact_sensitive_params(params: &HashMap<String, Value>) -> HashMap<String, Value> {
+    params
+        .iter()
+        .map(|(key, value)| {
+            if is_sensitive_param_key(key) {
+                (key.clone(), Value::String("********".to_string()))
+            } else {
+                (key.clone(), value.clone())
+            }
+        })
+        .collect()
+}
+
+fn graph_has_embedded_gui_agent_secret(graph: &WorkflowGraph) -> bool {
+    graph.nodes.iter().any(|node| {
+        if !matches!(node.kind, crate::workflow::node::NodeKind::GuiAgent) {
+            return false;
+        }
+
+        node.params
+            .iter()
+            .any(|(key, value)| is_sensitive_param_key(key) && !value.is_null())
+    })
+}
+
+fn packaging_gui_agent_secret_warning(graph: &WorkflowGraph) -> Option<String> {
+    if !graph_has_embedded_gui_agent_secret(graph) {
+        return None;
+    }
+
+    Some(
+        "检测到 GUI Agent 节点包含敏感参数（如 apiKey/token/password）。当前打包会将这些参数写入临时源码并进入可执行文件，请勿分发到不可信环境。"
+            .to_string(),
+    )
+}
+
 #[derive(Debug, Deserialize)]
 struct ModelListResponse {
     #[serde(default)]
@@ -287,6 +333,7 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
 
     let executor = WorkflowExecutor;
     let mut emit_progress = |node: &crate::workflow::node::WorkflowNode| {
+        let safe_params = redact_sensitive_params(&node.params);
         let _ = app.emit(
             "workflow-node-started",
             NodeProgressPayload {
@@ -294,7 +341,7 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
                 node_kind: format!("{:?}", node.kind),
                 node_kind_key: node_kind_key(&node.kind),
                 node_label: node.label.clone(),
-                params: node.params.clone(),
+                params: safe_params,
             },
         );
     };
@@ -319,6 +366,7 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
         |node: &crate::workflow::node::WorkflowNode,
          outputs: &HashMap<String, Value>,
          selected_control_output: Option<&str>| {
+            let safe_params = redact_sensitive_params(&node.params);
             let _ = app.emit(
                 "workflow-node-completed",
                 NodeCompletedPayload {
@@ -326,7 +374,7 @@ pub async fn run_workflow(app: AppHandle, graph: WorkflowGraph) -> Result<String
                     node_kind: format!("{:?}", node.kind),
                     node_kind_key: node_kind_key(&node.kind),
                     node_label: node.label.clone(),
-                    params: node.params.clone(),
+                    params: safe_params,
                     outputs: outputs.clone(),
                     selected_control_output: selected_control_output.map(ToString::to_string),
                 },
@@ -620,10 +668,82 @@ async fn package_workflow_job_inner(
     workflow_name: &str,
     build_options: &PackageBuildOptions,
 ) -> Result<PackageWorkflowResult, String> {
+    let workspace_dir = build_short_temp_workspace_dir(job_id);
+
+    let result = package_workflow_job_inner_impl(
+        app,
+        graph,
+        target_path,
+        job_id,
+        workflow_name,
+        build_options,
+        &workspace_dir,
+    )
+    .await;
+
+    emit_package_progress(
+        app,
+        PackageWorkflowProgressPayload {
+            job_id: job_id.to_string(),
+            workflow_name: workflow_name.to_string(),
+            target_path: target_path.trim().to_string(),
+            status: "running".to_string(),
+            stage: "clean".to_string(),
+            progress: 98.0,
+            message: "正在清理临时打包工程目录...".to_string(),
+            log_line: Some(format!("workspace_dir={}", workspace_dir.display())),
+            result: None,
+        },
+    );
+
+    let cleanup_warning = cleanup_packaging_workspace(&workspace_dir);
+    if let Some(warning) = cleanup_warning.as_ref() {
+        emit_package_progress(
+            app,
+            PackageWorkflowProgressPayload {
+                job_id: job_id.to_string(),
+                workflow_name: workflow_name.to_string(),
+                target_path: target_path.trim().to_string(),
+                status: "running".to_string(),
+                stage: "clean".to_string(),
+                progress: 99.0,
+                message: "临时目录清理出现异常，已忽略并继续返回结果。".to_string(),
+                log_line: Some(warning.clone()),
+                result: None,
+            },
+        );
+    }
+
+    match result {
+        Ok(mut packaged) => {
+            if let Some(warning) = cleanup_warning {
+                let _ = writeln!(&mut packaged.build_output, "\n[cleanup-warning]\n{}", warning);
+            }
+            Ok(packaged)
+        }
+        Err(error) => {
+            if let Some(warning) = cleanup_warning {
+                Err(format!("{}\n\n[cleanup-warning]\n{}", error, warning))
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+async fn package_workflow_job_inner_impl(
+    app: &AppHandle,
+    graph: &WorkflowGraph,
+    target_path: &str,
+    job_id: &str,
+    workflow_name: &str,
+    build_options: &PackageBuildOptions,
+    workspace_dir: &Path,
+) -> Result<PackageWorkflowResult, String> {
     let manifest_dir = resolve_manifest_dir()?;
     let target_path = target_path.trim();
     let target_candidate = PathBuf::from(target_path);
-    let workspace_dir = build_short_temp_workspace_dir(job_id);
+    let packaging_secret_warning = packaging_gui_agent_secret_warning(graph);
 
     emit_package_progress(
         app,
@@ -643,6 +763,23 @@ async fn package_workflow_job_inner(
             result: None,
         },
     );
+
+    if let Some(warning) = packaging_secret_warning.as_ref() {
+        emit_package_progress(
+            app,
+            PackageWorkflowProgressPayload {
+                job_id: job_id.to_string(),
+                workflow_name: workflow_name.to_string(),
+                target_path: target_path.to_string(),
+                status: "running".to_string(),
+                stage: "prepare".to_string(),
+                progress: 6.0,
+                message: "检测到密钥内嵌风险，已继续打包（请谨慎分发）。".to_string(),
+                log_line: Some(warning.clone()),
+                result: None,
+            },
+        );
+    }
 
     let requested_name = target_candidate
         .file_stem()
@@ -777,6 +914,9 @@ async fn package_workflow_job_inner(
     drop(line_tx);
 
     let mut build_output = String::new();
+    if let Some(warning) = packaging_secret_warning.as_ref() {
+        let _ = writeln!(&mut build_output, "[security-warning] {}", warning);
+    }
     let mut progress = 18.0;
     while let Some((stream, line)) = line_rx.recv().await {
         progress = update_cargo_progress(&line, progress);
@@ -864,34 +1004,27 @@ async fn package_workflow_job_inner(
         )
     })?;
 
-    emit_package_progress(
-        app,
-        PackageWorkflowProgressPayload {
-            job_id: job_id.to_string(),
-            workflow_name: workflow_name.to_string(),
-            target_path: target_path.to_string(),
-            status: "running".to_string(),
-            stage: "clean".to_string(),
-            progress: 98.0,
-            message: "已复制 EXE，正在清理临时工程构建产物（cargo clean）...".to_string(),
-            log_line: None,
-            result: None,
-        },
-    );
-
-    let clean_output = run_cargo_clean_in_workspace(&workspace_dir).await;
-    let build_output = if clean_output.trim().is_empty() {
-        build_output
-    } else {
-        format!("{}\n\n[cargo clean]\n{}", build_output, clean_output)
-    };
-
     Ok(PackageWorkflowResult {
         executable_path: final_target.to_string_lossy().to_string(),
         binary_name: bin_name,
         source_path: source_path.to_string_lossy().to_string(),
         build_output,
     })
+}
+
+fn cleanup_packaging_workspace(workspace_dir: &Path) -> Option<String> {
+    if !workspace_dir.exists() {
+        return None;
+    }
+
+    match fs::remove_dir_all(workspace_dir) {
+        Ok(()) => None,
+        Err(error) => Some(format!(
+            "清理临时工程目录失败（{}）：{}",
+            workspace_dir.display(),
+            error
+        )),
+    }
 }
 
 fn resolve_manifest_dir() -> Result<PathBuf, String> {
@@ -1211,39 +1344,6 @@ strip = "{strip}"
             error
         )
     })
-}
-
-async fn run_cargo_clean_in_workspace(workspace_dir: &Path) -> String {
-    let mut command = Command::new("cargo");
-    command
-        .arg("clean")
-        .current_dir(workspace_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    match command.output().await {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let mut lines = Vec::new();
-
-            lines.push(format!("exit={}", output.status));
-            if !stdout.is_empty() {
-                lines.push(format!("stdout:\n{}", stdout));
-            }
-            if !stderr.is_empty() {
-                lines.push(format!("stderr:\n{}", stderr));
-            }
-
-            lines.join("\n")
-        }
-        Err(error) => format!("failed to run cargo clean: {}", error),
-    }
 }
 
 fn sanitize_bin_name(raw: &str) -> String {
