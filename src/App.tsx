@@ -2537,7 +2537,7 @@ function App() {
                   className={`rounded-[4px] px-2 py-[3px] text-[12px] leading-4 transition-colors ${
                     activeMenu === group
                       ? "bg-[#37373d] text-white"
-                      : "text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white"
+                      : "text-[#cccccc] hover:bg-[#2a2d2e]"
                   }`}
                 >
                   {group}
@@ -2549,7 +2549,7 @@ function App() {
                         key={item}
                         type="button"
                         onClick={() => handleMenuAction(item)}
-                        className="block h-7 w-full truncate rounded-[4px] px-2 text-left text-[12px] leading-4 text-[#cccccc] transition-colors hover:bg-[#094771] hover:text-white"
+                        className="block h-7 w-full truncate rounded-[4px] px-2 text-left text-[12px] leading-4 text-[#cccccc] transition-colors hover:bg-[#2a2d2e]"
                       >
                         {item}
                       </button>
