@@ -798,11 +798,11 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   }
 
   return (
-    <section className="flex flex-col border-b border-slate-200 dark:border-neutral-800">
+    <section className="cf-window cf-pane flex flex-col border-b border-slate-200 dark:border-neutral-800">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between p-4 hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors"
+        className="cf-pane-header flex w-full items-center justify-between p-4 hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors"
       >
         <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">属性面板</h2>
         <div className="flex items-center gap-2">
@@ -825,7 +825,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       {expanded && (
         <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
           {!selectedNode ? (
-            <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 p-8 text-center text-[11px] text-slate-400 dark:border-neutral-800">
+            <div className="cf-empty flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 p-8 text-center text-[11px] text-slate-400 dark:border-neutral-800">
               <svg className="mb-3 h-8 w-8 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
@@ -836,11 +836,11 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
             <div className="space-y-4 p-4 pt-0">
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">节点名称</label>
-                <div className="rounded-xl border border-slate-200 bg-white/70 px-4 py-2.5 text-xs font-semibold shadow-sm dark:border-neutral-700 dark:bg-neutral-900/70">
+                <div className="cf-card rounded-xl border border-slate-200 bg-white/70 px-4 py-2.5 text-xs font-semibold shadow-sm dark:border-neutral-700 dark:bg-neutral-900/70">
                   {selectedNode.data.label}
                 </div>
               </div>
-              <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-slate-400">
+              <p className="cf-card rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-slate-400">
                 {selectedMeta?.description}
               </p>
 
@@ -875,7 +875,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                   ) : null}
                 </div>
               ) : (
-                <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-[11px] text-slate-400 dark:border-neutral-700 dark:text-slate-500">
+                <div className="cf-empty rounded-xl border border-dashed border-slate-300 px-3 py-4 text-[11px] text-slate-400 dark:border-neutral-700 dark:text-slate-500">
                   该节点无可编辑参数。
                 </div>
               )}

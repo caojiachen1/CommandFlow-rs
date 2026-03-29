@@ -100,7 +100,7 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
 
   return (
     <div ref={rootRef} className="relative">
-      <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white/85 px-2 py-1.5 shadow-sm backdrop-blur transition-all focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80">
+      <div className="cf-card flex items-center gap-1 rounded-xl border border-slate-200 bg-white/85 px-2 py-1.5 shadow-sm backdrop-blur transition-all focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80">
         <input
           type="text"
           value={value}
@@ -142,7 +142,7 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
       {open ? (
         <div
           ref={menuRef}
-          className="absolute z-[260] mt-1.5 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white/95 p-1 shadow-2xl backdrop-blur-md dark:border-neutral-700 dark:bg-neutral-900/95"
+          className="cf-card absolute z-[260] mt-1.5 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white/95 p-1 shadow-2xl backdrop-blur-md dark:border-neutral-700 dark:bg-neutral-900/95"
         >
           {filteredOptions.length > 0 ? (
             filteredOptions.map((option, index) => (
@@ -152,8 +152,8 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
                 type="button"
                 className={`block w-full truncate rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${
                   index === activeIndex
-                    ? 'bg-cyan-500 text-white'
-                    : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-neutral-800'
+                    ? 'bg-[#2a2d2e] text-[#f3f3f3]'
+                    : 'text-slate-700 hover:bg-slate-200/70 dark:text-slate-200 dark:hover:bg-neutral-800'
                 }`}
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => {

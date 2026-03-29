@@ -93,12 +93,12 @@ export default function StartMenuAppOptionsList({
               className={`absolute left-0 right-0 flex items-center gap-2 rounded-lg text-left text-xs transition-colors ${
                 tone === 'dark'
                   ? active
-                    ? 'bg-cyan-500 text-white'
+                    ? 'bg-[#2a2d2e] text-[#f3f3f3]'
                     : 'text-slate-200 hover:bg-white/10'
                   : active
-                    ? 'bg-cyan-500 text-white'
+                    ? 'bg-[#2a2d2e] text-[#f3f3f3]'
                     : selected
-                      ? 'bg-cyan-50 text-cyan-700 hover:bg-cyan-100 dark:bg-cyan-500/10 dark:text-cyan-300 dark:hover:bg-cyan-500/20'
+                      ? 'bg-slate-200/70 text-slate-800 hover:bg-slate-300/70 dark:bg-neutral-800 dark:text-slate-200 dark:hover:bg-neutral-700'
                       : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-neutral-800'
               }`}
               style={{
@@ -124,7 +124,7 @@ export default function StartMenuAppOptionsList({
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{appLabel}</span>
-                <span className={`block truncate text-[10px] ${active ? (tone === 'dark' ? 'text-cyan-50/90' : 'text-cyan-50/90') : 'text-slate-400 dark:text-slate-500'}`}>
+                <span className={`block truncate text-[10px] ${active ? 'text-slate-300' : 'text-slate-400 dark:text-slate-500'}`}>
                   {app.targetPath || app.sourcePath}
                 </span>
               </span>

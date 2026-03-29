@@ -2564,18 +2564,18 @@ function App() {
 
       {helpModalOpen && (
         <div
-          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          className="cf-modal-overlay fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm"
           onClick={handleHelpModalBackdropClick}
         >
-          <div className="flex max-h-[80vh] w-[600px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
+          <div className="cf-window cf-modal flex max-h-[80vh] w-[600px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="cf-pane-header flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
               <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 {helpType === "docs" ? "文档说明" : "快捷键说明"}
               </h2>
               <button
                 type="button"
                 onClick={() => setHelpModalOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-800"
+                className="cf-btn rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-800"
               >
                 <svg
                   className="h-5 w-5"
@@ -2643,7 +2643,7 @@ function App() {
                   ].map(([label, key]) => (
                     <div
                       key={label}
-                      className="flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-neutral-800/50"
+                      className="cf-card flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-neutral-800/50"
                     >
                       <span className="text-slate-600 dark:text-slate-400">
                         {label}
@@ -2662,29 +2662,29 @@ function App() {
 
       {packageConfigOpen && (
         <div
-          className="fixed inset-0 z-[305] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          className="cf-modal-overlay fixed inset-0 z-[305] flex items-center justify-center bg-black/50 backdrop-blur-sm"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               setPackageConfigOpen(false);
             }
           }}
         >
-          <div className="flex max-h-[92vh] w-[880px] max-w-[96vw] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+          <div className="cf-window cf-modal flex max-h-[92vh] w-[880px] max-w-[96vw] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="cf-pane-header flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
               <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 EXE 打包配置
               </h2>
               <button
                 type="button"
                 onClick={() => setPackageConfigOpen(false)}
-                className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                className="cf-btn rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
               >
                 关闭
               </button>
             </div>
 
             <div className="grid grid-cols-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
-              <section className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-neutral-800">
+              <section className="cf-card space-y-3 rounded-xl border border-slate-200 p-4 dark:border-neutral-800">
                 <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                   输出路径
                 </h3>
@@ -2700,7 +2700,7 @@ function App() {
                     onClick={() => {
                       void browsePackageOutputPath();
                     }}
-                    className="shrink-0 rounded-md border border-slate-300 px-2.5 py-2 text-[11px] text-slate-700 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-200 dark:hover:bg-neutral-800"
+                    className="cf-btn shrink-0 rounded-md border border-slate-300 px-2.5 py-2 text-[11px] text-slate-700 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-200 dark:hover:bg-neutral-800"
                   >
                     浏览
                   </button>
@@ -2710,7 +2710,7 @@ function App() {
                 </p>
               </section>
 
-              <section className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-neutral-800">
+              <section className="cf-card space-y-3 rounded-xl border border-slate-200 p-4 dark:border-neutral-800">
                 <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                   编译选项
                 </h3>
@@ -2793,7 +2793,7 @@ function App() {
                 </div>
               </section>
 
-              <section className="space-y-2 rounded-xl border border-slate-200 p-4 dark:border-neutral-800 md:col-span-2">
+              <section className="cf-card space-y-2 rounded-xl border border-slate-200 p-4 dark:border-neutral-800 md:col-span-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                     编译环境检测
@@ -2804,7 +2804,7 @@ function App() {
                       void refreshPackagingEnvironment();
                     }}
                     disabled={packageEnvironmentChecking}
-                    className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                    className="cf-btn rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
                   >
                     {packageEnvironmentChecking ? "检测中..." : "重新检测"}
                   </button>
@@ -2841,11 +2841,11 @@ function App() {
               </section>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+            <div className="cf-pane-header flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
               <button
                 type="button"
                 onClick={() => setPackageConfigOpen(false)}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                className="cf-btn rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
               >
                 取消
               </button>
@@ -2855,7 +2855,7 @@ function App() {
                 onClick={() => {
                   void confirmPackageWorkflowAsExe();
                 }}
-                className="rounded-md bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="cf-btn-primary rounded-md bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {packageLaunching ? "启动中..." : "开始打包"}
               </button>
@@ -2866,11 +2866,11 @@ function App() {
 
       {packageProgressOpen && (
         <div
-          className="fixed inset-0 z-[310] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          className="cf-modal-overlay fixed inset-0 z-[310] flex items-center justify-center bg-black/50 backdrop-blur-sm"
           onClick={handlePackageProgressBackdropClick}
         >
-          <div className="flex max-h-[92vh] w-[980px] max-w-[96vw] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+          <div className="cf-window cf-modal flex max-h-[92vh] w-[980px] max-w-[96vw] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <div className="cf-pane-header flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 dark:border-neutral-800 dark:bg-neutral-900/60">
               <div>
                 <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
                   EXE 打包进度
@@ -2888,14 +2888,14 @@ function App() {
                       state.filter((item) => item.status === "running"),
                     );
                   }}
-                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                  className="cf-btn rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
                 >
                   清理已完成
                 </button>
                 <button
                   type="button"
                   onClick={() => setPackageProgressOpen(false)}
-                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
+                  className="cf-btn rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 dark:border-neutral-700 dark:text-slate-300 dark:hover:bg-neutral-800"
                 >
                   关闭
                 </button>
@@ -2904,7 +2904,7 @@ function App() {
 
             <div className="flex-1 space-y-4 overflow-y-auto p-5">
               {packageJobs.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-xs text-slate-500 dark:border-neutral-700 dark:text-slate-400">
+                <div className="cf-empty rounded-lg border border-dashed border-slate-300 p-6 text-center text-xs text-slate-500 dark:border-neutral-700 dark:text-slate-400">
                   暂无打包任务。
                 </div>
               ) : (
@@ -2919,7 +2919,7 @@ function App() {
                   return (
                     <section
                       key={job.jobId}
-                      className="rounded-xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900/70"
+                      className="cf-card rounded-xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900/70"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -3099,7 +3099,7 @@ function App() {
             <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
             <div
               ref={rightPaneRef}
-              className="flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40"
+              className="cf-window cf-pane flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40"
             >
               <div
                 className="flex min-h-[120px] flex-col border-b border-slate-200 dark:border-neutral-800"

@@ -43,7 +43,7 @@ export default function StyledSelect({ value, options, onChange, placeholder, on
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        className="flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-white/85 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur transition-all hover:border-cyan-400 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-100"
+        className="cf-card flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-white/85 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur transition-all hover:border-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-100"
         onClick={() => setOpen((prev) => !prev)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && onEnter) {
@@ -71,15 +71,15 @@ export default function StyledSelect({ value, options, onChange, placeholder, on
       </button>
 
       {open ? (
-        <div className="absolute z-[260] mt-1.5 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white/95 p-1 shadow-2xl backdrop-blur-md dark:border-neutral-700 dark:bg-neutral-900/95">
+        <div className="cf-card absolute z-[260] mt-1.5 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white/95 p-1 shadow-2xl backdrop-blur-md dark:border-neutral-700 dark:bg-neutral-900/95">
           {normalizedOptions.map((option) => (
             <button
               key={option.value}
               type="button"
               className={`block w-full truncate rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${
                 option.value === value
-                  ? 'bg-cyan-500 text-white'
-                  : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-neutral-800'
+                  ? 'bg-[#2a2d2e] text-[#f3f3f3]'
+                  : 'text-slate-700 hover:bg-slate-200/70 dark:text-slate-200 dark:hover:bg-neutral-800'
               }`}
               onClick={() => {
                 onChange(option.value)

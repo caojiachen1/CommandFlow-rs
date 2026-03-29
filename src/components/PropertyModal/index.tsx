@@ -817,11 +817,11 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="cf-modal-overlay fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={handleBackdropClick}
     >
-      <div className="flex h-[80vh] w-[480px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
+      <div className="cf-window cf-modal flex h-[80vh] w-[480px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+        <div className="cf-pane-header flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">节点属性</h2>
             <span className="rounded-full bg-cyan-100 px-3 py-1 text-[10px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400">
@@ -843,12 +843,12 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">节点名称</label>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold shadow-sm dark:border-neutral-700 dark:bg-neutral-900/70">
+              <div className="cf-card rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold shadow-sm dark:border-neutral-700 dark:bg-neutral-900/70">
                 {selectedNode.data.label}
               </div>
             </div>
             
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-slate-400">
+            <p className="cf-card rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-slate-400">
               {selectedMeta.description}
             </p>
 
@@ -884,18 +884,18 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
                 ))}
               </div>
             ) : (
-              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-[11px] text-slate-400 dark:border-neutral-700 dark:text-slate-500">
+              <div className="cf-empty rounded-xl border border-dashed border-slate-300 px-3 py-4 text-[11px] text-slate-400 dark:border-neutral-700 dark:text-slate-500">
                 该节点无可编辑参数。
               </div>
             )}
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
+        <div className="cf-pane-header flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-slate-300 dark:hover:bg-neutral-700"
+            className="cf-btn rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-slate-300 dark:hover:bg-neutral-700"
           >
             关闭
           </button>

@@ -60,21 +60,21 @@ export default function NodePanel() {
   }
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-r border-slate-200 bg-slate-50/50 backdrop-blur-md dark:border-neutral-800 dark:bg-black/20">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4 dark:border-neutral-800">
+    <aside className="cf-window cf-pane flex h-full min-h-0 flex-col border-r border-slate-200 bg-slate-50/50 backdrop-blur-md dark:border-neutral-800 dark:bg-black/20">
+      <div className="cf-pane-header flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4 dark:border-neutral-800">
         <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">节点工具箱</h2>
         <div className="flex items-center gap-1 text-[10px]">
           <button
             type="button"
             onClick={() => setAllCollapsed(false)}
-            className="rounded-md px-2 py-1 font-semibold text-slate-500 transition-colors hover:bg-slate-200/80 hover:text-cyan-600 dark:text-slate-400 dark:hover:bg-neutral-800 dark:hover:text-cyan-400"
+            className="cf-btn rounded-md px-2 py-1 font-semibold text-slate-500 transition-colors hover:bg-slate-200/80 dark:text-slate-400 dark:hover:bg-neutral-800"
           >
             展开
           </button>
           <button
             type="button"
             onClick={() => setAllCollapsed(true)}
-            className="rounded-md px-2 py-1 font-semibold text-slate-500 transition-colors hover:bg-slate-200/80 hover:text-cyan-600 dark:text-slate-400 dark:hover:bg-neutral-800 dark:hover:text-cyan-400"
+            className="cf-btn rounded-md px-2 py-1 font-semibold text-slate-500 transition-colors hover:bg-slate-200/80 dark:text-slate-400 dark:hover:bg-neutral-800"
           >
             收起
           </button>
@@ -83,7 +83,7 @@ export default function NodePanel() {
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
         {NODE_PALETTE_CATEGORIES.map((category) => (
           <section key={category.title} className="space-y-3">
-            <div className="rounded-xl border border-slate-200/80 bg-white/60 dark:border-neutral-800 dark:bg-neutral-900/40">
+            <div className="cf-card rounded-xl border border-slate-200/80 bg-white/60 dark:border-neutral-800 dark:bg-neutral-900/40">
               <button
                 type="button"
                 onClick={() => toggleCategory(category.title)}
@@ -111,10 +111,10 @@ export default function NodePanel() {
                       key={item.kind}
                       draggable
                       onDragStart={(event) => handleDragStart(event, item.kind)}
-                      className="group flex cursor-grab items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:border-cyan-500 hover:shadow-xl hover:shadow-cyan-500/10 active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-900/50 dark:hover:border-cyan-500"
+                      className="group flex cursor-grab items-center gap-3 rounded-xl border border-slate-300/70 bg-slate-100/70 p-3 shadow-sm transition-all hover:border-slate-400 hover:bg-slate-200/80 active:cursor-grabbing dark:border-neutral-700 dark:bg-neutral-900/60 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/80"
                     >
-                      <item.icon className="h-4 w-4 shrink-0 text-white transition-colors group-hover:text-white" size={18} strokeWidth={2.2} />
-                      <span className="min-w-0 flex-1 text-xs font-semibold text-white group-hover:text-white">
+                      <item.icon className="h-4 w-4 shrink-0 text-slate-600 transition-colors group-hover:text-slate-800 dark:text-slate-300 dark:group-hover:text-slate-200" size={18} strokeWidth={2.2} />
+                      <span className="min-w-0 flex-1 text-xs font-semibold text-slate-700 group-hover:text-slate-800 dark:text-slate-200 dark:group-hover:text-white">
                         {item.label}
                       </span>
                       <div className="ml-auto opacity-0 transition-opacity group-hover:opacity-100">

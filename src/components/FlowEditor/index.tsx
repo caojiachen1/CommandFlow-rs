@@ -760,7 +760,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   return (
     <div
       ref={wrapperRef}
-      className="relative h-full w-full bg-slate-50 dark:bg-neutral-950 transition-colors"
+      className="cf-window cf-pane relative h-full w-full bg-slate-50 dark:bg-neutral-950 transition-colors"
     >
       <ReactFlow
         nodes={nodes}
@@ -815,7 +815,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
             onClick={closeQuickInsert}
           />
           <div
-            className="absolute z-[150] w-[280px] rounded-xl border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95"
+            className="cf-window cf-card absolute z-[150] w-[280px] rounded-xl border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95"
             style={{ left: quickInsert.panelX, top: quickInsert.panelY }}
             onClick={(event) => event.stopPropagation()}
           >

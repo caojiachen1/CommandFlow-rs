@@ -25,13 +25,13 @@ export default function InputRecorderCompactPanel({
   onExit,
 }: InputRecorderCompactPanelProps) {
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50/40 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
+    <main className="cf-window cf-pane flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="cf-pane-header flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50/40 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
         <button
           type="button"
           disabled={recording}
           onClick={onStart}
-          className="rounded-md bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="cf-btn-primary rounded-md bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           开始录制
         </button>
@@ -39,7 +39,7 @@ export default function InputRecorderCompactPanel({
           type="button"
           disabled={!recording}
           onClick={onStop}
-          className="rounded-md bg-rose-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="cf-btn-danger rounded-md bg-rose-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           停止录制
         </button>
@@ -47,7 +47,7 @@ export default function InputRecorderCompactPanel({
           <button
             type="button"
             onClick={onExit}
-            className="rounded-md bg-slate-600 px-3 py-1 font-semibold text-white transition-colors hover:bg-slate-500"
+            className="cf-btn rounded-md bg-slate-600 px-3 py-1 font-semibold text-white transition-colors hover:bg-slate-500"
           >
             退出录制模式
           </button>
@@ -55,7 +55,7 @@ export default function InputRecorderCompactPanel({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/30">
+        <div className="cf-pane-header flex items-center justify-between border-b border-slate-200 bg-slate-50/50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/30">
           <div>
             <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">键鼠操作日志</h2>
             <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">已记录 {operationCount} 个操作{recording ? ' · 录制中' : ''}</p>

@@ -237,16 +237,16 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
 
   return (
     <div
-      className="fixed inset-0 z-[360] flex items-center justify-center bg-black/55 backdrop-blur-sm"
+      className="cf-modal-overlay fixed inset-0 z-[360] flex items-center justify-center bg-black/55 backdrop-blur-sm"
       onClick={(event) => {
         if (event.target === event.currentTarget) handleCloseModal()
       }}
     >
-      <div className="flex h-[84vh] w-[1000px] max-w-[95vw] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="cf-window cf-modal flex h-[84vh] w-[1000px] max-w-[95vw] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
 
         {/* ── Sidebar: preset list ── */}
-        <aside className="flex w-72 shrink-0 flex-col border-r border-slate-200 bg-slate-50/70 dark:border-neutral-800 dark:bg-neutral-900/50">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-neutral-800">
+        <aside className="cf-sidebar flex w-72 shrink-0 flex-col border-r border-slate-200 bg-slate-50/70 dark:border-neutral-800 dark:bg-neutral-900/50">
+          <div className="cf-pane-header flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-neutral-800">
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">键鼠预设</h3>
             <button
               type="button"
@@ -254,7 +254,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                 const id = addPreset({ name: `新键鼠预设 ${presets.length + 1}` })
                 setSelectedId(id)
               }}
-              className="rounded-full bg-cyan-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-cyan-500"
+              className="cf-btn-primary rounded-full bg-cyan-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-cyan-500"
             >
               + 新增
             </button>
@@ -268,8 +268,8 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                 onClick={() => setSelectedId(preset.id)}
                 className={`mb-1.5 block w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
                   preset.id === selectedId
-                    ? 'border-cyan-500 bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-300 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-300'
+                    ? 'border-[#5b5fc7] bg-[#2a2d2e] text-[#f3f3f3]'
+                    : 'cf-card border-slate-200 bg-white text-slate-700 hover:border-slate-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-slate-300'
                 }`}
               >
                 <div className="truncate text-xs font-semibold">{preset.name}</div>
@@ -286,7 +286,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
         {/* ── Main content ── */}
         <section className="flex min-w-0 flex-1 flex-col">
           {/* Header */}
-          <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-neutral-800">
+          <div className="cf-pane-header flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-neutral-800">
             <div>
               <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">键鼠录制设置</h3>
               <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
@@ -296,7 +296,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
             <button
               type="button"
               onClick={handleCloseModal}
-              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-neutral-800"
+              className="cf-btn rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-neutral-800"
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
@@ -307,7 +307,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
           {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {!selectedPreset ? (
-              <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400 dark:border-neutral-700">
+              <div className="cf-empty rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400 dark:border-neutral-700">
                 请先新建一个键鼠录制预设。
               </div>
             ) : (
@@ -325,7 +325,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                 </div>
 
                 {/* Recording options */}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-2 dark:border-neutral-700 dark:bg-neutral-800/40">
+                <div className="cf-card rounded-2xl border border-slate-200 bg-slate-50/70 p-2 dark:border-neutral-700 dark:bg-neutral-800/40">
                   <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200 ml-2 mt-1">录制内容</h4>
                   <div className="mt-1 space-y-1 text-sm">
                     {(
@@ -361,13 +361,13 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
 
                 {/* Stats grid */}
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/60">
+                  <div className="cf-card rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/60">
                     <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">已保存操作</div>
                     <div className="mt-1.5 text-2xl font-bold text-slate-800 dark:text-slate-100">
                       {draft.actions.length}
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/60">
+                  <div className="cf-card rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/60">
                     <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">录制时长</div>
                     <div className="mt-1.5 text-lg font-semibold text-slate-700 dark:text-slate-200">
                       {totalDurationMs > 0 ? formatMs(totalDurationMs) : '—'}
@@ -376,7 +376,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                 </div>
 
                 {/* ── Visualization + Timeline ── */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/60">
+                <div className="cf-card rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/60">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200">轨迹可视化与时间轴剪辑</h4>
@@ -389,7 +389,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                         <button
                           type="button"
                           onClick={openTimelineEditor}
-                          className="rounded-full border border-indigo-300 px-4 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900/20"
+                          className="cf-btn rounded-full border border-indigo-300 px-4 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-900/20"
                         >
                           高级编辑器
                         </button>
@@ -397,7 +397,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                           <button
                             type="button"
                             onClick={restoreClip}
-                            className="rounded-full border border-amber-300 px-4 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                            className="cf-btn rounded-full border border-amber-300 px-4 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/20"
                           >
                             还原剪辑
                           </button>
@@ -405,7 +405,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                         <button
                           type="button"
                           onClick={applyClip}
-                          className="rounded-full border border-cyan-300 px-4 py-1.5 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-300 dark:hover:bg-cyan-900/20"
+                          className="cf-btn-primary rounded-full border border-cyan-300 px-4 py-1.5 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-300 dark:hover:bg-cyan-900/20"
                         >
                           应用剪辑
                         </button>
@@ -424,7 +424,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
 
                 {/* ── Collapsible action log ── */}
                 {draft.actions.length > 0 && (
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-neutral-700 dark:bg-neutral-900/60">
+                  <div className="cf-card overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-neutral-700 dark:bg-neutral-900/60">
                     <button
                       type="button"
                       onClick={() => setLogExpanded((v) => !v)}
@@ -488,12 +488,12 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
 
           {/* ── Footer actions ── */}
           {selectedPreset && (
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 dark:border-neutral-800">
+            <div className="cf-pane-header flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 px-6 py-4 dark:border-neutral-800">
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => deletePreset(selectedPreset.id)}
-                  className="rounded-full border border-rose-300 px-4 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 dark:border-rose-700 dark:text-rose-300 dark:hover:bg-rose-900/20"
+                  className="cf-btn-danger rounded-full border border-rose-300 px-4 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 dark:border-rose-700 dark:text-rose-300 dark:hover:bg-rose-900/20"
                 >
                   删除预设
                 </button>
@@ -514,7 +514,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                     })
                     setSaveHint('保存成功')
                   }}
-                  className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-neutral-700 dark:text-slate-200 dark:hover:bg-neutral-800"
+                  className="cf-btn rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-neutral-700 dark:text-slate-200 dark:hover:bg-neutral-800"
                 >
                   保存修改
                 </button>
@@ -529,7 +529,7 @@ export default function InputRecordingSettingsModal({ open, onClose, onStartReco
                     })
                     onStartRecording(selectedPreset.id, draft.options)
                   }}
-                  className="rounded-full bg-cyan-600 px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-cyan-500"
+                  className="cf-btn-primary rounded-full bg-cyan-600 px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-cyan-500"
                 >
                   录制键鼠操作
                 </button>
