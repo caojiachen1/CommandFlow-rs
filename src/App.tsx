@@ -9,6 +9,12 @@ import {
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import {
+  Button,
+  FluentProvider,
+  webDarkTheme,
+  webLightTheme,
+} from "@fluentui/react-components";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import FlowEditor from "./components/FlowEditor";
@@ -365,6 +371,7 @@ function App() {
   const loadSecureInputRecordingPresets = useSettingsStore(
     (state) => state.loadInputRecordingPresets,
   );
+  const themeMode = useSettingsStore((state) => state.theme);
   const inputRecordingPresets = useSettingsStore(
     (state) => state.inputRecordingPresets,
   );
@@ -2493,6 +2500,20 @@ function App() {
     (item) => item.status === "running",
   ).length;
 
+  const prefersDarkSystem =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const compactFluentTheme =
+    themeMode === "dark" || (themeMode === "system" && prefersDarkSystem)
+      ? webDarkTheme
+      : webLightTheme;
+  const compactActionButtonStyle = {
+    minWidth: "auto",
+    paddingInline: 8,
+    height: 24,
+  };
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#202020] text-slate-900 selection:bg-cyan-100 dark:bg-[#202020] dark:text-slate-100 dark:selection:bg-cyan-900/30">
       {!backgroundMode && (
@@ -2999,46 +3020,57 @@ function App() {
           />
         ) : (
           <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50/40 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => void handleMenuAction("运行")}
-                className="rounded-md bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                启动
-              </button>
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => void handleMenuAction("单步")}
-                className="rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                单步
-              </button>
-              <button
-                type="button"
-                disabled={!running}
-                onClick={() => void handleMenuAction("停止")}
-                className="rounded-md bg-rose-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                停止
-              </button>
-              <CoordinatePicker
-                picking={coordinatePicking}
-                onPick={startCoordinatePicking}
-                elementPicking={elementPicking}
-                onPickElement={startElementPicking}
-                compact
-              />
-              <button
-                type="button"
-                onClick={() => void handleMenuAction("后台模式")}
-                className="ml-auto rounded-md bg-slate-600 px-3 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500"
-              >
-                退出后台模式
-              </button>
-            </div>
+            <FluentProvider
+              theme={compactFluentTheme}
+              style={{ background: "transparent" }}
+            >
+              <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-200 bg-slate-50/40 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900/40">
+                <Button
+                  appearance="primary"
+                  size="small"
+                  disabled={running}
+                  onClick={() => void handleMenuAction("运行")}
+                  style={compactActionButtonStyle}
+                >
+                  启动
+                </Button>
+                <Button
+                  appearance="secondary"
+                  size="small"
+                  disabled={running}
+                  onClick={() => void handleMenuAction("单步")}
+                  style={compactActionButtonStyle}
+                >
+                  单步
+                </Button>
+                <Button
+                  appearance="secondary"
+                  size="small"
+                  disabled={!running}
+                  onClick={() => void handleMenuAction("停止")}
+                  style={compactActionButtonStyle}
+                >
+                  停止
+                </Button>
+                <div className="ml-auto flex items-center gap-1">
+                  <CoordinatePicker
+                    picking={coordinatePicking}
+                    onPick={startCoordinatePicking}
+                    elementPicking={elementPicking}
+                    onPickElement={startElementPicking}
+                    compact
+                  />
+                  <Button
+                    appearance="secondary"
+                    size="small"
+                    onClick={() => void handleMenuAction("后台模式")}
+                    style={compactActionButtonStyle}
+                  >
+                    退出后台模式
+                  </Button>
+                </div>
+              </div>
+            </FluentProvider>
             <div className="min-h-0 flex-1">
               <ExecutionLog />
             </div>

@@ -15,8 +15,16 @@ export default function CoordinatePicker({
   onPickElement,
   compact = false,
 }: CoordinatePickerProps) {
+  const compactButtonStyle = compact
+    ? {
+        minWidth: "auto",
+        paddingInline: 8,
+        height: 24,
+      }
+    : undefined
+
   return (
-    <div className="flex items-center gap-1.5">
+    <div className={compact ? "flex items-center gap-1" : "flex items-center gap-1.5"}>
       {!compact && <span className="text-[11px] text-slate-500">坐标 / 元素提取</span>}
       <Button
         appearance={picking ? "primary" : "secondary"}
@@ -24,6 +32,7 @@ export default function CoordinatePicker({
         disabled={picking}
         title="进入坐标拾取模式"
         size="small"
+        style={compactButtonStyle}
       >
         {picking ? '拾取中...' : '拾取坐标'}
       </Button>
@@ -35,6 +44,7 @@ export default function CoordinatePicker({
           disabled={elementPicking}
           title="进入元素提取模式"
           size="small"
+          style={compactButtonStyle}
         >
           {elementPicking ? '提取中...' : '提取元素'}
         </Button>
