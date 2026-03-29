@@ -2517,9 +2517,9 @@ function App() {
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#202020] text-slate-900 selection:bg-cyan-100 dark:bg-[#202020] dark:text-slate-100 dark:selection:bg-cyan-900/30">
       {!backgroundMode && (
-        <header className="relative z-[100] flex h-8 shrink-0 items-center justify-between border-b border-slate-200 bg-[#202020]/70 px-3 backdrop-blur-xl dark:border-neutral-800 dark:bg-[#202020]/70">
+        <header className="relative z-[100] flex h-8 shrink-0 items-center justify-between border-b border-[#2f2f2f] bg-[#1f1f1f]/95 px-3 text-[#cccccc] backdrop-blur-xl dark:border-[#2f2f2f] dark:bg-[#1f1f1f]/95">
           <div
-            className="flex items-center gap-2 text-sm font-medium"
+            className="flex items-center gap-1 text-[12px]"
             ref={menuRef}
           >
             {menu.map(([group, items]) => (
@@ -2534,22 +2534,22 @@ function App() {
                       setActiveMenu(group);
                     }
                   }}
-                  className={`rounded-md px-2.5 py-1 text-xs transition-colors hover:bg-slate-200/50 dark:hover:bg-slate-800/70 ${
+                  className={`rounded-[4px] px-2 py-[3px] text-[12px] leading-4 transition-colors ${
                     activeMenu === group
-                      ? "bg-slate-200/70 dark:bg-neutral-800/90 text-cyan-600 dark:text-cyan-400 font-semibold"
-                      : ""
+                      ? "bg-[#37373d] text-white"
+                      : "text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white"
                   }`}
                 >
                   {group}
                 </button>
                 {activeMenu === group && (
-                  <div className="menu-dropdown-enter absolute left-0 z-[110] mt-1.5 min-w-[140px] rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-2xl backdrop-blur-2xl dark:border-neutral-700 dark:bg-neutral-900/95">
+                  <div className="menu-dropdown-enter absolute left-0 z-[110] mt-1 min-w-[150px] overflow-hidden rounded-[6px] border border-[#454545] bg-[#252526] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
                     {items.map((item) => (
                       <button
                         key={item}
                         type="button"
                         onClick={() => handleMenuAction(item)}
-                        className="block w-full truncate rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-cyan-500 hover:text-white dark:hover:bg-cyan-600"
+                        className="block h-7 w-full truncate rounded-[4px] px-2 text-left text-[12px] leading-4 text-[#cccccc] transition-colors hover:bg-[#094771] hover:text-white"
                       >
                         {item}
                       </button>
