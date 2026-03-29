@@ -12,6 +12,7 @@ interface StartMenuAppOptionsListProps {
   emptyText: string
   tone?: 'light' | 'dark'
   maxHeightClassName?: string
+  textOnly?: boolean
 }
 
 const ITEM_HEIGHT = 52
@@ -26,6 +27,7 @@ export default function StartMenuAppOptionsList({
   emptyText,
   tone = 'light',
   maxHeightClassName,
+  textOnly = false,
 }: StartMenuAppOptionsListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -90,16 +92,20 @@ export default function StartMenuAppOptionsList({
               onMouseEnter={() => onHover(index)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onSelect(app)}
-              className={`absolute left-0 right-0 flex items-center gap-2 rounded-lg text-left text-xs transition-colors ${
-                tone === 'dark'
-                  ? active
-                    ? 'bg-[#2a2d2e] text-[#f3f3f3]'
-                    : 'text-slate-200 hover:bg-white/10'
-                  : active
-                    ? 'bg-[#2a2d2e] text-[#f3f3f3]'
-                    : selected
-                      ? 'bg-slate-200/70 text-slate-800 hover:bg-slate-300/70 dark:bg-neutral-800 dark:text-slate-200 dark:hover:bg-neutral-700'
-                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-neutral-800'
+              className={`absolute left-0 right-0 flex items-center gap-2 text-left text-xs transition-colors ${
+                textOnly
+                  ? (active || selected
+                    ? 'font-semibold text-cyan-300'
+                    : 'text-slate-200 hover:text-cyan-200')
+                  : tone === 'dark'
+                    ? active
+                      ? 'bg-[#2a2d2e] text-[#f3f3f3]'
+                      : 'text-slate-200 hover:bg-white/10'
+                    : active
+                      ? 'bg-[#2a2d2e] text-[#f3f3f3]'
+                      : selected
+                        ? 'bg-slate-200/70 text-slate-800 hover:bg-slate-300/70 dark:bg-neutral-800 dark:text-slate-200 dark:hover:bg-neutral-700'
+                        : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-neutral-800'
               }`}
               style={{
                 top: index * ITEM_HEIGHT,
@@ -117,9 +123,13 @@ export default function StartMenuAppOptionsList({
                 sourcePath={app.sourcePath}
                 imageClassName={tone === 'dark' ? 'h-8 w-8 shrink-0 rounded-md object-contain' : 'h-9 w-9 shrink-0 rounded-lg object-contain'}
                 fallbackClassName={`flex shrink-0 items-center justify-center font-bold ${
-                  tone === 'dark'
-                    ? `h-8 w-8 rounded-md text-[10px] ${active ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-200'}`
-                    : `h-9 w-9 rounded-lg text-[11px] ${active ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600 dark:bg-neutral-800 dark:text-slate-300'}`
+                  textOnly
+                    ? (tone === 'dark'
+                      ? `h-8 w-8 text-[10px] ${active ? 'text-cyan-300' : 'text-slate-300'}`
+                      : `h-9 w-9 text-[11px] ${active ? 'text-cyan-600' : 'text-slate-500 dark:text-slate-300'}`)
+                    : tone === 'dark'
+                      ? `h-8 w-8 rounded-md text-[10px] ${active ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-200'}`
+                      : `h-9 w-9 rounded-lg text-[11px] ${active ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600 dark:bg-neutral-800 dark:text-slate-300'}`
                 }`}
               />
               <span className="min-w-0 flex-1">

@@ -134,6 +134,55 @@ body {
   background: #38383d;
 }
 
+/* 节点内按钮仅显示文字：保留外层容器边框/阴影，去掉按钮本体边框和阴影 */
+.cf-window .react-flow__node button:not(.fui-Button):not(.react-flow__controls-button),
+.cf-window .node-editor-popup button:not(.fui-Button):not(.react-flow__controls-button) {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  transition: color 0.12s ease, opacity 0.12s ease, transform 0.12s ease !important;
+}
+
+.cf-window .react-flow__node button:not(.fui-Button):not(.react-flow__controls-button):hover,
+.cf-window .node-editor-popup button:not(.fui-Button):not(.react-flow__controls-button):hover {
+  background: transparent !important;
+}
+
+.cf-window .react-flow__node button:not(.fui-Button):not(.react-flow__controls-button):not(:disabled):hover,
+.cf-window .node-editor-popup button:not(.fui-Button):not(.react-flow__controls-button):not(:disabled):hover {
+  color: #67e8f9 !important;
+  opacity: 0.98;
+  transform: translateY(-0.5px);
+}
+
+/* 节点输入框仅显示文字：去掉输入框本体背景/边框/阴影（外层容器样式保留） */
+.cf-window .react-flow__node input[type='text'],
+.cf-window .react-flow__node input[type='number'],
+.cf-window .react-flow__node input[type='password'],
+.cf-window .react-flow__node textarea,
+.cf-window .react-flow__node select,
+.cf-window .node-editor-popup input[type='text'],
+.cf-window .node-editor-popup input[type='number'],
+.cf-window .node-editor-popup input[type='password'],
+.cf-window .node-editor-popup textarea,
+.cf-window .node-editor-popup select {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.cf-window .react-flow__node input:focus,
+.cf-window .react-flow__node textarea:focus,
+.cf-window .react-flow__node select:focus,
+.cf-window .node-editor-popup input:focus,
+.cf-window .node-editor-popup textarea:focus,
+.cf-window .node-editor-popup select:focus {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
 .cf-window .cf-btn-primary:not(.fui-Button) {
   border-color: var(--cf-accent) !important;
   background: var(--cf-accent) !important;

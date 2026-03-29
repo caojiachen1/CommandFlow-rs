@@ -895,7 +895,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   return nextOpen
                 })
               }}
-              className="nodrag rounded-full px-1.5 py-0.5 text-slate-300 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-500"
+              className="nodrag px-1.5 py-0.5 text-slate-300 transition-colors hover:text-cyan-300 disabled:cursor-not-allowed disabled:text-slate-500"
               aria-label="切换应用下拉列表"
             >
               ▾
@@ -931,6 +931,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 emptyText="暂无匹配应用"
                 tone="dark"
                 maxHeightClassName="max-h-44"
+                textOnly
               />
             </div>
           ) : null}
@@ -942,25 +943,22 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       const checked = Boolean(currentValue)
       return (
         <div className="relative">
-          <button
-            type="button"
-            disabled={isInputDisabled}
-            onClick={() => {
-              if (isInputDisabled) return
-              updateParam(field.key, !checked)
-            }}
-            className="nodrag flex h-9 w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
-            title={checked ? '点击切换为 false' : '点击切换为 true'}
-          >
-            <span className={`text-[11px] font-semibold ${isInputDisabled ? 'text-slate-500' : 'text-slate-100'}`}>
-              {checked ? 'true' : 'false'}
-            </span>
-            <span className={`ml-auto inline-flex h-5 w-9 items-center rounded-full border px-[2px] transition-colors ${checked ? 'border-cyan-300/80 bg-cyan-400/30' : 'border-white/25 bg-black/20'}`}>
-              <span
-                className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`}
-              />
-            </span>
-          </button>
+          <div className="flex h-9 w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 text-[11px] shadow-inner dark:border-white/20 dark:bg-black/35">
+            <button
+              type="button"
+              disabled={isInputDisabled}
+              onClick={() => {
+                if (isInputDisabled) return
+                updateParam(field.key, !checked)
+              }}
+              className="nodrag flex w-full items-center justify-center bg-transparent text-[11px] transition-colors hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+              title={checked ? '点击切换为 false' : '点击切换为 true'}
+            >
+              <span className={`text-[11px] font-semibold ${isInputDisabled ? 'text-slate-500' : 'text-slate-100'}`}>
+                {checked ? 'true' : 'false'}
+              </span>
+            </button>
+          </div>
           <Handle
             id={createParamInputHandleId(field.key)}
             type="target"
@@ -997,21 +995,23 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
           data-node-select-node-id={id}
           data-node-select-field-key={field.key}
         >
-          <button
-            type="button"
-            disabled={isInputDisabled}
-            onClick={() => {
-              if (isInputDisabled) return
-              setOpenSuggestFieldKey(null)
-              setOpenSelectFieldKey((prev) => (prev === field.key ? null : field.key))
-            }}
-            className="nodrag flex w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner transition-colors hover:border-cyan-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-black/35"
-          >
-            <span className={`truncate ${connectedToInput ? 'text-slate-400' : 'text-slate-100'}`}>
-              {selectedOption?.label ?? '请选择'}
-            </span>
-            <span className="ml-auto text-slate-300">▾</span>
-          </button>
+          <div className="flex items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner dark:border-white/20 dark:bg-black/35">
+            <button
+              type="button"
+              disabled={isInputDisabled}
+              onClick={() => {
+                if (isInputDisabled) return
+                setOpenSuggestFieldKey(null)
+                setOpenSelectFieldKey((prev) => (prev === field.key ? null : field.key))
+              }}
+              className="nodrag flex w-full items-center bg-transparent text-[11px] transition-colors hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className={`truncate ${connectedToInput ? 'text-slate-400' : 'text-slate-100'}`}>
+                {selectedOption?.label ?? '请选择'}
+              </span>
+              <span className="ml-auto text-slate-300">▾</span>
+            </button>
+          </div>
 
           <Handle
             id={createParamInputHandleId(field.key)}
@@ -1064,10 +1064,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                     })
                     setOpenSelectFieldKey(null)
                   }}
-                  className={`nodrag block w-full rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors ${
+                  className={`nodrag block w-full px-2 py-1.5 text-left text-[11px] transition-colors ${
                     option.value === String(currentValue ?? '')
-                      ? 'bg-cyan-500 text-white'
-                      : 'text-slate-200 hover:bg-white/10'
+                      ? 'font-semibold text-cyan-300'
+                      : 'text-slate-200 hover:text-cyan-200'
                   }`}
                 >
                   {option.label}
@@ -1188,10 +1188,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }}
               onDoubleClick={(e) => e.stopPropagation()}
-              className={`nodrag mr-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
+              className={`nodrag mr-2 px-1.5 py-0.5 text-[11px] transition-colors ${
                 isInputDisabled
                   ? 'text-slate-500 cursor-not-allowed'
-                  : 'text-slate-200 hover:bg-white/15'
+                  : 'text-slate-200 hover:text-cyan-200'
               }`}
             >
               ◀
@@ -1413,10 +1413,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 }
               }}
               onDoubleClick={(e) => e.stopPropagation()}
-              className={`nodrag ml-2 rounded-full px-1.5 py-0.5 text-[11px] transition-colors ${
+              className={`nodrag ml-2 px-1.5 py-0.5 text-[11px] transition-colors ${
                 isInputDisabled
                   ? 'text-slate-500 cursor-not-allowed'
-                  : 'text-slate-200 hover:bg-white/15'
+                  : 'text-slate-200 hover:text-cyan-200'
               }`}
             >
               ▶
@@ -1452,10 +1452,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                 <button
                   key={option}
                   type="button"
-                  className={`nodrag block w-full rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors ${
+                  className={`nodrag block w-full px-2 py-1.5 text-left text-[11px] transition-colors ${
                     index === activeSuggestIndex
-                      ? 'bg-cyan-500 text-white'
-                      : 'text-slate-200 hover:bg-white/10'
+                      ? 'font-semibold text-cyan-300'
+                      : 'text-slate-200 hover:text-cyan-200'
                   }`}
                   onMouseEnter={() => setActiveSuggestIndex(index)}
                   onMouseDown={(event) => event.preventDefault()}
@@ -1478,7 +1478,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
             <>
             <div
               ref={pathEditorPanelRef}
-              className="fixed z-[300] w-[360px] max-w-[86vw] rounded-xl border border-white/20 bg-[#1f2127] p-2 shadow-2xl"
+              className="node-editor-popup fixed z-[300] w-[360px] max-w-[86vw] rounded-xl border border-white/20 bg-[#1f2127] p-2 shadow-2xl"
               style={{
                 left: pathEditor.anchorLeft + pathEditor.anchorWidth / 2,
                 top: pathEditor.anchorTop - 8,
@@ -1512,6 +1512,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                   buttonLabel="浏览"
                   className="shrink-0"
                   buttonClassName="h-8 w-[76px] px-1.5 text-[11px]"
+                  textOnly
                   pickerMode={
                     data.kind === 'screenshot' && field.key === 'saveDir'
                       ? 'directory'
@@ -1528,7 +1529,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                     commitStringValue(field, pathEditor.value)
                     setPathEditor(null)
                   }}
-                  className="nodrag h-8 min-w-[66px] shrink-0 rounded-full bg-white/70 px-2.5 text-xs font-bold text-slate-800 transition-colors hover:bg-white"
+                  className="nodrag h-8 min-w-[66px] shrink-0 px-2.5 text-xs font-bold text-slate-100 transition-colors hover:text-cyan-300"
                 >
                   OK
                 </button>
@@ -1545,7 +1546,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               return (
                 <div
                   ref={textEditorPanelRef}
-                  className="fixed z-[305] w-[480px] max-w-[88vw] rounded-xl border border-white/20 bg-[#1f2127] p-2 shadow-2xl"
+                  className="node-editor-popup fixed z-[305] w-[480px] max-w-[88vw] rounded-xl border border-white/20 bg-[#1f2127] p-2 shadow-2xl"
                   style={{
                     left: textEditor.anchorLeft + textEditor.anchorWidth / 2,
                     top: textEditor.anchorTop - 8,
@@ -1607,7 +1608,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                         setTextEditor(null)
                         setTextEditorError(null)
                       }}
-                      className="nodrag h-8 min-w-[66px] rounded-full border border-white/20 px-3 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10"
+                      className="nodrag h-8 min-w-[66px] px-3 text-xs font-semibold text-slate-200 transition-colors hover:text-cyan-300"
                     >
                       取消
                     </button>
@@ -1638,7 +1639,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
                         setTextEditor(null)
                         setTextEditorError(null)
                       }}
-                      className="nodrag h-8 min-w-[66px] rounded-full bg-white/70 px-3 text-xs font-bold text-slate-800 transition-colors hover:bg-white"
+                      className="nodrag h-8 min-w-[66px] px-3 text-xs font-bold text-slate-100 transition-colors hover:text-cyan-300"
                     >
                       确定
                     </button>

@@ -16,6 +16,7 @@ interface PathPickerDropdownProps {
   buttonClassName?: string
   pickerMode?: PickerMode
   filters?: PickerFilter[]
+  textOnly?: boolean
 }
 
 const MENU_OPTIONS = [
@@ -34,6 +35,7 @@ export default function PathPickerDropdown({
   buttonClassName,
   pickerMode = 'menu',
   filters,
+  textOnly = false,
 }: PathPickerDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -85,25 +87,37 @@ export default function PathPickerDropdown({
     void handleOptionClick(pickerMode === 'directory')
   }
 
+  const triggerButtonClass = textOnly
+    ? 'whitespace-nowrap px-2.5 py-2 text-xs font-semibold text-slate-200 transition-colors hover:text-cyan-300 focus:outline-none'
+    : TRIGGER_BUTTON_CLASS
+
+  const menuClass = textOnly
+    ? 'absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-white/20 bg-[#1f2127]/95 py-1 shadow-2xl backdrop-blur'
+    : 'absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-slate-900/5 dark:border-neutral-700 dark:bg-neutral-900/95'
+
+  const optionButtonClass = textOnly
+    ? 'w-full px-3 py-2 text-left text-xs font-semibold text-slate-200 transition-colors hover:text-cyan-300 focus-visible:outline-none'
+    : 'w-full rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-cyan-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 dark:text-slate-300 dark:hover:bg-neutral-800/60 dark:hover:text-cyan-400'
+
   return (
     <div ref={containerRef} className={`relative inline-flex ${className ?? ''}`}>
       <button
         type="button"
         aria-expanded={pickerMode === 'menu' ? isOpen : undefined}
         aria-haspopup={pickerMode === 'menu' ? 'menu' : undefined}
-        className={`${TRIGGER_BUTTON_CLASS} ${buttonClassName ?? ''} flex items-center justify-center gap-1`}
+        className={`${triggerButtonClass} ${buttonClassName ?? ''} flex items-center justify-center gap-1`}
         onClick={handleTriggerClick}
       >
         {buttonLabel}
         {pickerMode === 'menu' ? <span aria-hidden className="text-[9px]">▾</span> : null}
       </button>
       {pickerMode === 'menu' && isOpen && (
-        <div className="absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-slate-900/5 dark:border-neutral-700 dark:bg-neutral-900/95">
+        <div className={menuClass}>
           {MENU_OPTIONS.map((option) => (
             <button
               key={option.label}
               type="button"
-              className="w-full rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-cyan-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 dark:text-slate-300 dark:hover:bg-neutral-800/60 dark:hover:text-cyan-400"
+              className={optionButtonClass}
               onClick={(event) => {
                 event.stopPropagation()
                 void handleOptionClick(option.directory)
