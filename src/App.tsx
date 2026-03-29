@@ -395,6 +395,7 @@ function App() {
   );
   const [coordinatePicking, setCoordinatePicking] = useState(false);
   const [elementPicking, setElementPicking] = useState(false);
+  const [nodePanelHidden, setNodePanelHidden] = useState(false);
   const [activeInputRecordingPresetId, setActiveInputRecordingPresetId] =
     useState("");
   const [inputRecorderRecording, setInputRecorderRecording] = useState(false);
@@ -3094,8 +3095,24 @@ function App() {
             />
           </div>
 
-          <main className="flex min-h-0 flex-1 grid-cols-[280px_1fr_320px] overflow-hidden lg:grid">
-            <NodePanel />
+          <main
+            className={`relative flex min-h-0 flex-1 overflow-hidden lg:grid ${
+              nodePanelHidden ? "lg:grid-cols-[1fr_320px]" : "lg:grid-cols-[280px_1fr_320px]"
+            }`}
+          >
+            {!nodePanelHidden && (
+              <NodePanel onToggleHidden={() => setNodePanelHidden((prev) => !prev)} />
+            )}
+            {nodePanelHidden && (
+              <button
+                type="button"
+                onClick={() => setNodePanelHidden(false)}
+                className="cf-btn absolute left-2 top-2 z-[120] rounded-md px-2 py-1 text-[11px] font-semibold"
+                title="显示节点工具箱"
+              >
+                显示工具箱
+              </button>
+            )}
             <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
             <div
               ref={rightPaneRef}
