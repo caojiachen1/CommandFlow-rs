@@ -820,7 +820,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
       className="cf-modal-overlay fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={handleBackdropClick}
     >
-      <div className="cf-window cf-modal flex h-[80vh] w-[480px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="cf-window cf-modal cf-property-editor flex h-[80vh] w-[480px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
         <div className="cf-pane-header flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">节点属性</h2>

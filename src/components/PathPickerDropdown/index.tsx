@@ -105,14 +105,14 @@ export default function PathPickerDropdown({
         type="button"
         aria-expanded={pickerMode === 'menu' ? isOpen : undefined}
         aria-haspopup={pickerMode === 'menu' ? 'menu' : undefined}
-        className={`${triggerButtonClass} ${buttonClassName ?? ''} flex items-center justify-center gap-1`}
+        className={`${triggerButtonClass} ${buttonClassName ?? ''} cf-prop-dropdown-shell flex items-center justify-center gap-1`}
         onClick={handleTriggerClick}
       >
         {buttonLabel}
         {pickerMode === 'menu' ? <span aria-hidden className="text-[9px]">▾</span> : null}
       </button>
       {pickerMode === 'menu' && isOpen && (
-        <div className={menuClass}>
+        <div className={`${menuClass} cf-prop-dropdown-menu`}>
           {MENU_OPTIONS.map((option) => (
             <button
               key={option.label}

@@ -155,6 +155,20 @@ body {
   transform: translateY(-0.5px);
 }
 
+/* 属性面板/属性弹窗：仅去掉按钮自身边框，不影响外层容器边框 */
+.cf-window.cf-property-editor button:not(.fui-Button):not(.react-flow__controls-button) {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 属性面板/弹窗中的下拉控件：与输入框保持一致的边框和背景 */
+.cf-window.cf-property-editor .cf-prop-dropdown-shell,
+.cf-window.cf-property-editor .cf-prop-dropdown-menu {
+  border: 1px solid var(--cf-border) !important;
+  background: var(--cf-surface-3) !important;
+  box-shadow: none !important;
+}
+
 /* 节点输入框仅显示文字：去掉输入框本体背景/边框/阴影（外层容器样式保留） */
 .cf-window .react-flow__node input[type='text'],
 .cf-window .react-flow__node input[type='number'],

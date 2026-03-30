@@ -100,7 +100,7 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
 
   return (
     <div ref={rootRef} className="relative">
-      <div className="cf-card flex items-center gap-1 rounded-xl border border-slate-200 bg-white/85 px-2 py-1.5 shadow-sm backdrop-blur transition-all focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80">
+      <div className="cf-card cf-prop-dropdown-shell flex items-center gap-1 rounded-xl border border-slate-200 bg-white/85 px-2 py-1.5 shadow-sm backdrop-blur transition-all focus-within:border-cyan-500 focus-within:ring-4 focus-within:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80">
         <input
           type="text"
           value={value}
@@ -142,7 +142,7 @@ export default function SmartInputSelect({ value, placeholder, options, onChange
       {open ? (
         <div
           ref={menuRef}
-          className="cf-card absolute z-[260] mt-1.5 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white/95 p-1 shadow-2xl backdrop-blur-md dark:border-neutral-700 dark:bg-neutral-900/95"
+          className="cf-card cf-prop-dropdown-menu absolute z-[260] mt-1.5 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white/95 p-1 shadow-2xl backdrop-blur-md dark:border-neutral-700 dark:bg-neutral-900/95"
         >
           {filteredOptions.length > 0 ? (
             filteredOptions.map((option, index) => (

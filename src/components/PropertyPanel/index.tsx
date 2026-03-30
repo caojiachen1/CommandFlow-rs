@@ -798,7 +798,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   }
 
   return (
-    <section className="cf-window cf-pane flex flex-col border-b border-slate-200 dark:border-neutral-800">
+    <section className="cf-window cf-pane cf-property-editor flex flex-col border-b border-slate-200 dark:border-neutral-800">
       <button
         type="button"
         onClick={onToggle}
