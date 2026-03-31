@@ -133,14 +133,14 @@ const stableSerialize = (value: unknown): string => {
 const initialNodes: WorkflowNode[] = [
   {
     id: crypto.randomUUID(),
-    type: 'trigger',
+    type: 'manualTrigger',
     position: { x: 200, y: 120 },
     data: (() => {
-      const meta = getNodeMeta('trigger')
+      const meta = getNodeMeta('manualTrigger')
       const params = structuredClone(meta.defaultParams)
       return {
-        kind: 'trigger' as const,
-        label: getNodeDisplayLabel('trigger', params, meta.label),
+        kind: 'manualTrigger' as const,
+        label: getNodeDisplayLabel('manualTrigger', params, meta.label),
         params,
         description: meta.description,
       }
@@ -202,6 +202,13 @@ const legacyTriggerKindToMode = {
   windowTrigger: 'window',
 } as const
 
+const legacyTriggerKindToNewKind = {
+  hotkeyTrigger: 'hotkeyTrigger',
+  timerTrigger: 'timerTrigger',
+  manualTrigger: 'manualTrigger',
+  windowTrigger: 'windowTrigger',
+} as const
+
 type LegacySystemKind = keyof typeof legacySystemKindToOperation
 type LegacyMouseKind = keyof typeof legacyMouseKindToOperation
 type LegacyKeyboardKind = keyof typeof legacyKeyboardKindToOperation
@@ -216,9 +223,9 @@ const isLegacyTriggerKind = (kind: string): kind is LegacyTriggerKind => kind in
 
 const normalizeImportedNodeKind = (kind: string): NodeKind =>
   (isLegacyTriggerKind(kind)
-    ? 'trigger'
+    ? legacyTriggerKindToNewKind[kind]
     : isLegacySystemKind(kind)
-    ? 'systemOperation'
+    ? legacySystemKindToOperation[kind]
     : isLegacyMouseKind(kind)
       ? 'mouseOperation'
       : isLegacyFileKind(kind)
@@ -229,15 +236,9 @@ const normalizeImportedNodeKind = (kind: string): NodeKind =>
 
 const normalizeImportedNodeParams = (kind: string, params: Record<string, unknown>) =>
   isLegacyTriggerKind(kind)
-    ? {
-        triggerType: legacyTriggerKindToMode[kind],
-        ...params,
-      }
+    ? { ...params }
     : isLegacySystemKind(kind)
-    ? {
-        operation: legacySystemKindToOperation[kind],
-        ...params,
-      }
+    ? { ...params }
     : isLegacyMouseKind(kind)
       ? {
           operation: legacyMouseKindToOperation[kind],

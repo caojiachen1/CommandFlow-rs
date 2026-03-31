@@ -55,7 +55,7 @@ import {
   stopWorkflow,
 } from "./utils/execution";
 import { getNodePortSpec } from "./utils/nodePorts";
-import { getNodeMeta, getTriggerMode } from "./utils/nodeMeta";
+import { getNodeMeta } from "./utils/nodeMeta";
 import {
   announceWorkflowCompleted,
   sendWorkflowCompletionSystemNotification,
@@ -162,7 +162,10 @@ type WorkflowNodeCompletedPayload = WorkflowNodeEventPayload & {
 };
 
 const workflowNodeKinds = [
-  "trigger",
+  "manualTrigger",
+  "hotkeyTrigger",
+  "timerTrigger",
+  "windowTrigger",
   "uiaElement",
   "getMousePosition",
   "mouseOperation",
@@ -178,7 +181,23 @@ const workflowNodeKinds = [
   "clipboardWrite",
   "showMessage",
   "delay",
-  "systemOperation",
+  "shutdown",
+  "restart",
+  "sleep",
+  "hibernate",
+  "lock",
+  "signOut",
+  "volumeMute",
+  "volumeSet",
+  "volumeAdjust",
+  "brightnessSet",
+  "wifiSwitch",
+  "bluetoothSwitch",
+  "networkAdapterSwitch",
+  "theme",
+  "powerPlan",
+  "openSettings",
+  "runCommand",
   "guiAgent",
   "guiAgentActionParser",
   "condition",
@@ -274,10 +293,14 @@ const buildNodeOutputLogMessage = (payload: WorkflowNodeCompletedPayload) => {
   return `节点输出：${nodeLabel} [${nodeKind}] id=${nodeId}\n${lines.join("\n")}`;
 };
 
-const isTriggerNode = (node: WorkflowNode) => node.data.kind === "trigger";
+const isTriggerNode = (node: WorkflowNode) =>
+  node.data.kind === 'manualTrigger' ||
+  node.data.kind === 'hotkeyTrigger' ||
+  node.data.kind === 'timerTrigger' ||
+  node.data.kind === 'windowTrigger'
 
 const isManualTriggerNode = (node: WorkflowNode) =>
-  node.data.kind === "trigger" && getTriggerMode(node.data.params) === "manual";
+  node.data.kind === 'manualTrigger'
 
 let completionAudioContext: AudioContext | null = null;
 

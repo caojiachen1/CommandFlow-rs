@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { getKeyboardOperationKind, getNodeFields, getNodeMeta, getSystemOperationKind, getTriggerMode, type ParamField } from '../../utils/nodeMeta'
+import { getKeyboardOperationKind, getNodeFields, getNodeMeta, type ParamField } from '../../utils/nodeMeta'
 import { listOpenWindowEntries, listRunningProcesses, listStartMenuApps, type OpenWindowEntryPayload, type RunningProcessEntryPayload, type StartMenuAppPayload } from '../../utils/execution'
 import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../../utils/refresh'
 import type { NodeKind } from '../../types/workflow'
@@ -136,14 +136,14 @@ const IMAGE_FILE_FILTERS = [
   { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] },
 ]
 
-const isWindowLookupNode = (kind: NodeKind, params: Record<string, unknown> = {}) =>
-  kind === 'windowActivate' || (kind === 'trigger' && getTriggerMode(params) === 'window')
+const isWindowLookupNode = (kind: NodeKind) =>
+  kind === 'windowActivate' || kind === 'windowTrigger'
 
-const isHotkeyTriggerNode = (kind: NodeKind, params: Record<string, unknown> = {}) =>
-  kind === 'trigger' && getTriggerMode(params) === 'hotkey'
+const isHotkeyTriggerNode = (kind: NodeKind) =>
+  kind === 'hotkeyTrigger'
 
-const isWindowLookupField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
-  isWindowLookupNode(kind, params) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
+const isWindowLookupField = (kind: NodeKind, fieldKey: string) =>
+  isWindowLookupNode(kind) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
 
 const isTerminateProcessNode = (kind: NodeKind) => kind === 'terminateProcess'
 
@@ -153,7 +153,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   )
-  const selectedTriggerMode = selectedNode?.data.kind === 'trigger' ? getTriggerMode(selectedNode.data.params) : null
+  const selectedTriggerMode = selectedNode?.data.kind === 'hotkeyTrigger' ? 'hotkey' : null
 
   const selectedMeta = selectedNode ? getNodeMeta(selectedNode.data.kind) : null
   const selectedFields = useMemo(
@@ -225,7 +225,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
 
   useEffect(() => {
     if (!selectedNode || !expanded) return
-    if (!isWindowLookupNode(selectedNode.data.kind, selectedNode.data.params)) {
+    if (!isWindowLookupNode(selectedNode.data.kind)) {
       setOpenWindows([])
       return
     }
@@ -294,7 +294,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     if (!selectedNode || !expanded) return
 
     const handleGlobalRefresh = () => {
-      if (isWindowLookupNode(selectedNode.data.kind, selectedNode.data.params)) {
+      if (isWindowLookupNode(selectedNode.data.kind)) {
         void listOpenWindowEntries()
           .then((entries) => {
             setOpenWindows(entries)
@@ -334,18 +334,17 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   const getStringSuggestions = (field: ParamField): string[] => {
     if (!selectedNode) return []
     const kind = selectedNode.data.kind
-    const params = selectedNode.data.params
 
-    if (isWindowLookupNode(kind, params) && field.key === 'title') {
+    if (isWindowLookupNode(kind) && field.key === 'title') {
       return windowTitles
     }
-    if (isWindowLookupNode(kind, params) && field.key === 'program') {
+    if (isWindowLookupNode(kind) && field.key === 'program') {
       return windowPrograms
     }
-    if (isWindowLookupNode(kind, params) && field.key === 'programPath') {
+    if (isWindowLookupNode(kind) && field.key === 'programPath') {
       return windowProgramPaths
     }
-    if (isWindowLookupNode(kind, params) && field.key === 'className') {
+    if (isWindowLookupNode(kind) && field.key === 'className') {
       return windowClassNames
     }
     if (isTerminateProcessNode(kind) && field.key === 'processName') {
@@ -386,7 +385,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
         return COMMON_KEYS
       }
     }
-    if (isHotkeyTriggerNode(kind, params) && field.key === 'hotkey') {
+    if (isHotkeyTriggerNode(kind) && field.key === 'hotkey') {
       return COMMON_HOTKEYS
     }
     return []
@@ -407,7 +406,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   }
 
   const applyWindowEntrySelection = (fieldKey: string, value: string) => {
-    if (!selectedNode || !isWindowLookupField(selectedNode.data.kind, fieldKey, selectedNode.data.params)) {
+    if (!selectedNode || !isWindowLookupField(selectedNode.data.kind, fieldKey)) {
       return false
     }
 
@@ -463,21 +462,9 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       [key]: value,
     }
 
-    if (selectedNode.data.kind === 'systemOperation' && key === 'percent') {
-      const operation = getSystemOperationKind(nextParams, getSystemOperationKind(selectedMeta?.defaultParams ?? {}))
-      if (operation === 'volumeSet' || operation === 'brightnessSet') {
+    if (selectedNode.data.kind === 'volumeSet' || selectedNode.data.kind === 'brightnessSet') {
+      if (key === 'percent') {
         const num = Number(nextParams.percent ?? 0)
-        if (!Number.isNaN(num)) {
-          nextParams.percent = Math.min(100, Math.max(0, num))
-        }
-      }
-    }
-
-    // ensure brightness percent stays within 0-100 before any other handling
-    if (selectedNode.data.kind === 'systemOperation' && key === 'operation') {
-      const operation = getSystemOperationKind(nextParams, getSystemOperationKind(selectedMeta?.defaultParams ?? {}))
-      if (operation === 'volumeSet' || operation === 'brightnessSet') {
-        const num = Number(nextParams.percent ?? 50)
         if (!Number.isNaN(num)) {
           nextParams.percent = Math.min(100, Math.max(0, num))
         }
@@ -622,7 +609,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
       )
     }
 
-    if ((isWindowLookupField(selectedNode.data.kind, field.key, selectedNode.data.params) || (isTerminateProcessNode(selectedNode.data.kind) && field.key === 'processId')) && field.key === 'processId') {
+    if ((isWindowLookupField(selectedNode.data.kind, field.key) || (isTerminateProcessNode(selectedNode.data.kind) && field.key === 'processId')) && field.key === 'processId') {
       return (
         <SmartInputSelect
           value={String(Number(currentValue ?? 0) > 0 ? currentValue : '')}
@@ -778,7 +765,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                 }
               }}
               hint="支持下拉选择，也可手动输入"
-              filterOptions={!isWindowLookupField(selectedNode.data.kind, field.key, selectedNode.data.params)}
+              filterOptions={!isWindowLookupField(selectedNode.data.kind, field.key)}
             />
           )
         }

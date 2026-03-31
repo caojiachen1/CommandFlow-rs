@@ -6,8 +6,6 @@ import {
   getMouseOperationKind,
   getNodeFields,
   getNodeMeta,
-  getSystemOperationKind,
-  getTriggerMode,
 } from './nodeMeta'
 
 export type HandleValueType = 'control' | 'string' | 'number' | 'json' | 'any'
@@ -158,36 +156,20 @@ const getLaunchApplicationDynamicOutputs = (params: Record<string, unknown> = {}
     : [{ id: 'pid', label: 'pid', maxConnections: MANY, valueType: 'number' }]
 }
 
-const getSystemOperationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
-  const operation = getSystemOperationKind(params)
+const getRunCommandDynamicOutputs = (): NodePort[] => [
+  { id: 'command', label: 'command', maxConnections: MANY, valueType: 'string' },
+  { id: 'stdout', label: 'stdout', maxConnections: MANY, valueType: 'string' },
+  { id: 'stderr', label: 'stderr', maxConnections: MANY, valueType: 'string' },
+  { id: 'exitCode', label: 'exitCode', maxConnections: MANY, valueType: 'number' },
+]
 
-  if (operation !== 'runCommand') {
-    return []
-  }
-
-  return [
-    { id: 'command', label: 'command', maxConnections: MANY, valueType: 'string' },
-    { id: 'stdout', label: 'stdout', maxConnections: MANY, valueType: 'string' },
-    { id: 'stderr', label: 'stderr', maxConnections: MANY, valueType: 'string' },
-    { id: 'exitCode', label: 'exitCode', maxConnections: MANY, valueType: 'number' },
-  ]
-}
-
-const getTriggerDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
-  const triggerMode = getTriggerMode(params)
-
-  if (triggerMode !== 'window') {
-    return []
-  }
-
-  return [
-    { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
-    { id: 'program', label: 'program', maxConnections: MANY, valueType: 'string' },
-    { id: 'programPath', label: 'programPath', maxConnections: MANY, valueType: 'string' },
-    { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
-    { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
-  ]
-}
+const getWindowTriggerDynamicOutputs = (): NodePort[] => [
+  { id: 'title', label: 'title', maxConnections: MANY, valueType: 'string' },
+  { id: 'program', label: 'program', maxConnections: MANY, valueType: 'string' },
+  { id: 'programPath', label: 'programPath', maxConnections: MANY, valueType: 'string' },
+  { id: 'className', label: 'className', maxConnections: MANY, valueType: 'string' },
+  { id: 'processId', label: 'processId', maxConnections: MANY, valueType: 'number' },
+]
 
 export const isHandleValueTypeCompatible = (
   sourceType: HandleValueType,
@@ -223,7 +205,19 @@ export const getParamFieldKeyFromHandleId = (handleId: string | null | undefined
 }
 
 const specs: Record<NodeKind, NodePortSpec> = {
-  trigger: {
+  manualTrigger: {
+    inputs: [],
+    outputs: singleOut(),
+  },
+  hotkeyTrigger: {
+    inputs: [],
+    outputs: singleOut(),
+  },
+  timerTrigger: {
+    inputs: [],
+    outputs: singleOut(),
+  },
+  windowTrigger: {
     inputs: [],
     outputs: singleOut(),
   },
@@ -346,7 +340,71 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: [...singleOut(), { id: 'ms', label: 'ms', maxConnections: MANY, valueType: 'number' }],
   },
-  systemOperation: {
+  shutdown: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  restart: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  sleep: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  hibernate: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  lock: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  signOut: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  volumeMute: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  volumeSet: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  volumeAdjust: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  brightnessSet: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  wifiSwitch: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  bluetoothSwitch: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  networkAdapterSwitch: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  theme: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  powerPlan: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  openSettings: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  runCommand: {
     inputs: singleIn(),
     outputs: singleOut(),
   },
@@ -469,8 +527,8 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
   const dynamicOutputs =
     kind === 'guiAgentActionParser'
       ? getGuiAgentParserDynamicOutputs(params)
-      : kind === 'trigger'
-        ? getTriggerDynamicOutputs(params)
+      : kind === 'windowTrigger'
+        ? getWindowTriggerDynamicOutputs()
       : kind === 'mouseOperation'
         ? getMouseOperationDynamicOutputs(params)
         : kind === 'keyboardOperation'
@@ -479,8 +537,8 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
             ? getFileOperationDynamicOutputs(params)
             : kind === 'launchApplication'
               ? getLaunchApplicationDynamicOutputs(params)
-              : kind === 'systemOperation'
-                ? getSystemOperationDynamicOutputs(params)
+              : kind === 'runCommand'
+                ? getRunCommandDynamicOutputs()
           : []
 
   const merged: NodePortSpec = {

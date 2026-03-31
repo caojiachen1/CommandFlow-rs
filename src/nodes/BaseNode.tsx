@@ -2,7 +2,7 @@ import { Handle, Position } from '@xyflow/react'
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeKind, WorkflowNodeData } from '../types/workflow'
-import { getNodeFields, getNodeMeta, getSystemOperationKind, getTriggerMode, type ParamField } from '../utils/nodeMeta'
+import { getNodeFields, getNodeMeta, type ParamField } from '../utils/nodeMeta'
 import { listOpenWindowEntries, listRunningProcesses, listStartMenuApps, type OpenWindowEntryPayload, type RunningProcessEntryPayload, type StartMenuAppPayload } from '../utils/execution'
 import { COMMAND_FLOW_REFRESH_ALL_EVENT } from '../utils/refresh'
 import { buildLaunchApplicationParams, filterStartMenuApps, getStartMenuAppDisplayName } from '../utils/startMenuApp'
@@ -86,26 +86,26 @@ const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
   ((kind === 'clipboardRead' || kind === 'fileOperation') && fieldKey === 'outputVar') ||
   (kind === 'clipboardRead' && (fieldKey === 'outputTextVar' || fieldKey === 'outputImageVar'))
 
-const isWindowLookupNode = (kind: NodeKind, params: Record<string, unknown> = {}) =>
-  kind === 'windowActivate' || (kind === 'trigger' && getTriggerMode(params) === 'window')
+const isWindowLookupNode = (kind: NodeKind) =>
+  kind === 'windowActivate' || kind === 'windowTrigger'
 
-const isWindowTitleField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
-  isWindowLookupNode(kind, params) && fieldKey === 'title'
+const isWindowTitleField = (kind: NodeKind, fieldKey: string) =>
+  isWindowLookupNode(kind) && fieldKey === 'title'
 
-const isWindowProgramField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
-  isWindowLookupNode(kind, params) && fieldKey === 'program'
+const isWindowProgramField = (kind: NodeKind, fieldKey: string) =>
+  isWindowLookupNode(kind) && fieldKey === 'program'
 
-const isWindowProgramPathField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
-  isWindowLookupNode(kind, params) && fieldKey === 'programPath'
+const isWindowProgramPathField = (kind: NodeKind, fieldKey: string) =>
+  isWindowLookupNode(kind) && fieldKey === 'programPath'
 
-const isWindowClassField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
-  isWindowLookupNode(kind, params) && fieldKey === 'className'
+const isWindowClassField = (kind: NodeKind, fieldKey: string) =>
+  isWindowLookupNode(kind) && fieldKey === 'className'
 
-const isWindowPidField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
-  isWindowLookupNode(kind, params) && fieldKey === 'processId'
+const isWindowPidField = (kind: NodeKind, fieldKey: string) =>
+  isWindowLookupNode(kind) && fieldKey === 'processId'
 
-const isWindowLookupField = (kind: NodeKind, params: Record<string, unknown>, fieldKey: string) =>
-  isWindowLookupNode(kind, params) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
+const isWindowLookupField = (kind: NodeKind, fieldKey: string) =>
+  isWindowLookupNode(kind) && ['title', 'program', 'programPath', 'className', 'processId'].includes(fieldKey)
 
 const isTerminateProcessNode = (kind: NodeKind) => kind === 'terminateProcess'
 const isTerminateProcessNameField = (kind: NodeKind, fieldKey: string) => isTerminateProcessNode(kind) && fieldKey === 'processName'
@@ -216,7 +216,6 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   )
   const meta = getNodeMeta(data.kind)
   const params = data.params ?? {}
-  const triggerMode = data.kind === 'trigger' ? getTriggerMode(params) : null
   const visibleFields = getNodeFields(data.kind, params, meta.defaultParams)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -293,7 +292,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   )
 
   const refreshWindowEntries = () => {
-    if (!isWindowLookupNode(data.kind, params)) return
+    if (!isWindowLookupNode(data.kind)) return
 
     void listOpenWindowEntries()
       .then((entries) => {
@@ -305,7 +304,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   }
 
   useEffect(() => {
-    if (!isWindowLookupNode(data.kind, params)) {
+    if (!isWindowLookupNode(data.kind)) {
       setOpenWindows([])
       return
     }
@@ -324,7 +323,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     return () => {
       cancelled = true
     }
-  }, [data.kind, params, triggerMode])
+  }, [data.kind, params])
 
   useEffect(() => {
     if (data.kind !== 'launchApplication') {
@@ -372,7 +371,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
 
   useEffect(() => {
     const handleGlobalRefresh = () => {
-      if (isWindowLookupNode(data.kind, params)) {
+      if (isWindowLookupNode(data.kind)) {
         void listOpenWindowEntries()
           .then((entries) => {
             setOpenWindows(entries)
@@ -407,28 +406,28 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     return () => {
       window.removeEventListener(COMMAND_FLOW_REFRESH_ALL_EVENT, handleGlobalRefresh)
     }
-  }, [data.kind, params, triggerMode])
+  }, [data.kind, params])
 
   const getStringSuggestions = (field: ParamField): string[] => {
     const kind = data.kind
 
-    if (isWindowTitleField(kind, params, field.key)) {
+    if (isWindowTitleField(kind, field.key)) {
       return windowTitles
     }
 
-    if (isWindowProgramField(kind, params, field.key)) {
+    if (isWindowProgramField(kind, field.key)) {
       return windowPrograms
     }
 
-    if (isWindowProgramPathField(kind, params, field.key)) {
+    if (isWindowProgramPathField(kind, field.key)) {
       return windowProgramPaths
     }
 
-    if (isWindowClassField(kind, params, field.key)) {
+    if (isWindowClassField(kind, field.key)) {
       return windowClassNames
     }
 
-    if (isWindowPidField(kind, params, field.key)) {
+    if (isWindowPidField(kind, field.key)) {
       return windowPids
     }
 
@@ -471,7 +470,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
   }
 
   const applyWindowEntrySelection = (fieldKey: string, value: string) => {
-    if (!isWindowLookupField(data.kind, params, fieldKey)) {
+    if (!isWindowLookupField(data.kind, fieldKey)) {
       return false
     }
 
@@ -555,9 +554,8 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       [key]: value,
     }
 
-    if (data.kind === 'systemOperation' && (key === 'percent' || key === 'operation')) {
-      const operation = getSystemOperationKind(nextParams, getSystemOperationKind(meta.defaultParams))
-      if (operation === 'volumeSet' || operation === 'brightnessSet') {
+    if (data.kind === 'volumeSet' || data.kind === 'brightnessSet') {
+      if (key === 'percent') {
         const num = Number(nextParams.percent ?? 50)
         if (!Number.isNaN(num)) {
           nextParams.percent = Math.min(100, Math.max(0, num))
@@ -773,7 +771,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
     const currentValue = params[field.key] ?? meta.defaultParams[field.key]
     const isBoolean = field.type === 'boolean'
     const isNumber = field.type === 'number'
-    const isWindowPidSuggestionField = isWindowPidField(data.kind, params, field.key)
+    const isWindowPidSuggestionField = isWindowPidField(data.kind, field.key)
     const isTerminateProcessPidSuggestionField = isTerminateProcessPidField(data.kind, field.key)
     const isPidSuggestionField = isWindowPidSuggestionField || isTerminateProcessPidSuggestionField
     const isSelect = field.type === 'select'
@@ -1117,10 +1115,10 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       (isVariableOperandField(data.kind, field.key) &&
         (field.key === 'left' ? params.leftType === 'var' : params.rightType === 'var'))
 
-    const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, params, field.key)
-    const supportsWindowProgramSuggestions = isWindowProgramField(data.kind, params, field.key)
-    const supportsWindowProgramPathSuggestions = isWindowProgramPathField(data.kind, params, field.key)
-    const supportsWindowClassSuggestions = isWindowClassField(data.kind, params, field.key)
+    const supportsWindowTitleSuggestions = isWindowTitleField(data.kind, field.key)
+    const supportsWindowProgramSuggestions = isWindowProgramField(data.kind, field.key)
+    const supportsWindowProgramPathSuggestions = isWindowProgramPathField(data.kind, field.key)
+    const supportsWindowClassSuggestions = isWindowClassField(data.kind, field.key)
     const supportsWindowPidSuggestions = isWindowPidSuggestionField
     const supportsProcessNameSuggestions = isTerminateProcessNameField(data.kind, field.key)
     const supportsProcessPidSuggestions = isTerminateProcessPidSuggestionField

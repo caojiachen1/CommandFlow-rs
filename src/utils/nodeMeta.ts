@@ -157,33 +157,6 @@ export const TRIGGER_MODE_OPTIONS: Array<{ label: string; value: TriggerMode }> 
   { label: '窗口触发', value: 'window' },
 ]
 
-const TRIGGER_FIELD_KEYS: Record<TriggerMode, string[]> = {
-  manual: [],
-  hotkey: ['hotkey'],
-  timer: ['intervalMs'],
-  window: ['matchTarget', 'title', 'program', 'programPath', 'className', 'processId', 'matchMode'],
-}
-
-const SYSTEM_OPERATION_FIELD_KEYS: Record<SystemOperationKind, string[]> = {
-  shutdown: ['timeoutSec', 'force'],
-  restart: ['timeoutSec', 'force'],
-  sleep: [],
-  hibernate: [],
-  lock: [],
-  signOut: ['force'],
-  volumeMute: ['mode'],
-  volumeSet: ['percent'],
-  volumeAdjust: ['delta'],
-  brightnessSet: ['percent'],
-  wifiSwitch: ['state'],
-  bluetoothSwitch: ['state'],
-  networkAdapterSwitch: ['adapterName', 'state'],
-  theme: ['mode'],
-  powerPlan: ['plan'],
-  openSettings: ['page'],
-  runCommand: ['command', 'shell', 'shellType'],
-}
-
 const FILE_OPERATION_FIELD_KEYS: Record<FileOperationKind, string[]> = {
   copy: ['sourcePath', 'targetPath', 'overwrite', 'recursive'],
   move: ['sourcePath', 'targetPath', 'overwrite'],
@@ -354,17 +327,9 @@ export const getNodeDisplayLabel = (
   params: Record<string, unknown> = {},
   fallbackLabel?: string,
 ): string => {
-  if (kind === 'trigger') {
-    return getTriggerModeLabel(params, getTriggerMode(getNodeMeta(kind).defaultParams))
-  }
-
   if (kind === 'launchApplication') {
     const appName = String(params.appName ?? '').trim()
     return appName ? `启动应用 · ${appName}` : (fallbackLabel ?? getNodeMeta(kind).label)
-  }
-
-  if (kind === 'systemOperation') {
-    return getSystemOperationLabel(params, getSystemOperationKind(getNodeMeta(kind).defaultParams))
   }
 
   if (kind === 'fileOperation') {
@@ -393,43 +358,6 @@ export const isNodeFieldVisible = (
   params: Record<string, unknown>,
   defaultParams: Record<string, unknown> = {},
 ) => {
-  if (kind === 'trigger') {
-    if (field.key === 'triggerType') return true
-
-    const triggerMode = getTriggerMode(
-      params,
-      getTriggerMode(defaultParams, 'manual'),
-    )
-
-    if (!TRIGGER_FIELD_KEYS[triggerMode].includes(field.key)) {
-      return false
-    }
-
-    if (triggerMode === 'window') {
-      const target = String(params.matchTarget ?? defaultParams.matchTarget ?? 'title')
-      if (target === 'title') {
-        return field.key !== 'program'
-      }
-      if (target === 'program') {
-        return field.key !== 'title'
-      }
-    }
-
-    return true
-  }
-
-  if (kind === 'systemOperation') {
-    if (field.key === 'operation') return true
-    const operation = getSystemOperationKind(
-      params,
-      getSystemOperationKind(defaultParams, 'shutdown'),
-    )
-    if (operation === 'runCommand' && field.key === 'shellType') {
-      return Boolean(params.shell ?? defaultParams.shell ?? true)
-    }
-    return SYSTEM_OPERATION_FIELD_KEYS[operation].includes(field.key)
-  }
-
   if (kind === 'fileOperation') {
     if (field.key === 'operation') return true
     const operation = getFileOperationKind(
@@ -639,79 +567,6 @@ export const isNodeFieldVisible = (
   return true
 }
 
-const resolveSystemOperationField = (
-  field: ParamField,
-  operation: SystemOperationKind,
-): ParamField => {
-  if (field.key === 'mode') {
-    if (operation === 'theme') {
-      return {
-        ...field,
-        label: '主题模式',
-        options: [
-          { label: '深色', value: 'dark' },
-          { label: '浅色', value: 'light' },
-        ],
-      }
-    }
-
-    return {
-      ...field,
-      label: '静音模式',
-      options: [
-        { label: '切换', value: 'toggle' },
-        { label: '静音', value: 'mute' },
-        { label: '取消静音', value: 'unmute' },
-      ],
-    }
-  }
-
-  if (field.key === 'percent') {
-    return {
-      ...field,
-      label: operation === 'brightnessSet' ? '亮度(%)' : '音量(%)',
-    }
-  }
-
-  if (operation === 'runCommand') {
-    if (field.key === 'command') {
-      return {
-        ...field,
-        label: '命令',
-        placeholder: 'echo Hello CommandFlow',
-        description: '开启 Shell 时按 shell 类型执行（cmd / powershell / pwsh）；关闭时按可执行程序 + 参数拆分执行。',
-      }
-    }
-
-    if (field.key === 'shell') {
-      return {
-        ...field,
-        label: '通过 Shell 执行',
-      }
-    }
-
-    if (field.key === 'shellType') {
-      return {
-        ...field,
-        label: 'Shell 类型',
-      }
-    }
-  }
-
-  if (field.key === 'state' && operation === 'networkAdapterSwitch') {
-    return {
-      ...field,
-      options: [
-        { label: '切换', value: 'toggle' },
-        { label: '启用', value: 'on' },
-        { label: '禁用', value: 'off' },
-      ],
-    }
-  }
-
-  return field
-}
-
 const resolveFileOperationField = (
   field: ParamField,
   operation: FileOperationKind,
@@ -787,74 +642,6 @@ const resolveFileOperationField = (
   return field
 }
 
-const resolveMouseOperationField = (
-  field: ParamField,
-  operation: MouseOperationKind,
-): ParamField => {
-  if ((field.key === 'x' || field.key === 'y') && (operation === 'down' || operation === 'up')) {
-    return {
-      ...field,
-      label: field.key === 'x' ? 'X 坐标' : 'Y 坐标',
-    }
-  }
-
-  if (field.key === 'vertical' && operation === 'wheel') {
-    return {
-      ...field,
-      label: '滚动值',
-    }
-  }
-
-  return field
-}
-
-const resolveKeyboardOperationField = (
-  field: ParamField,
-  operation: KeyboardOperationKind,
-): ParamField => {
-  if (field.key === 'key') {
-    return {
-      ...field,
-      label: operation === 'shortcut' ? '主键' : '按键',
-      placeholder: operation === 'shortcut' ? 'S' : 'Enter',
-    }
-  }
-
-  if (field.key === 'text') {
-    return {
-      ...field,
-      label: '文本',
-      placeholder: '请输入文本',
-    }
-  }
-
-  if (field.key === 'inputMode') {
-    return {
-      ...field,
-      label: '输入方式',
-      options: KEYBOARD_INPUT_MODE_OPTIONS,
-    }
-  }
-
-  if (field.key === 'inputIntervalMs') {
-    return {
-      ...field,
-      label: '字符间隔(ms)',
-      description: '仅在“逐字符输入”时生效。',
-    }
-  }
-
-  if (field.key === 'modifiers') {
-    return {
-      ...field,
-      label: '修饰键(JSON数组)',
-      description: '例如 ["Ctrl", "Shift"]',
-    }
-  }
-
-  return field
-}
-
 export const getNodeFields = (
   kind: NodeKind,
   params: Record<string, unknown> = {},
@@ -862,37 +649,45 @@ export const getNodeFields = (
 ): ParamField[] => {
   const fields = metas[kind].fields.filter((field) => isNodeFieldVisible(kind, field, params, defaultParams))
 
-  if (kind !== 'systemOperation' && kind !== 'fileOperation') {
-    if (kind === 'mouseOperation') {
-      const operation = getMouseOperationKind(params, getMouseOperationKind(defaultParams, 'click'))
-      return fields.map((field) => resolveMouseOperationField(field, operation))
-    }
-
-    if (kind === 'keyboardOperation') {
-      const operation = getKeyboardOperationKind(params, getKeyboardOperationKind(defaultParams, 'key'))
-      return fields.map((field) => resolveKeyboardOperationField(field, operation))
-    }
-
-    return fields
-  }
-
   if (kind === 'fileOperation') {
     const operation = getFileOperationKind(params, getFileOperationKind(defaultParams, 'copy'))
     return fields.map((field) => resolveFileOperationField(field, operation))
   }
 
-  const operation = getSystemOperationKind(params, getSystemOperationKind(defaultParams, 'shutdown'))
-  return fields.map((field) => resolveSystemOperationField(field, operation))
+  return fields
 }
 
 const metas: Record<NodeKind, NodeMeta> = {
-  trigger: {
-    label: '触发器',
-    description: '统一的触发节点；选择触发方式后动态显示对应参数与输出。',
+  manualTrigger: {
+    label: '手动触发',
+    description: '手动触发工作流执行。',
+    defaultParams: {},
+    fields: [],
+  },
+  hotkeyTrigger: {
+    label: '热键触发',
+    description: '通过热键组合触发工作流执行。',
     defaultParams: {
-      triggerType: 'manual',
       hotkey: 'Ctrl+Shift+R',
+    },
+    fields: [
+      { key: 'hotkey', label: '热键', type: 'string', placeholder: 'Ctrl+Shift+R' },
+    ],
+  },
+  timerTrigger: {
+    label: '定时触发',
+    description: '按固定时间间隔循环触发工作流执行。',
+    defaultParams: {
       intervalMs: 1000,
+    },
+    fields: [
+      { key: 'intervalMs', label: '间隔毫秒', type: 'number', min: 0, step: 100 },
+    ],
+  },
+  windowTrigger: {
+    label: '窗口触发',
+    description: '当指定窗口出现时触发工作流执行。',
+    defaultParams: {
       matchTarget: 'title',
       title: 'Untitled - Notepad',
       program: 'notepad.exe',
@@ -902,14 +697,6 @@ const metas: Record<NodeKind, NodeMeta> = {
       processId: 0,
     },
     fields: [
-      {
-        key: 'triggerType',
-        label: '触发方式',
-        type: 'select',
-        options: TRIGGER_MODE_OPTIONS,
-      },
-      { key: 'hotkey', label: '热键', type: 'string', placeholder: 'Ctrl+Shift+R' },
-      { key: 'intervalMs', label: '等待毫秒', type: 'number', min: 0, step: 100 },
       {
         key: 'matchTarget',
         label: '匹配目标',
@@ -1540,47 +1327,114 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
     defaultParams: { ms: 500 },
     fields: [{ key: 'ms', label: '毫秒', type: 'number', min: 0, step: 100 }],
   },
-  systemOperation: {
-    label: '系统操作',
-    description: '统一的系统操作节点；先选择操作类型，再按需填写对应参数。包含电源、音量、网络、设置页以及执行命令。',
+  shutdown: {
+    label: '系统关机',
+    description: '关闭系统电源。',
     defaultParams: {
-      operation: 'shutdown',
       timeoutSec: 0,
       force: false,
+    },
+    fields: [
+      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
+      { key: 'force', label: '强制关闭应用', type: 'boolean' },
+    ],
+  },
+  restart: {
+    label: '系统重启',
+    description: '重启系统。',
+    defaultParams: {
+      timeoutSec: 0,
+      force: false,
+    },
+    fields: [
+      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
+      { key: 'force', label: '强制关闭应用', type: 'boolean' },
+    ],
+  },
+  sleep: {
+    label: '系统睡眠',
+    description: '使系统进入睡眠状态。',
+    defaultParams: {},
+    fields: [],
+  },
+  hibernate: {
+    label: '系统休眠',
+    description: '使系统进入休眠状态。',
+    defaultParams: {},
+    fields: [],
+  },
+  lock: {
+    label: '锁定系统',
+    description: '锁定系统，返回登录界面。',
+    defaultParams: {},
+    fields: [],
+  },
+  signOut: {
+    label: '注销登录',
+    description: '注销当前用户登录。',
+    defaultParams: {
+      force: false,
+    },
+    fields: [
+      { key: 'force', label: '强制关闭应用', type: 'boolean' },
+    ],
+  },
+  volumeMute: {
+    label: '系统音量静音',
+    description: '切换、开启或关闭系统音量静音。',
+    defaultParams: {
       mode: 'toggle',
-      percent: 50,
-      delta: 10,
-      state: 'toggle',
-      adapterName: '',
-      plan: 'balanced',
-      page: 'sound',
-      command: 'echo CommandFlow',
-      shell: true,
-      shellType: 'cmd',
     },
     fields: [
       {
-        key: 'operation',
-        label: '操作类型',
-        type: 'select',
-        options: SYSTEM_OPERATION_OPTIONS,
-      },
-      { key: 'timeoutSec', label: '延时秒数', type: 'number', min: 0, step: 1 },
-      { key: 'force', label: '强制关闭应用', type: 'boolean' },
-      {
         key: 'mode',
-        label: '模式',
+        label: '静音模式',
         type: 'select',
         options: [
           { label: '切换', value: 'toggle' },
           { label: '静音', value: 'mute' },
           { label: '取消静音', value: 'unmute' },
-          { label: '深色', value: 'dark' },
-          { label: '浅色', value: 'light' },
         ],
       },
-      { key: 'percent', label: '百分比(%)', type: 'number', min: 0, max: 100, step: 1 },
+    ],
+  },
+  volumeSet: {
+    label: '系统音量设置',
+    description: '设置系统音量百分比。',
+    defaultParams: {
+      percent: 50,
+    },
+    fields: [
+      { key: 'percent', label: '音量(%)', type: 'number', min: 0, max: 100, step: 1 },
+    ],
+  },
+  volumeAdjust: {
+    label: '系统音量增减',
+    description: '按指定变化值增减系统音量。',
+    defaultParams: {
+      delta: 10,
+    },
+    fields: [
       { key: 'delta', label: '变化值(可负数)', type: 'number', min: -100, max: 100, step: 1 },
+    ],
+  },
+  brightnessSet: {
+    label: '系统亮度设置',
+    description: '设置系统屏幕亮度百分比。',
+    defaultParams: {
+      percent: 50,
+    },
+    fields: [
+      { key: 'percent', label: '亮度(%)', type: 'number', min: 0, max: 100, step: 1 },
+    ],
+  },
+  wifiSwitch: {
+    label: 'WiFi 开关',
+    description: '切换、开启或关闭 WiFi。',
+    defaultParams: {
+      state: 'toggle',
+    },
+    fields: [
       {
         key: 'state',
         label: '目标状态',
@@ -1591,7 +1445,73 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
           { label: '关闭', value: 'off' },
         ],
       },
+    ],
+  },
+  bluetoothSwitch: {
+    label: '蓝牙开关',
+    description: '切换、开启或关闭蓝牙。',
+    defaultParams: {
+      state: 'toggle',
+    },
+    fields: [
+      {
+        key: 'state',
+        label: '目标状态',
+        type: 'select',
+        options: [
+          { label: '切换', value: 'toggle' },
+          { label: '开启', value: 'on' },
+          { label: '关闭', value: 'off' },
+        ],
+      },
+    ],
+  },
+  networkAdapterSwitch: {
+    label: '网络适配器开关',
+    description: '切换、启用或禁用指定网络适配器。',
+    defaultParams: {
+      adapterName: '',
+      state: 'toggle',
+    },
+    fields: [
       { key: 'adapterName', label: '适配器名称', type: 'string', placeholder: 'Wi-Fi' },
+      {
+        key: 'state',
+        label: '目标状态',
+        type: 'select',
+        options: [
+          { label: '切换', value: 'toggle' },
+          { label: '启用', value: 'on' },
+          { label: '禁用', value: 'off' },
+        ],
+      },
+    ],
+  },
+  theme: {
+    label: '系统主题模式',
+    description: '切换系统深色或浅色主题模式。',
+    defaultParams: {
+      mode: 'dark',
+    },
+    fields: [
+      {
+        key: 'mode',
+        label: '主题模式',
+        type: 'select',
+        options: [
+          { label: '深色', value: 'dark' },
+          { label: '浅色', value: 'light' },
+        ],
+      },
+    ],
+  },
+  powerPlan: {
+    label: '电源计划',
+    description: '切换系统电源计划。',
+    defaultParams: {
+      plan: 'balanced',
+    },
+    fields: [
       {
         key: 'plan',
         label: '电源计划',
@@ -1602,6 +1522,15 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
           { label: '节能', value: 'powerSaver' },
         ],
       },
+    ],
+  },
+  openSettings: {
+    label: '打开系统设置页',
+    description: '打开指定的 Windows 系统设置页面。',
+    defaultParams: {
+      page: 'sound',
+    },
+    fields: [
       {
         key: 'page',
         label: '设置页面',
@@ -1616,7 +1545,18 @@ finished(content='xxx') # Use escape characters \\', \\\" and \\n in content par
           { label: '系统首页', value: 'system' },
         ],
       },
-      { key: 'command', label: '命令', type: 'string', placeholder: 'echo CommandFlow' },
+    ],
+  },
+  runCommand: {
+    label: '执行命令',
+    description: '执行命令行命令，支持 cmd、PowerShell 和 pwsh。',
+    defaultParams: {
+      command: 'echo CommandFlow',
+      shell: true,
+      shellType: 'cmd',
+    },
+    fields: [
+      { key: 'command', label: '命令', type: 'string', placeholder: 'echo Hello CommandFlow', description: '开启 Shell 时按 shell 类型执行（cmd / powershell / pwsh）；关闭时按可执行程序 + 参数拆分执行。' },
       { key: 'shell', label: '通过 Shell 执行', type: 'boolean' },
       {
         key: 'shellType',
