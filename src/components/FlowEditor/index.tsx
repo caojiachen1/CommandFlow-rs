@@ -807,18 +807,11 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       </ReactFlow>
 
       {quickInsert ? (
-        <>
-          <button
-            type="button"
-            aria-label="关闭节点搜索"
-            className="absolute inset-0 z-[140] cursor-default bg-transparent"
-            onClick={closeQuickInsert}
-          />
-          <div
-            className="cf-window cf-card absolute z-[150] w-[280px] rounded-xl border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95"
-            style={{ left: quickInsert.panelX, top: quickInsert.panelY }}
-            onClick={(event) => event.stopPropagation()}
-          >
+        <div
+          className="cf-window cf-card absolute z-[150] w-[280px] rounded-xl border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95"
+          style={{ left: quickInsert.panelX, top: quickInsert.panelY }}
+          onClick={(event) => event.stopPropagation()}
+        >
             <input
               ref={quickSearchInputRef}
               value={quickInsertKeyword}
@@ -854,8 +847,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
                 <div className="px-2 py-3 text-xs text-slate-400 dark:text-slate-500">没有匹配的节点</div>
               )}
             </div>
-          </div>
-        </>
+        </div>
       ) : null}
 
       {globalInsert
