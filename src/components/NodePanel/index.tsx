@@ -147,7 +147,7 @@ export default function NodePanel({ onToggleHidden }: NodePanelProps) {
             未找到匹配的节点
           </div>
         ) : categoryEntries.map(({ category, items }) => {
-          const CategoryIcon = category.items[0]?.icon
+          const CategoryIcon = category.icon
           const isCollapsed = searching ? false : collapsed[category.title]
           return (
             <section key={category.title} className="space-y-1">

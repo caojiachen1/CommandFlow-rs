@@ -6,30 +6,38 @@ import {
   Clipboard,
   Clock3,
   Code2,
+  Database,
   FileText,
+  FolderOpen,
   GitBranch,
   Keyboard,
+  Layers,
   MessageSquare,
   Monitor,
+  Mouse,
   MousePointerClick,
+  Network,
   Play,
+  Power,
   Repeat,
   Rocket,
   Search,
   Settings,
+  Speaker,
+  Sun,
+  TerminalSquare,
   Timer,
   Volume2,
   VolumeX,
-  Sun,
   Wifi,
   Bluetooth,
-  Power,
   Lock,
   LogOut,
   Moon,
   Zap,
   MonitorCog,
   Terminal,
+  Crosshair,
   type LucideIcon,
 } from 'lucide-react'
 import type { NodeKind } from '../types/workflow'
@@ -44,12 +52,14 @@ export interface NodePaletteItem {
 
 export interface NodePaletteCategory {
   title: '触发器' | '流程控制' | '鼠标' | '键盘' | '控件定位' | '电源管理' | '音频与显示' | '网络' | '系统设置' | '窗口与进程' | '文件与剪贴板' | '脚本与命令' | 'AI 智能体' | '变量与数据'
+  icon: LucideIcon
   items: NodePaletteItem[]
 }
 
 const categories: NodePaletteCategory[] = [
   {
     title: '触发器',
+    icon: Zap,
     items: [
       { label: '手动触发', kind: 'manualTrigger', color: 'bg-orange-500', icon: Play, category: '触发器' },
       { label: '热键触发', kind: 'hotkeyTrigger', color: 'bg-orange-600', icon: Keyboard, category: '触发器' },
@@ -59,6 +69,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '流程控制',
+    icon: GitBranch,
     items: [
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500', icon: GitBranch, category: '流程控制' },
       { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500', icon: Repeat, category: '流程控制' },
@@ -70,6 +81,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '鼠标',
+    icon: Mouse,
     items: [
       { label: '获取鼠标坐标', kind: 'getMousePosition', color: 'bg-sky-500', icon: MousePointerClick, category: '鼠标' },
       { label: '鼠标操作', kind: 'mouseOperation', color: 'bg-cyan-500', icon: MousePointerClick, category: '鼠标' },
@@ -77,6 +89,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '键盘',
+    icon: Keyboard,
     items: [
       { label: '键盘操作', kind: 'keyboardOperation', color: 'bg-sky-600', icon: Keyboard, category: '键盘' },
       { label: '回放键鼠预设', kind: 'inputPresetReplay', color: 'bg-cyan-600', icon: Repeat, category: '键盘' },
@@ -84,12 +97,14 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '控件定位',
+    icon: Crosshair,
     items: [
       { label: 'UIA 获取控件', kind: 'uiaElement', color: 'bg-cyan-700', icon: Search, category: '控件定位' },
     ],
   },
   {
     title: '电源管理',
+    icon: Power,
     items: [
       { label: '系统关机', kind: 'shutdown', color: 'bg-red-600', icon: Power, category: '电源管理' },
       { label: '系统重启', kind: 'restart', color: 'bg-red-500', icon: Power, category: '电源管理' },
@@ -101,6 +116,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '音频与显示',
+    icon: Speaker,
     items: [
       { label: '系统音量静音', kind: 'volumeMute', color: 'bg-sky-500', icon: VolumeX, category: '音频与显示' },
       { label: '系统音量设置', kind: 'volumeSet', color: 'bg-sky-600', icon: Volume2, category: '音频与显示' },
@@ -110,6 +126,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '网络',
+    icon: Network,
     items: [
       { label: 'WiFi 开关', kind: 'wifiSwitch', color: 'bg-blue-500', icon: Wifi, category: '网络' },
       { label: '蓝牙开关', kind: 'bluetoothSwitch', color: 'bg-blue-600', icon: Bluetooth, category: '网络' },
@@ -118,6 +135,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '系统设置',
+    icon: Settings,
     items: [
       { label: '系统主题模式', kind: 'theme', color: 'bg-violet-500', icon: MonitorCog, category: '系统设置' },
       { label: '电源计划', kind: 'powerPlan', color: 'bg-green-500', icon: Zap, category: '系统设置' },
@@ -126,6 +144,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '窗口与进程',
+    icon: Layers,
     items: [
       { label: '屏幕截图', kind: 'screenshot', color: 'bg-indigo-500', icon: Camera, category: '窗口与进程' },
       { label: '切换窗口', kind: 'windowActivate', color: 'bg-violet-500', icon: Monitor, category: '窗口与进程' },
@@ -135,6 +154,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '文件与剪贴板',
+    icon: FolderOpen,
     items: [
       { label: '文件操作', kind: 'fileOperation', color: 'bg-fuchsia-500', icon: FileText, category: '文件与剪贴板' },
       { label: '读取剪贴板', kind: 'clipboardRead', color: 'bg-emerald-500', icon: Clipboard, category: '文件与剪贴板' },
@@ -143,6 +163,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '脚本与命令',
+    icon: TerminalSquare,
     items: [
       { label: '执行命令', kind: 'runCommand', color: 'bg-zinc-600', icon: Terminal, category: '脚本与命令' },
       { label: '执行 Python', kind: 'pythonCode', color: 'bg-blue-600', icon: Code2, category: '脚本与命令' },
@@ -152,6 +173,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: 'AI 智能体',
+    icon: Bot,
     items: [
       { label: 'GUI Agent', kind: 'guiAgent', color: 'bg-violet-600', icon: Bot, category: 'AI 智能体' },
       { label: 'GUI Agent 元数据解析', kind: 'guiAgentActionParser', color: 'bg-violet-500', icon: Braces, category: 'AI 智能体' },
@@ -159,6 +181,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '变量与数据',
+    icon: Database,
     items: [
       { label: '变量定义', kind: 'varDefine', color: 'bg-pink-500', icon: Braces, category: '变量与数据' },
       { label: '变量赋值', kind: 'varSet', color: 'bg-emerald-500', icon: Braces, category: '变量与数据' },
