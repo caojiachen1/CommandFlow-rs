@@ -156,7 +156,7 @@ body {
 }
 
 /* 属性面板/属性弹窗：仅去掉按钮自身边框，不影响外层容器边框 */
-.cf-window.cf-property-editor button:not(.fui-Button):not(.react-flow__controls-button) {
+.cf-window.cf-property-editor button:not(.fui-Button):not(.react-flow__controls-button):not(.cf-prop-dropdown-shell) {
   border: none !important;
   box-shadow: none !important;
 }
@@ -167,6 +167,16 @@ body {
   border: 1px solid var(--cf-border) !important;
   background: var(--cf-surface-3) !important;
   box-shadow: none !important;
+}
+
+/* 属性面板/弹窗中下拉菜单选项：去掉阴影，仅保留 hover 效果 */
+.cf-window.cf-property-editor .cf-prop-dropdown-menu button {
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.cf-window.cf-property-editor .cf-prop-dropdown-menu button:hover {
+  background: var(--cf-surface-2) !important;
 }
 
 /* 节点输入框仅显示文字：去掉输入框本体背景/边框/阴影（外层容器样式保留） */

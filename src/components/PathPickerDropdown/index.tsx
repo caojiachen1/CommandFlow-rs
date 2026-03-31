@@ -25,7 +25,7 @@ const MENU_OPTIONS = [
 ]
 
 const TRIGGER_BUTTON_CLASS =
-  'whitespace-nowrap rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur transition-all hover:border-cyan-500 hover:text-cyan-600 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-300 dark:hover:text-cyan-400'
+  'whitespace-nowrap rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 text-xs font-semibold text-slate-600 backdrop-blur transition-all hover:border-cyan-500 hover:text-cyan-600 focus:border-cyan-500 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-slate-300 dark:hover:text-cyan-400'
 
 export default function PathPickerDropdown({
   fieldLabel,
@@ -92,8 +92,8 @@ export default function PathPickerDropdown({
     : TRIGGER_BUTTON_CLASS
 
   const menuClass = textOnly
-    ? 'absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-white/20 bg-[#1f2127]/95 py-1 shadow-2xl backdrop-blur'
-    : 'absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-slate-900/5 dark:border-neutral-700 dark:bg-neutral-900/95'
+    ? 'absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-white/20 bg-[#1f2127]/95 py-1 backdrop-blur'
+    : 'absolute right-0 top-full z-10 mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white py-1 dark:border-neutral-700 dark:bg-neutral-900/95'
 
   const optionButtonClass = textOnly
     ? 'w-full px-3 py-2 text-left text-xs font-semibold text-slate-200 transition-colors hover:text-cyan-300 focus-visible:outline-none'
