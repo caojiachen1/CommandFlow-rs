@@ -959,28 +959,29 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
 
       {globalInsert
         ? createPortal(
-            <div className="fixed inset-0 z-[240] flex items-center justify-center">
+            <div className="cf-window fixed inset-0 z-[240] flex items-center justify-center">
               <button
                 type="button"
                 aria-label="关闭全局节点搜索"
-                className="absolute inset-0 bg-black/38 transition-colors dark:bg-black/55"
+                className="cf-modal-overlay absolute inset-0"
                 onClick={closeGlobalInsert}
               />
 
               <div
-                className="relative z-[241] mx-4 flex h-[560px] max-h-[78vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900"
+                className="cf-modal relative z-[241] mx-4 flex h-[560px] max-h-[78vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border"
+                style={{ animation: 'fluentModalIn 200ms cubic-bezier(0.16, 1, 0.3, 1)' }}
                 onClick={(event) => event.stopPropagation()}
               >
-                <div className="border-b border-slate-200 px-6 py-5 dark:border-neutral-800">
-                  <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="border-b border-[var(--cf-border)] px-6 py-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">添加节点</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">双击画板空白处即可呼出，点击预览或右侧列表即可添加节点。</p>
+                      <h3 className="text-base font-semibold text-[var(--cf-text)]">添加节点</h3>
+                      <p className="text-xs text-[var(--cf-text-muted)]">双击画板空白处即可呼出，点击预览或右侧列表即可添加节点。</p>
                     </div>
                     <button
                       type="button"
                       onClick={closeGlobalInsert}
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:border-cyan-500 hover:text-cyan-600 dark:border-neutral-700 dark:text-slate-400 dark:hover:border-cyan-500 dark:hover:text-cyan-400"
+                      className="rounded px-3 py-1.5 text-xs font-medium text-[var(--cf-text-muted)] transition-colors hover:bg-[var(--cf-surface-2)] hover:text-[var(--cf-text)]"
                     >
                       Esc 关闭
                     </button>
@@ -997,16 +998,16 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
                       }
                     }}
                     placeholder="搜索节点（例如：条件、点击、变量、截图、系统）"
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-cyan-500 focus:bg-white dark:border-neutral-700 dark:bg-neutral-950 dark:text-slate-100"
+                    className="w-full rounded-md px-4 py-2.5 text-sm outline-none transition-colors"
                   />
                 </div>
 
                 <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-                  <div className="border-b border-slate-200 bg-slate-50/70 p-5 dark:border-neutral-800 dark:bg-neutral-950/60 lg:border-b-0 lg:border-r">
+                  <div className="border-b border-[var(--cf-border)] bg-[var(--cf-surface-2)] p-5 lg:border-b-0 lg:border-r">
                     <div className="mb-3 flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">缩略图预览</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-[var(--cf-text-muted)]">缩略图预览</span>
                       {hoveredGlobalInsertItem ? (
-                        <span className="text-[11px] text-slate-400 dark:text-slate-500">悬停右侧条目可切换</span>
+                        <span className="text-[11px] text-[var(--cf-text-muted)]">悬停右侧条目可切换</span>
                       ) : null}
                     </div>
 
@@ -1019,21 +1020,21 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
                         <NodeThumbnailPreview kind={hoveredGlobalInsertItem.kind} />
                       </button>
                     ) : (
-                      <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-6 text-center text-sm text-slate-400 dark:border-neutral-700 dark:bg-neutral-900/60 dark:text-slate-500 lg:h-full">
+                      <div className="flex h-[320px] items-center justify-center rounded border border-dashed border-[var(--cf-border)] bg-[var(--cf-surface-3)] px-6 text-center text-sm text-[var(--cf-text-muted)] lg:h-full">
                         没有匹配的节点，试试换个关键词。
                       </div>
                     )}
                   </div>
 
                   <div className="flex min-h-0 flex-col p-5">
-                    <div className="mb-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <div className="mb-3 flex items-center justify-between text-xs text-[var(--cf-text-muted)]">
                       <span>搜索结果</span>
                       <span>{filteredGlobalInsertItems.length} 个节点</span>
                     </div>
 
                     <div className="h-[320px] overflow-y-auto pr-1 lg:h-full">
                       {filteredGlobalInsertItems.length > 0 ? (
-                        <div className="space-y-2">
+                        <div className="space-y-1">
                           {filteredGlobalInsertItems.map((item) => (
                             <button
                               key={item.kind}
@@ -1041,32 +1042,32 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
                               onMouseEnter={() => setGlobalHoveredKind(item.kind)}
                               onFocus={() => setGlobalHoveredKind(item.kind)}
                               onClick={() => insertNodeFromGlobalSearch(item.kind)}
-                              className={`block w-full rounded-2xl border px-4 py-3 text-left transition-all ${
+                              className={`block w-full rounded-md border px-4 py-2.5 text-left transition-all ${
                                 hoveredGlobalInsertItem?.kind === item.kind
-                                  ? 'border-cyan-500 bg-cyan-50 shadow-sm dark:bg-cyan-500/10'
-                                  : 'border-slate-200 bg-white hover:border-cyan-300 hover:bg-slate-50 dark:border-neutral-800 dark:bg-neutral-900/60 dark:hover:border-cyan-500 dark:hover:bg-neutral-900'
+                                  ? 'border-[var(--cf-accent)] bg-[var(--cf-accent)]/10'
+                                  : 'border-transparent bg-transparent hover:bg-[var(--cf-surface-2)]'
                               }`}
                             >
                               <div className="flex items-start gap-3">
                                 <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${item.color}`} />
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2">
-                                    <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{item.label}</span>
-                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-neutral-800 dark:text-slate-400">
+                                    <span className="truncate text-sm font-semibold text-[var(--cf-text)]">{item.label}</span>
+                                    <span className="rounded bg-[var(--cf-surface-2)] px-2 py-0.5 text-[10px] font-medium text-[var(--cf-text-muted)]">
                                       {item.category}
                                     </span>
                                   </div>
-                                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--cf-text-muted)]">
                                     {item.description}
                                   </div>
-                                  <div className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">{item.kind}</div>
+                                  <div className="mt-2 text-[10px] text-[var(--cf-text-muted)]">{item.kind}</div>
                                 </div>
                               </div>
                             </button>
                           ))}
                         </div>
                       ) : (
-                        <div className="flex h-full min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-sm text-slate-400 dark:border-neutral-700 dark:bg-neutral-950/60 dark:text-slate-500">
+                        <div className="flex h-full min-h-[220px] items-center justify-center rounded border border-dashed border-[var(--cf-border)] bg-[var(--cf-surface-2)] px-6 text-center text-sm text-[var(--cf-text-muted)]">
                           没有找到匹配节点，换个关键词再试试～
                         </div>
                       )}
