@@ -1,32 +1,44 @@
 import {
+  AppWindow,
+  ArrowDownToLine,
+  ArrowUpToLine,
   Bot,
+  Blocks,
   Braces,
   Calculator,
   Camera,
+  ChevronsUpDown,
   Clipboard,
   Clock3,
   Code2,
+  Combine,
   Database,
   FileText,
   FolderOpen,
   GitBranch,
+  HandGrab,
   Keyboard,
+  KeyboardMusic,
   Layers,
   MessageSquare,
+  Move,
   Monitor,
   Mouse,
   MousePointerClick,
   Network,
   Play,
   Power,
+  CirclePower,
   Repeat,
   Rocket,
+  Route,
   Search,
   Settings,
   Speaker,
   Sun,
   TerminalSquare,
   Timer,
+  Type,
   Volume2,
   VolumeX,
   Wifi,
@@ -69,7 +81,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '流程控制',
-    icon: GitBranch,
+    icon: Route,
     items: [
       { label: '条件处理', kind: 'condition', color: 'bg-rose-500', icon: GitBranch, category: '流程控制' },
       { label: 'for 循环', kind: 'loop', color: 'bg-fuchsia-500', icon: Repeat, category: '流程控制' },
@@ -83,15 +95,24 @@ const categories: NodePaletteCategory[] = [
     title: '鼠标',
     icon: Mouse,
     items: [
-      { label: '获取鼠标坐标', kind: 'getMousePosition', color: 'bg-sky-500', icon: MousePointerClick, category: '鼠标' },
-      { label: '鼠标操作', kind: 'mouseOperation', color: 'bg-cyan-500', icon: MousePointerClick, category: '鼠标' },
+      { label: '获取鼠标坐标', kind: 'getMousePosition', color: 'bg-sky-500', icon: Crosshair, category: '鼠标' },
+      { label: '鼠标点击', kind: 'mouseClick', color: 'bg-cyan-500', icon: MousePointerClick, category: '鼠标' },
+      { label: '鼠标移动', kind: 'mouseMove', color: 'bg-cyan-400', icon: Move, category: '鼠标' },
+      { label: '鼠标拖拽', kind: 'mouseDrag', color: 'bg-cyan-600', icon: HandGrab, category: '鼠标' },
+      { label: '鼠标滚轮', kind: 'mouseWheel', color: 'bg-sky-600', icon: ChevronsUpDown, category: '鼠标' },
+      { label: '鼠标按下', kind: 'mouseDown', color: 'bg-blue-500', icon: ArrowDownToLine, category: '鼠标' },
+      { label: '鼠标松开', kind: 'mouseUp', color: 'bg-indigo-500', icon: ArrowUpToLine, category: '鼠标' },
     ],
   },
   {
     title: '键盘',
-    icon: Keyboard,
+    icon: KeyboardMusic,
     items: [
-      { label: '键盘操作', kind: 'keyboardOperation', color: 'bg-sky-600', icon: Keyboard, category: '键盘' },
+      { label: '键盘按键', kind: 'keyboardKey', color: 'bg-sky-600', icon: Keyboard, category: '键盘' },
+      { label: '键盘输入', kind: 'keyboardInput', color: 'bg-sky-500', icon: Type, category: '键盘' },
+      { label: '键盘按下', kind: 'keyboardDown', color: 'bg-indigo-500', icon: ArrowDownToLine, category: '键盘' },
+      { label: '键盘松开', kind: 'keyboardUp', color: 'bg-indigo-400', icon: ArrowUpToLine, category: '键盘' },
+      { label: '组合键', kind: 'shortcut', color: 'bg-violet-500', icon: Combine, category: '键盘' },
       { label: '回放键鼠预设', kind: 'inputPresetReplay', color: 'bg-cyan-600', icon: Repeat, category: '键盘' },
     ],
   },
@@ -104,7 +125,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: '电源管理',
-    icon: Power,
+    icon: CirclePower,
     items: [
       { label: '系统关机', kind: 'shutdown', color: 'bg-red-600', icon: Power, category: '电源管理' },
       { label: '系统重启', kind: 'restart', color: 'bg-red-500', icon: Power, category: '电源管理' },
@@ -139,7 +160,7 @@ const categories: NodePaletteCategory[] = [
     items: [
       { label: '系统主题模式', kind: 'theme', color: 'bg-violet-500', icon: MonitorCog, category: '系统设置' },
       { label: '电源计划', kind: 'powerPlan', color: 'bg-green-500', icon: Zap, category: '系统设置' },
-      { label: '打开系统设置页', kind: 'openSettings', color: 'bg-teal-500', icon: Settings, category: '系统设置' },
+      { label: '打开系统设置页', kind: 'openSettings', color: 'bg-teal-500', icon: AppWindow, category: '系统设置' },
     ],
   },
   {
@@ -173,7 +194,7 @@ const categories: NodePaletteCategory[] = [
   },
   {
     title: 'AI 智能体',
-    icon: Bot,
+    icon: Blocks,
     items: [
       { label: 'GUI Agent', kind: 'guiAgent', color: 'bg-violet-600', icon: Bot, category: 'AI 智能体' },
       { label: 'GUI Agent 元数据解析', kind: 'guiAgentActionParser', color: 'bg-violet-500', icon: Braces, category: 'AI 智能体' },
@@ -200,12 +221,18 @@ export const ALL_NODE_PALETTE_ITEMS = categories.flatMap((category) => category.
 
 export const ALL_NODE_KINDS = ALL_NODE_PALETTE_ITEMS.map((item) => item.kind)
 
-export const NODE_PALETTE_ITEM_MAP: Record<NodeKind, NodePaletteItem> = ALL_NODE_PALETTE_ITEMS.reduce(
+export const NODE_PALETTE_ITEM_MAP: Partial<Record<NodeKind, NodePaletteItem>> = ALL_NODE_PALETTE_ITEMS.reduce(
   (acc, item) => {
     acc[item.kind] = item
     return acc
   },
-  {} as Record<NodeKind, NodePaletteItem>,
+  {} as Partial<Record<NodeKind, NodePaletteItem>>,
 )
 
-export const getNodePaletteItem = (kind: NodeKind) => NODE_PALETTE_ITEM_MAP[kind]
+export const getNodePaletteItem = (kind: NodeKind): NodePaletteItem => {
+  const item = NODE_PALETTE_ITEM_MAP[kind]
+  if (!item) {
+    throw new Error(`Missing node palette item for kind: ${kind}`)
+  }
+  return item
+}

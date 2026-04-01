@@ -182,6 +182,53 @@ const KEYBOARD_OPERATION_FIELD_KEYS: Record<KeyboardOperationKind, string[]> = {
   shortcut: ['modifiers', 'key'],
 }
 
+const SPLIT_MOUSE_KIND_TO_OPERATION: Partial<Record<NodeKind, MouseOperationKind>> = {
+  mouseClick: 'click',
+  mouseMove: 'move',
+  mouseDrag: 'drag',
+  mouseWheel: 'wheel',
+  mouseDown: 'down',
+  mouseUp: 'up',
+}
+
+const SPLIT_KEYBOARD_KIND_TO_OPERATION: Partial<Record<NodeKind, KeyboardOperationKind>> = {
+  keyboardKey: 'key',
+  keyboardInput: 'input',
+  keyboardDown: 'down',
+  keyboardUp: 'up',
+  shortcut: 'shortcut',
+}
+
+const isSplitMouseNodeKind = (kind: NodeKind): boolean =>
+  Boolean(SPLIT_MOUSE_KIND_TO_OPERATION[kind])
+
+const isSplitKeyboardNodeKind = (kind: NodeKind): boolean =>
+  Boolean(SPLIT_KEYBOARD_KIND_TO_OPERATION[kind])
+
+const resolveMouseOperationForNode = (
+  kind: NodeKind,
+  params: Record<string, unknown>,
+  defaultParams: Record<string, unknown> = {},
+): MouseOperationKind => {
+  if (kind === 'mouseOperation') {
+    return getMouseOperationKind(params, getMouseOperationKind(defaultParams, 'click'))
+  }
+
+  return SPLIT_MOUSE_KIND_TO_OPERATION[kind] ?? 'click'
+}
+
+const resolveKeyboardOperationForNode = (
+  kind: NodeKind,
+  params: Record<string, unknown>,
+  defaultParams: Record<string, unknown> = {},
+): KeyboardOperationKind => {
+  if (kind === 'keyboardOperation') {
+    return getKeyboardOperationKind(params, getKeyboardOperationKind(defaultParams, 'key'))
+  }
+
+  return SPLIT_KEYBOARD_KIND_TO_OPERATION[kind] ?? 'key'
+}
+
 export const getSystemOperationKind = (
   params: Record<string, unknown>,
   defaultOperation: SystemOperationKind = 'shutdown',
@@ -377,21 +424,15 @@ export const isNodeFieldVisible = (
     return true
   }
 
-  if (kind === 'mouseOperation') {
-    if (field.key === 'operation') return true
-    const operation = getMouseOperationKind(
-      params,
-      getMouseOperationKind(defaultParams, 'click'),
-    )
+  if (kind === 'mouseOperation' || isSplitMouseNodeKind(kind)) {
+    if (field.key === 'operation') return kind === 'mouseOperation'
+    const operation = resolveMouseOperationForNode(kind, params, defaultParams)
     return MOUSE_OPERATION_FIELD_KEYS[operation].includes(field.key)
   }
 
-  if (kind === 'keyboardOperation') {
-    if (field.key === 'operation') return true
-    const operation = getKeyboardOperationKind(
-      params,
-      getKeyboardOperationKind(defaultParams, 'key'),
-    )
+  if (kind === 'keyboardOperation' || isSplitKeyboardNodeKind(kind)) {
+    if (field.key === 'operation') return kind === 'keyboardOperation'
+    const operation = resolveKeyboardOperationForNode(kind, params, defaultParams)
     if (!KEYBOARD_OPERATION_FIELD_KEYS[operation].includes(field.key)) {
       return false
     }
@@ -759,6 +800,104 @@ const metas: Record<NodeKind, NodeMeta> = {
       },
     ],
   },
+  mouseClick: {
+    label: '鼠标点击',
+    description: '在指定坐标执行鼠标点击。',
+    defaultParams: {
+      x: 0,
+      y: 0,
+      times: 1,
+    },
+    fields: [
+      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
+      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
+      { key: 'times', label: '点击次数', type: 'number', min: 1, step: 1 },
+    ],
+  },
+  mouseMove: {
+    label: '鼠标移动',
+    description: '将鼠标移动到指定坐标。',
+    defaultParams: {
+      x: 0,
+      y: 0,
+    },
+    fields: [
+      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
+      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
+    ],
+  },
+  mouseDrag: {
+    label: '鼠标拖拽',
+    description: '按住并拖动鼠标，从起点移动到终点。',
+    defaultParams: {
+      fromX: 0,
+      fromY: 0,
+      toX: 200,
+      toY: 200,
+    },
+    fields: [
+      { key: 'fromX', label: '起点 X', type: 'number', step: 1 },
+      { key: 'fromY', label: '起点 Y', type: 'number', step: 1 },
+      { key: 'toX', label: '终点 X', type: 'number', step: 1 },
+      { key: 'toY', label: '终点 Y', type: 'number', step: 1 },
+    ],
+  },
+  mouseWheel: {
+    label: '鼠标滚轮',
+    description: '执行鼠标滚轮滚动，负值向下、正值向上。',
+    defaultParams: {
+      vertical: -1,
+    },
+    fields: [
+      { key: 'vertical', label: '滚动值', type: 'number', step: 1 },
+    ],
+  },
+  mouseDown: {
+    label: '鼠标按下',
+    description: '在指定坐标按下鼠标按键（不松开）。',
+    defaultParams: {
+      x: 0,
+      y: 0,
+      button: 'left',
+    },
+    fields: [
+      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
+      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
+      {
+        key: 'button',
+        label: '按键',
+        type: 'select',
+        options: [
+          { label: '左键', value: 'left' },
+          { label: '右键', value: 'right' },
+          { label: '中键', value: 'middle' },
+        ],
+      },
+    ],
+  },
+  mouseUp: {
+    label: '鼠标松开',
+    description: '在指定坐标松开鼠标按键。',
+    defaultParams: {
+      x: 0,
+      y: 0,
+      button: 'left',
+    },
+    fields: [
+      { key: 'x', label: 'X 坐标', type: 'number', step: 1 },
+      { key: 'y', label: 'Y 坐标', type: 'number', step: 1 },
+      {
+        key: 'button',
+        label: '按键',
+        type: 'select',
+        options: [
+          { label: '左键', value: 'left' },
+          { label: '右键', value: 'right' },
+          { label: '中键', value: 'middle' },
+        ],
+      },
+    ],
+  },
   uiaElement: {
     label: 'UIA 获取控件',
     description: '根据 UIA 元素定位指纹定位控件，并输出坐标与控件基础信息供后续节点复用。',
@@ -816,6 +955,78 @@ const metas: Record<NodeKind, NodeMeta> = {
         type: 'json',
         description: '例如 ["Ctrl", "Shift"]',
       },
+    ],
+  },
+  keyboardKey: {
+    label: '键盘按键',
+    description: '执行一次键盘按键点击（tap）。',
+    defaultParams: {
+      key: 'Enter',
+    },
+    fields: [
+      { key: 'key', label: '按键', type: 'string', placeholder: 'Enter' },
+    ],
+  },
+  keyboardInput: {
+    label: '键盘输入',
+    description: '输入文本，支持整体输入或逐字符输入。',
+    defaultParams: {
+      text: 'Hello CommandFlow',
+      inputMode: 'bulk',
+      inputIntervalMs: 35,
+    },
+    fields: [
+      { key: 'text', label: '文本', type: 'string', placeholder: '请输入文本' },
+      { key: 'inputMode', label: '输入方式', type: 'select', options: KEYBOARD_INPUT_MODE_OPTIONS },
+      { key: 'inputIntervalMs', label: '字符间隔(ms)', type: 'number', min: 0, step: 1 },
+    ],
+  },
+  keyboardDown: {
+    label: '键盘按下',
+    description: '按下指定按键，支持模拟长按重复输入。',
+    defaultParams: {
+      key: 'Shift',
+      simulateRepeat: false,
+      repeatCount: 8,
+      repeatIntervalMs: 35,
+    },
+    fields: [
+      { key: 'key', label: '按键', type: 'string', placeholder: 'Shift' },
+      {
+        key: 'simulateRepeat',
+        label: '模拟长按重复输入',
+        type: 'boolean',
+        description: '开启后会连续触发多次按键点击，更接近“长按出连字”的效果。',
+      },
+      { key: 'repeatCount', label: '重复次数', type: 'number', min: 1, step: 1 },
+      { key: 'repeatIntervalMs', label: '重复间隔(ms)', type: 'number', min: 1, step: 1 },
+    ],
+  },
+  keyboardUp: {
+    label: '键盘松开',
+    description: '松开指定按键。',
+    defaultParams: {
+      key: 'Shift',
+    },
+    fields: [
+      { key: 'key', label: '按键', type: 'string', placeholder: 'Shift' },
+    ],
+  },
+  shortcut: {
+    label: '组合键',
+    description: '执行组合键（修饰键 + 主键）。',
+    defaultParams: {
+      modifiers: ['Ctrl'],
+      key: 'S',
+    },
+    fields: [
+      {
+        key: 'modifiers',
+        label: '修饰键(JSON数组)',
+        type: 'json',
+        description: '例如 ["Ctrl", "Shift"]',
+      },
+      { key: 'key', label: '按键', type: 'string', placeholder: 'S' },
     ],
   },
   inputPresetReplay: {
@@ -907,10 +1118,10 @@ left_double(point='<point>x1 y1</point>')
 right_single(point='<point>x1 y1</point>')
 drag(start_point='<point>x1 y1</point>', end_point='<point>x2 y2</point>')
 hotkey(key='ctrl c') # Split keys with a space and use lowercase. Also, do not use more than 3 keys in one hotkey action.
-type(content='xxx') # Use escape characters \\', \\\" and \\n in content part to ensure we can parse the content in normal python string format. If you want to submit your input, use \\n at the end of content.
+type(content='xxx') # Use escape characters \\', backslash+double-quote, and \\n in content part to ensure we can parse the content in normal python string format. If you want to submit your input, use \\n at the end of content.
 scroll(point='<point>x1 y1</point>', direction='down or up or right or left') # Show more information on the \`direction\` side.
 wait() #Sleep for 5s and take a screenshot to check for any changes.
-finished(content='xxx') # Use escape characters \\', \\\" and \\n in content part to ensure we can parse the content in normal python string format.
+finished(content='xxx') # Use escape characters \\', backslash+double-quote, and \\n in content part to ensure we can parse the content in normal python string format.
 
 
 ## Note

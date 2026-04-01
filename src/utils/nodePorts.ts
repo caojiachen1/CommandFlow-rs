@@ -6,6 +6,8 @@ import {
   getMouseOperationKind,
   getNodeFields,
   getNodeMeta,
+  type KeyboardOperationKind,
+  type MouseOperationKind,
 } from './nodeMeta'
 
 export type HandleValueType = 'control' | 'string' | 'number' | 'json' | 'any'
@@ -50,6 +52,45 @@ const resolveTypedValueType = (raw: unknown): HandleValueType => {
 const getGuiAgentParserOperation = (params: Record<string, unknown> = {}): string =>
   String(params.operation ?? 'click').toLowerCase()
 
+const SPLIT_MOUSE_KIND_TO_OPERATION: Partial<Record<NodeKind, MouseOperationKind>> = {
+  mouseClick: 'click',
+  mouseMove: 'move',
+  mouseDrag: 'drag',
+  mouseWheel: 'wheel',
+  mouseDown: 'down',
+  mouseUp: 'up',
+}
+
+const SPLIT_KEYBOARD_KIND_TO_OPERATION: Partial<Record<NodeKind, KeyboardOperationKind>> = {
+  keyboardKey: 'key',
+  keyboardInput: 'input',
+  keyboardDown: 'down',
+  keyboardUp: 'up',
+  shortcut: 'shortcut',
+}
+
+const resolveMouseOperationForNode = (
+  kind: NodeKind,
+  params: Record<string, unknown> = {},
+): MouseOperationKind => {
+  if (kind === 'mouseOperation') {
+    return getMouseOperationKind(params)
+  }
+
+  return SPLIT_MOUSE_KIND_TO_OPERATION[kind] ?? 'click'
+}
+
+const resolveKeyboardOperationForNode = (
+  kind: NodeKind,
+  params: Record<string, unknown> = {},
+): KeyboardOperationKind => {
+  if (kind === 'keyboardOperation') {
+    return getKeyboardOperationKind(params)
+  }
+
+  return SPLIT_KEYBOARD_KIND_TO_OPERATION[kind] ?? 'key'
+}
+
 const getGuiAgentParserDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
   const operation = getGuiAgentParserOperation(params)
 
@@ -92,8 +133,8 @@ const getGuiAgentParserDynamicOutputs = (params: Record<string, unknown> = {}): 
   return []
 }
 
-const getMouseOperationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
-  const operation = getMouseOperationKind(params)
+const getMouseOperationDynamicOutputs = (kind: NodeKind, params: Record<string, unknown> = {}): NodePort[] => {
+  const operation = resolveMouseOperationForNode(kind, params)
 
   if (operation === 'drag') {
     return [
@@ -120,8 +161,8 @@ const getMouseOperationDynamicOutputs = (params: Record<string, unknown> = {}): 
   ]
 }
 
-const getKeyboardOperationDynamicOutputs = (params: Record<string, unknown> = {}): NodePort[] => {
-  const operation = getKeyboardOperationKind(params)
+const getKeyboardOperationDynamicOutputs = (kind: NodeKind, params: Record<string, unknown> = {}): NodePort[] => {
+  const operation = resolveKeyboardOperationForNode(kind, params)
 
   if (operation === 'input') {
     return [{ id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' }]
@@ -252,7 +293,51 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: singleOut(),
   },
+  mouseClick: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  mouseMove: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  mouseDrag: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  mouseWheel: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  mouseDown: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  mouseUp: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
   keyboardOperation: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  keyboardKey: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  keyboardInput: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  keyboardDown: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  keyboardUp: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  shortcut: {
     inputs: singleIn(),
     outputs: singleOut(),
   },
@@ -529,10 +614,10 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
       ? getGuiAgentParserDynamicOutputs(params)
       : kind === 'windowTrigger'
         ? getWindowTriggerDynamicOutputs()
-      : kind === 'mouseOperation'
-        ? getMouseOperationDynamicOutputs(params)
-        : kind === 'keyboardOperation'
-          ? getKeyboardOperationDynamicOutputs(params)
+      : kind === 'mouseOperation' || Boolean(SPLIT_MOUSE_KIND_TO_OPERATION[kind])
+        ? getMouseOperationDynamicOutputs(kind, params)
+        : kind === 'keyboardOperation' || Boolean(SPLIT_KEYBOARD_KIND_TO_OPERATION[kind])
+          ? getKeyboardOperationDynamicOutputs(kind, params)
           : kind === 'fileOperation'
             ? getFileOperationDynamicOutputs(params)
             : kind === 'launchApplication'

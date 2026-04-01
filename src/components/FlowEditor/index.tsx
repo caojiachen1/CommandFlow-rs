@@ -226,8 +226,19 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       uiaElement: ClickNode,
       getMousePosition: ClickNode,
       mouseOperation: ClickNode,
+      mouseClick: ClickNode,
+      mouseMove: ClickNode,
+      mouseDrag: ClickNode,
+      mouseWheel: ClickNode,
+      mouseDown: ClickNode,
+      mouseUp: ClickNode,
       screenshot: ScreenshotNode,
       keyboardOperation: KeyPressNode,
+      keyboardKey: KeyPressNode,
+      keyboardInput: KeyPressNode,
+      keyboardDown: KeyPressNode,
+      keyboardUp: KeyPressNode,
+      shortcut: KeyPressNode,
       inputPresetReplay: InputPresetReplayNode,
       imageMatch: ImageMatchNode,
       ocrMatch: OcrMatchNode,
@@ -919,7 +930,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
                           <button
                             key={item.kind}
                             type="button"
-                            className="group flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-slate-300/90 dark:hover:bg-neutral-700/90"
+                            className="group !border-0 !bg-transparent flex w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-left shadow-none transition-colors hover:!bg-slate-300/90 dark:hover:!bg-neutral-700/90"
                             onClick={() => insertNodeAndConnect(item.kind)}
                           >
                             {Icon ? (

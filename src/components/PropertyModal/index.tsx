@@ -423,10 +423,15 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
       }
       return []
     }
-    if (kind === 'keyboardOperation' && field.key === 'key') {
-      const operation = getKeyboardOperationKind(selectedNode.data.params)
-      if (operation === 'key' || operation === 'down' || operation === 'up' || operation === 'shortcut') {
+    if (field.key === 'key') {
+      if (kind === 'keyboardKey' || kind === 'keyboardDown' || kind === 'keyboardUp' || kind === 'shortcut') {
         return COMMON_KEYS
+      }
+      if (kind === 'keyboardOperation') {
+        const operation = getKeyboardOperationKind(selectedNode.data.params)
+        if (operation === 'key' || operation === 'down' || operation === 'up' || operation === 'shortcut') {
+          return COMMON_KEYS
+        }
       }
     }
     if (isHotkeyTriggerNode(kind) && field.key === 'hotkey') {
