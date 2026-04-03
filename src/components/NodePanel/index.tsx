@@ -178,7 +178,7 @@ export default function NodePanel({ onToggleHidden }: NodePanelProps) {
               </button>
 
               {!isCollapsed && (
-                <div className="mt-1.5 space-y-1 pl-7">
+                <div className="mt-1.5 space-y-1 pl-10">
                   {items.map((item) => (
                     <div
                       key={item.kind}
