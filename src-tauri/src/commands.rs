@@ -6,6 +6,7 @@ use crate::automation::window;
 use crate::automation::process;
 use crate::input_recorder;
 use crate::workflow::graph::WorkflowGraph;
+#[cfg(target_os = "windows")]
 use encoding_rs::GBK;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};

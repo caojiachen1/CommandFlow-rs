@@ -1,4 +1,5 @@
 use crate::error::{CommandFlowError, CommandResult};
+#[cfg(target_os = "windows")]
 use encoding_rs::GBK;
 use serde::Serialize;
 use std::process::Command;
@@ -207,9 +208,7 @@ pub fn terminate_process_by_name(
     {
         let process_name = process_name.trim();
         if process_name.is_empty() {
-            return Err(CommandFlowError::Validation(
-                "进程名不能为空。".to_string(),
-            ));
+            return Err(CommandFlowError::Validation("进程名不能为空。".to_string()));
         }
 
         let mut command = Command::new("taskkill");

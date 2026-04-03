@@ -784,7 +784,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       (field.key === 'startX' || field.key === 'startY' || field.key === 'width' || field.key === 'height') &&
       Boolean(params.fullscreen)
     const isScreenshotSaveDirFieldDisabled =
-      data.kind === 'screenshot' && field.key === 'saveDir' && !Boolean(params.shouldSave ?? true)
+      data.kind === 'screenshot' && field.key === 'saveDir' && !(params.shouldSave ?? true)
     const isGuiAgentImageInputDisabled =
       data.kind === 'guiAgent' && field.key === 'imageInput' && Boolean(params.continuousMode ?? true)
     const isInputDisabled =
@@ -1734,7 +1734,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
               </div>
             )
           })}
-          {data.kind === 'guiAgent' && !Boolean(params.continuousMode ?? true) ? (
+          {data.kind === 'guiAgent' && !(params.continuousMode ?? true) ? (
             <div className="rounded-lg border border-amber-300/60 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-200">
               非连续模式需手动提供图片输入。
             </div>

@@ -540,7 +540,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     const isScreenshotSaveDirFieldDisabled =
       selectedNode.data.kind === 'screenshot' &&
       field.key === 'saveDir' &&
-      !Boolean(selectedNode.data.params.shouldSave ?? selectedMeta?.defaultParams.shouldSave ?? true)
+      !(selectedNode.data.params.shouldSave ?? selectedMeta?.defaultParams.shouldSave ?? true)
     const isGuiAgentImageInputDisabled =
       selectedNode.data.kind === 'guiAgent' &&
       field.key === 'imageInput' &&
@@ -860,7 +860,7 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
                       ) : null}
                     </div>
                   ))}
-                  {selectedNode.data.kind === 'guiAgent' && !Boolean(selectedNode.data.params.continuousMode ?? selectedMeta?.defaultParams.continuousMode ?? true) ? (
+                  {selectedNode.data.kind === 'guiAgent' && !(selectedNode.data.params.continuousMode ?? selectedMeta?.defaultParams.continuousMode ?? true) ? (
                     <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300">
                       非连续模式需手动提供图片输入。
                     </p>

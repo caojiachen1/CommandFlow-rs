@@ -1,8 +1,3 @@
-#[cfg(not(target_os = "windows"))]
-compile_error!(
-    "CommandFlow-rs currently only supports Windows. Other platforms are not supported yet."
-);
-
 pub mod automation;
 pub mod commands;
 pub mod config;

@@ -581,7 +581,7 @@ export default function PropertyModal({ open, onClose }: PropertyModalProps) {
     const isScreenshotSaveDirFieldDisabled =
       selectedNode.data.kind === 'screenshot' &&
       field.key === 'saveDir' &&
-      !Boolean(selectedNode.data.params.shouldSave ?? selectedMeta?.defaultParams.shouldSave ?? true)
+      !(selectedNode.data.params.shouldSave ?? selectedMeta?.defaultParams.shouldSave ?? true)
 
     if (field.type === 'boolean') {
       return (
