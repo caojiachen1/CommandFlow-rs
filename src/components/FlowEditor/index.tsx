@@ -810,7 +810,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   return (
     <div
       ref={wrapperRef}
-      className="cf-window cf-pane relative h-full w-full bg-slate-50 dark:bg-neutral-950 transition-colors"
+      className="cf-window cf-pane relative h-full w-full bg-[#fafbfc] dark:bg-neutral-900 transition-colors"
     >
       <ReactFlow
         nodes={nodes}
