@@ -229,7 +229,7 @@ const normalizeImportedNodeKind = (kind: string): NodeKind =>
     : isLegacyMouseKind(kind)
       ? (kind as NodeKind)
       : isLegacyFileKind(kind)
-        ? 'fileOperation'
+        ? (kind as NodeKind)
       : isLegacyKeyboardKind(kind)
         ? (kind as NodeKind)
         : kind) as NodeKind
@@ -245,10 +245,7 @@ const normalizeImportedNodeParams = (kind: string, params: Record<string, unknow
           ...params,
         }
       : isLegacyFileKind(kind)
-        ? {
-            operation: legacyFileKindToOperation[kind],
-            ...params,
-          }
+        ? { ...params }
       : isLegacyKeyboardKind(kind)
         ? {
             operation: legacyKeyboardKindToOperation[kind],

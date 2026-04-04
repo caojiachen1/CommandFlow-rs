@@ -199,11 +199,22 @@ const SPLIT_KEYBOARD_KIND_TO_OPERATION: Partial<Record<NodeKind, KeyboardOperati
   shortcut: 'shortcut',
 }
 
+const SPLIT_FILE_KIND_TO_OPERATION: Partial<Record<NodeKind, FileOperationKind>> = {
+  fileCopy: 'copy',
+  fileMove: 'move',
+  fileDelete: 'delete',
+  fileReadText: 'readText',
+  fileWriteText: 'writeText',
+}
+
 const isSplitMouseNodeKind = (kind: NodeKind): boolean =>
   Boolean(SPLIT_MOUSE_KIND_TO_OPERATION[kind])
 
 const isSplitKeyboardNodeKind = (kind: NodeKind): boolean =>
   Boolean(SPLIT_KEYBOARD_KIND_TO_OPERATION[kind])
+
+const isSplitFileNodeKind = (kind: NodeKind): boolean =>
+  Boolean(SPLIT_FILE_KIND_TO_OPERATION[kind])
 
 const resolveMouseOperationForNode = (
   kind: NodeKind,
@@ -227,6 +238,12 @@ const resolveKeyboardOperationForNode = (
   }
 
   return SPLIT_KEYBOARD_KIND_TO_OPERATION[kind] ?? 'key'
+}
+
+const resolveFileOperationForNode = (
+  kind: NodeKind,
+): FileOperationKind => {
+  return SPLIT_FILE_KIND_TO_OPERATION[kind] ?? 'copy'
 }
 
 export const getSystemOperationKind = (
@@ -379,8 +396,8 @@ export const getNodeDisplayLabel = (
     return appName ? `启动应用 · ${appName}` : (fallbackLabel ?? getNodeMeta(kind).label)
   }
 
-  if (kind === 'fileOperation') {
-    return getFileOperationLabel(params, getFileOperationKind(getNodeMeta(kind).defaultParams))
+  if (isSplitFileNodeKind(kind)) {
+    return getFileOperationLabel(params, resolveFileOperationForNode(kind))
   }
 
   if (kind === 'mouseOperation') {
@@ -405,12 +422,8 @@ export const isNodeFieldVisible = (
   params: Record<string, unknown>,
   defaultParams: Record<string, unknown> = {},
 ) => {
-  if (kind === 'fileOperation') {
-    if (field.key === 'operation') return true
-    const operation = getFileOperationKind(
-      params,
-      getFileOperationKind(defaultParams, 'copy'),
-    )
+  if (isSplitFileNodeKind(kind)) {
+    const operation = resolveFileOperationForNode(kind)
     if (!FILE_OPERATION_FIELD_KEYS[operation].includes(field.key)) {
       return false
     }
@@ -697,8 +710,8 @@ export const getNodeFields = (
 ): ParamField[] => {
   const fields = metas[kind].fields.filter((field) => isNodeFieldVisible(kind, field, params, defaultParams))
 
-  if (kind === 'fileOperation') {
-    const operation = getFileOperationKind(params, getFileOperationKind(defaultParams, 'copy'))
+  if (isSplitFileNodeKind(kind)) {
+    const operation = resolveFileOperationForNode(kind)
     return fields.map((field) => resolveFileOperationField(field, operation))
   }
 
@@ -1326,35 +1339,73 @@ finished(content='xxx') # Use escape characters \\', backslash+double-quote, and
       },
     ],
   },
-  fileOperation: {
-    label: '文件操作',
-    description: '统一的文件操作节点；先选择复制、移动、删除、读取文本或写入文本，再按需填写对应参数。',
+  fileCopy: {
+    label: '复制文件/文件夹',
+    description: '复制文件或文件夹到目标路径。',
     defaultParams: {
-      operation: 'copy',
       sourcePath: '',
       targetPath: '',
-      path: '',
       overwrite: false,
       recursive: true,
+    },
+    fields: [
+      { key: 'sourcePath', label: '源路径', type: 'string', placeholder: 'C:\\input\\a.txt' },
+      { key: 'targetPath', label: '目标路径', type: 'string', placeholder: 'D:\\output\\a.txt' },
+      { key: 'overwrite', label: '覆盖已存在目标', type: 'boolean' },
+      { key: 'recursive', label: '目录递归复制', type: 'boolean' },
+    ],
+  },
+  fileMove: {
+    label: '移动文件/文件夹',
+    description: '移动文件或文件夹到目标路径。',
+    defaultParams: {
+      sourcePath: '',
+      targetPath: '',
+      overwrite: false,
+    },
+    fields: [
+      { key: 'sourcePath', label: '源路径', type: 'string', placeholder: 'C:\\input\\folder-a' },
+      { key: 'targetPath', label: '目标路径', type: 'string', placeholder: 'D:\\output\\folder-a' },
+      { key: 'overwrite', label: '覆盖已存在目标', type: 'boolean' },
+    ],
+  },
+  fileDelete: {
+    label: '删除文件/文件夹',
+    description: '删除文件或文件夹。',
+    defaultParams: {
+      path: '',
+      recursive: true,
+    },
+    fields: [
+      { key: 'path', label: '路径', type: 'string', placeholder: 'D:\\temp\\old-folder' },
+      { key: 'recursive', label: '目录递归删除', type: 'boolean' },
+    ],
+  },
+  fileReadText: {
+    label: '读取文本文件',
+    description: '读取文本文件内容并输出为变量。',
+    defaultParams: {
+      path: '',
+      outputVar: 'fileText',
+    },
+    fields: [
+      { key: 'path', label: '文件路径', type: 'string', placeholder: 'C:\\temp\\note.txt' },
+      { key: 'outputVar', label: '输出变量名', type: 'string', placeholder: 'fileText', description: '读取到的文本将写入该变量；留空则仅记录日志。' },
+    ],
+  },
+  fileWriteText: {
+    label: '写入文本文件',
+    description: '将文本内容写入文件，支持追加模式与自动创建父目录。',
+    defaultParams: {
+      path: '',
       inputMode: 'literal',
       inputText: 'Hello File',
       inputVar: 'fileText',
-      outputVar: 'fileText',
       append: false,
       createParentDir: true,
     },
     fields: [
-      {
-        key: 'operation',
-        label: '操作类型',
-        type: 'select',
-        options: FILE_OPERATION_OPTIONS,
-      },
-      { key: 'sourcePath', label: '源路径', type: 'string', placeholder: 'C:\\input\\a.txt' },
-      { key: 'targetPath', label: '目标路径', type: 'string', placeholder: 'D:\\output\\a.txt' },
-      { key: 'path', label: '路径', type: 'string', placeholder: 'D:\\temp\\old-folder' },
-      { key: 'overwrite', label: '覆盖已存在目标', type: 'boolean' },
-      { key: 'recursive', label: '目录递归复制', type: 'boolean' },
+      { key: 'path', label: '文件路径', type: 'string', placeholder: 'D:\\output\\result.txt' },
       {
         key: 'inputMode',
         label: '输入来源',
@@ -1371,7 +1422,6 @@ finished(content='xxx') # Use escape characters \\', backslash+double-quote, and
         placeholder: '支持多行文本，也支持 {{变量名}} 模板占位。',
       },
       { key: 'inputVar', label: '变量名', type: 'string', placeholder: 'fileText' },
-      { key: 'outputVar', label: '输出变量名', type: 'string', placeholder: 'fileText' },
       { key: 'append', label: '追加写入', type: 'boolean' },
       { key: 'createParentDir', label: '自动创建父目录', type: 'boolean' },
     ],

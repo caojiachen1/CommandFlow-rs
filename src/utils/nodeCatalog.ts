@@ -14,7 +14,10 @@ import {
   Combine,
   Database,
   FileText,
+  FilePen,
   FolderOpen,
+  Copy,
+  Trash2,
   GitBranch,
   HandGrab,
   Keyboard,
@@ -63,7 +66,7 @@ export interface NodePaletteItem {
 }
 
 export interface NodePaletteCategory {
-  title: '触发器' | '流程控制' | '鼠标' | '键盘' | '控件定位' | '电源管理' | '音频与显示' | '网络' | '系统设置' | '窗口与进程' | '文件与剪贴板' | '脚本与命令' | 'AI 智能体' | '变量与数据'
+  title: '触发器' | '流程控制' | '鼠标' | '键盘' | '控件定位' | '电源管理' | '音频与显示' | '网络' | '系统设置' | '窗口与进程' | '文件' | '剪贴板' | '脚本与命令' | 'AI 智能体' | '变量与数据'
   icon: LucideIcon
   items: NodePaletteItem[]
 }
@@ -174,12 +177,22 @@ const categories: NodePaletteCategory[] = [
     ],
   },
   {
-    title: '文件与剪贴板',
+    title: '文件',
     icon: FolderOpen,
     items: [
-      { label: '文件操作', kind: 'fileOperation', color: 'bg-fuchsia-500', icon: FileText, category: '文件与剪贴板' },
-      { label: '读取剪贴板', kind: 'clipboardRead', color: 'bg-emerald-500', icon: Clipboard, category: '文件与剪贴板' },
-      { label: '写入剪贴板', kind: 'clipboardWrite', color: 'bg-teal-500', icon: Clipboard, category: '文件与剪贴板' },
+      { label: '复制文件/文件夹', kind: 'fileCopy', color: 'bg-fuchsia-500', icon: Copy, category: '文件' },
+      { label: '移动文件/文件夹', kind: 'fileMove', color: 'bg-fuchsia-600', icon: FilePen, category: '文件' },
+      { label: '删除文件/文件夹', kind: 'fileDelete', color: 'bg-red-500', icon: Trash2, category: '文件' },
+      { label: '读取文本文件', kind: 'fileReadText', color: 'bg-fuchsia-400', icon: FileText, category: '文件' },
+      { label: '写入文本文件', kind: 'fileWriteText', color: 'bg-fuchsia-500', icon: FileText, category: '文件' },
+    ],
+  },
+  {
+    title: '剪贴板',
+    icon: Clipboard,
+    items: [
+      { label: '读取剪贴板', kind: 'clipboardRead', color: 'bg-emerald-500', icon: Clipboard, category: '剪贴板' },
+      { label: '写入剪贴板', kind: 'clipboardWrite', color: 'bg-teal-500', icon: Clipboard, category: '剪贴板' },
     ],
   },
   {

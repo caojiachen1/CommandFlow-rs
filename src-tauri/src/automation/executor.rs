@@ -850,7 +850,6 @@ impl WorkflowExecutor {
             }
             NodeKind::TerminateProcess => execute_terminate_process(node, ctx, on_log),
             NodeKind::LaunchApplication => execute_launch_application(node, ctx, on_log),
-            NodeKind::FileOperation => execute_file_operation(node, ctx, None, on_log),
             NodeKind::FileCopy => execute_file_operation(node, ctx, Some("copy"), on_log),
             NodeKind::FileMove => execute_file_operation(node, ctx, Some("move"), on_log),
             NodeKind::FileDelete => execute_file_operation(node, ctx, Some("delete"), on_log),

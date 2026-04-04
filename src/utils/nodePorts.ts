@@ -69,6 +69,14 @@ const SPLIT_KEYBOARD_KIND_TO_OPERATION: Partial<Record<NodeKind, KeyboardOperati
   shortcut: 'shortcut',
 }
 
+const SPLIT_FILE_KIND_TO_OPERATION: Partial<Record<NodeKind, string>> = {
+  fileCopy: 'copy',
+  fileMove: 'move',
+  fileDelete: 'delete',
+  fileReadText: 'readText',
+  fileWriteText: 'writeText',
+}
+
 const resolveMouseOperationForNode = (
   kind: NodeKind,
   params: Record<string, unknown> = {},
@@ -393,7 +401,23 @@ const specs: Record<NodeKind, NodePortSpec> = {
       { id: 'iconPath', label: 'iconPath', maxConnections: MANY, valueType: 'string' },
     ],
   },
-  fileOperation: {
+  fileCopy: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  fileMove: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  fileDelete: {
+    inputs: singleIn(),
+    outputs: singleOut(),
+  },
+  fileReadText: {
+    inputs: singleIn(),
+    outputs: [...singleOut(), { id: 'text', label: 'text', maxConnections: MANY, valueType: 'string' }],
+  },
+  fileWriteText: {
     inputs: singleIn(),
     outputs: singleOut(),
   },
@@ -618,7 +642,7 @@ export const getNodePortSpec = (kind: NodeKind, params: Record<string, unknown> 
         ? getMouseOperationDynamicOutputs(kind, params)
         : kind === 'keyboardOperation' || Boolean(SPLIT_KEYBOARD_KIND_TO_OPERATION[kind])
           ? getKeyboardOperationDynamicOutputs(kind, params)
-          : kind === 'fileOperation'
+          : Boolean(SPLIT_FILE_KIND_TO_OPERATION[kind])
             ? getFileOperationDynamicOutputs(params)
             : kind === 'launchApplication'
               ? getLaunchApplicationDynamicOutputs(params)

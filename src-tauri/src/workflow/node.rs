@@ -30,7 +30,6 @@ pub enum NodeKind {
     WindowActivate,
     TerminateProcess,
     LaunchApplication,
-    FileOperation,
     FileCopy,
     FileMove,
     FileDelete,
