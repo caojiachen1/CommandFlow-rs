@@ -605,6 +605,13 @@ export const isNodeFieldVisible = (
     if (field.key === 'inputVar') return inputMode === 'var'
   }
 
+  if (kind === 'screenshot') {
+    const fullscreen = Boolean(params.fullscreen ?? defaultParams.fullscreen ?? false)
+    if (fullscreen && ['startX', 'startY', 'width', 'height'].includes(field.key)) {
+      return false
+    }
+  }
+
   return true
 }
 
