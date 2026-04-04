@@ -941,7 +941,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       const checked = Boolean(currentValue)
       return (
         <div className="relative">
-          <div className="flex h-9 w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 text-[11px] shadow-inner dark:border-white/20 dark:bg-black/35">
+          <div className="flex w-full items-center rounded-full border border-white/25 bg-black/20 px-2.5 py-1 text-[11px] shadow-inner dark:border-white/20 dark:bg-black/35">
             <button
               type="button"
               disabled={isInputDisabled}
