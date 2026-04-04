@@ -8,18 +8,18 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --cf-surface-0: #f3f3f3;
-  --cf-surface-1: #ffffff;
-  --cf-surface-2: #f8f8f8;
-  --cf-surface-3: #ffffff;
-  --cf-border: #d1d1d1;
-  --cf-border-strong: #a0a0a0;
-  --cf-text: #1b1b1b;
-  --cf-text-muted: #616161;
+  --cf-surface-0: #2a2a2a;
+  --cf-surface-1: #2d2d2d;
+  --cf-surface-2: #333333;
+  --cf-surface-3: #363636;
+  --cf-border: #454545;
+  --cf-border-strong: #56565f;
+  --cf-text: #f3f3f3;
+  --cf-text-muted: #c8c8c8;
   --cf-accent: #0f6cbd;
   --cf-accent-hover: #115ea3;
   --cf-accent-active: #0f548c;
-  --cf-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.12);
+  --cf-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
   --flow-grid-color: #94a3b8;
 }
 
