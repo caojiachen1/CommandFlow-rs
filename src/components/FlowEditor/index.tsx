@@ -213,6 +213,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     onReconnect,
     setSelectedNode,
     addNode,
+    disconnectHandleConnections,
   } = useWorkflowStore()
   const setZoom = useSettingsStore((state) => state.setZoom)
   const reactFlow = useReactFlow()
@@ -606,11 +607,14 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   }, [setSelectedNode])
 
   const handlePaneClick = useCallback(() => {
+    if (quickInsert) {
+      disconnectHandleConnections(quickInsert.pendingNodeId, quickInsert.pendingHandleType, quickInsert.pendingHandleId)
+    }
     setSelectedNode(null)
     closeQuickInsert()
     closeGlobalInsert()
     onPaneClick?.()
-  }, [setSelectedNode, closeQuickInsert, closeGlobalInsert, onPaneClick])
+  }, [setSelectedNode, closeQuickInsert, closeGlobalInsert, onPaneClick, disconnectHandleConnections, quickInsert])
 
   const handleConnect = useCallback(
     (connection: Connection) => {
