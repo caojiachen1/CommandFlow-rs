@@ -179,6 +179,18 @@ body {
   background: var(--cf-surface-2) !important;
 }
 
+/* 下拉控件内部输入框：去掉边框 */
+.cf-window.cf-property-editor .cf-prop-dropdown-shell input[type='text'] {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 下拉控件内部下拉按钮：去掉背景 */
+.cf-window.cf-property-editor .cf-prop-dropdown-shell button {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 /* 节点输入框仅显示文字：去掉输入框本体背景/边框/阴影（外层容器样式保留） */
 .cf-window .react-flow__node input[type='text'],
 .cf-window .react-flow__node input[type='number'],
