@@ -34,3 +34,6 @@ src-tauri/gen/
 
 *.md
 !docs/*.md
+
+# Development certificate
+*.pfx

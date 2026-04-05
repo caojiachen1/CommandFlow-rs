@@ -41,7 +41,7 @@ const runningStyles = {
 }
 
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
-  if (kind === 'fileOperation' && (fieldKey === 'sourcePath' || fieldKey === 'targetPath' || fieldKey === 'path')) {
+  if ((kind === 'fileCopy' || kind === 'fileMove' || kind === 'fileDelete' || kind === 'fileReadText' || kind === 'fileWriteText') && (fieldKey === 'sourcePath' || fieldKey === 'targetPath' || fieldKey === 'path')) {
     return true
   }
   if (kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')) {
@@ -61,7 +61,7 @@ const isImageMatchImageField = (kind: NodeKind, fieldKey: string) =>
   kind === 'imageMatch' && (fieldKey === 'sourcePath' || fieldKey === 'templatePath')
 
 const isTextFilePathField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
-  kind === 'fileOperation' && fieldKey === 'path' && (params.operation === 'readText' || params.operation === 'writeText')
+  (kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'path' && (params.operation === 'readText' || params.operation === 'writeText')
 
 const isStrictFilePathField = (kind: NodeKind, fieldKey: string, params: Record<string, unknown> = {}) =>
   isImageMatchImageField(kind, fieldKey) || isTextFilePathField(kind, fieldKey, params) || (kind === 'clipboardWrite' && fieldKey === 'imagePath')
@@ -79,11 +79,11 @@ const isVariableNameField = (kind: NodeKind, fieldKey: string) =>
   (kind === 'varDefine' || kind === 'varSet' || kind === 'varMath' || kind === 'varGet') && fieldKey === 'name'
 
 const isInputVariableField = (kind: NodeKind, fieldKey: string) =>
-  ((kind === 'clipboardWrite' || kind === 'fileOperation' || kind === 'showMessage') && fieldKey === 'inputVar') ||
+  ((kind === 'clipboardWrite' || kind === 'fileCopy' || kind === 'fileMove' || kind === 'fileDelete' || kind === 'fileReadText' || kind === 'fileWriteText' || kind === 'showMessage') && fieldKey === 'inputVar') ||
   (kind === 'clipboardWrite' && fieldKey === 'imageVar')
 
 const isOutputVariableField = (kind: NodeKind, fieldKey: string) =>
-  ((kind === 'clipboardRead' || kind === 'fileOperation') && fieldKey === 'outputVar') ||
+  ((kind === 'clipboardRead' || kind === 'fileCopy' || kind === 'fileMove' || kind === 'fileDelete' || kind === 'fileReadText' || kind === 'fileWriteText') && fieldKey === 'outputVar') ||
   (kind === 'clipboardRead' && (fieldKey === 'outputTextVar' || fieldKey === 'outputImageVar'))
 
 const isWindowLookupNode = (kind: NodeKind) =>
