@@ -12,12 +12,12 @@
   IgnorableNamespaces="uap uap2 uap3 uap10 desktop desktop6 rescap">
 
   <Identity
-    Name="commandflow-rs"
+    Name="CommandFlow"
     Publisher="CN=caoji"
     Version="1.0.0.0" />
 
   <Properties>
-    <DisplayName>commandflow-rs</DisplayName>
+    <DisplayName>CommandFlow</DisplayName>
     <PublisherDisplayName>caoji</PublisherDisplayName>
     <Logo>icons\StoreLogo.png</Logo>
   </Properties>
@@ -31,13 +31,13 @@
   </Resources>
 
   <Applications>
-    <Application Id="commandflowRs"
+    <Application Id="CommandFlow"
       Executable="$targetnametoken$.exe"
       EntryPoint="Windows.FullTrustApplication"
       uap10:TrustLevel="mediumIL"
       uap10:RuntimeBehavior="packagedClassicApp">
       <uap:VisualElements
-        DisplayName="commandflow-rs"
+        DisplayName="CommandFlow"
         Description="Windows Application"
         BackgroundColor="transparent"
         Square150x150Logo="icons\Square150x150Logo.png"
