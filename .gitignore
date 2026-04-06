@@ -37,3 +37,6 @@ src-tauri/gen/
 
 # Development certificate
 *.pfx
+
+*.msix
+.*/
