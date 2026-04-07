@@ -208,8 +208,7 @@ const categories: NodePaletteCategory[] = [
   {
     title: 'AI 智能体',
     icon: Blocks,
-    items: [
-      { label: 'GUI Agent', kind: 'guiAgent', color: 'bg-violet-600', icon: Bot, category: 'AI 智能体' },
+    items: [      { label: 'LLM 对话', kind: 'llmChat', color: 'bg-violet-700', icon: MessageSquare, category: 'AI 智能体' },      { label: 'GUI Agent', kind: 'guiAgent', color: 'bg-violet-600', icon: Bot, category: 'AI 智能体' },
       { label: 'GUI Agent 元数据解析', kind: 'guiAgentActionParser', color: 'bg-violet-500', icon: Braces, category: 'AI 智能体' },
     ],
   },

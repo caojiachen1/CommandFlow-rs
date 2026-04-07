@@ -41,6 +41,7 @@ import LoopNode from '../../nodes/LoopNode'
 import TryCatchNode from '../../nodes/TryCatchNode'
 import ScreenshotNode from '../../nodes/ScreenshotNode'
 import VariableNode from '../../nodes/VariableNode'
+import LlmChatNode from '../../nodes/LlmChatNode'
 import PropertyModal from '../PropertyModal'
 
 const allowedKinds: NodeKind[] = ALL_NODE_KINDS
@@ -292,6 +293,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       runCommand: ClickNode,
       guiAgent: ClickNode,
       guiAgentActionParser: ClickNode,
+      llmChat: LlmChatNode,
     }),
     [],
   )

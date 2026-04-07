@@ -18,7 +18,7 @@ import StartMenuAppOptionsList from '../components/StartMenuAppOptionsList'
 interface BaseNodeProps {
   id: string
   data: WorkflowNodeData
-  tone?: 'trigger' | 'action' | 'control'
+  tone?: 'trigger' | 'action' | 'control' | 'ai'
   selected?: boolean
 }
 
@@ -26,18 +26,21 @@ const tones = {
   trigger: 'border-[rgb(53,53,53)] bg-[rgb(53,53,53)] text-gray-100',
   action: 'border-[rgb(53,53,53)] bg-[rgb(53,53,53)] text-gray-100',
   control: 'border-[rgb(53,53,53)] bg-[rgb(53,53,53)] text-gray-100',
+  ai: 'border-[rgb(53,53,53)] bg-[rgb(53,53,53)] text-gray-100',
 }
 
 const selectedStyles = {
   trigger: 'border-gray-400 ring-1 ring-gray-400',
   action: 'border-gray-400 ring-1 ring-gray-400',
   control: 'border-gray-400 ring-1 ring-gray-400',
+  ai: 'border-gray-400 ring-1 ring-gray-400',
 }
 
 const runningStyles = {
   trigger: 'border-red-500 ring-2 ring-red-500/80 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]',
   action: 'border-red-500 ring-2 ring-red-500/80 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]',
   control: 'border-red-500 ring-2 ring-red-500/80 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]',
+  ai: 'border-red-500 ring-2 ring-red-500/80 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]',
 }
 
 const isFilePathField = (kind: NodeKind, fieldKey: string) => {
@@ -976,7 +979,7 @@ export default function BaseNode({ id, data, tone = 'action', selected = false }
       )
     }
 
-    const selectOptions = data.kind === 'guiAgent' && field.key === 'llmPresetId'
+    const selectOptions = field.key === 'llmPresetId'
       ? llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))
       : data.kind === 'inputPresetReplay' && field.key === 'presetId'
         ? inputRecordingPresets.map((preset) => ({ label: preset.name, value: preset.id }))

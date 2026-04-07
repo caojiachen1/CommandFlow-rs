@@ -365,6 +365,10 @@ const specs: Record<NodeKind, NodePortSpec> = {
     inputs: singleIn(),
     outputs: [...singleOut(), { id: 'metadata', label: 'metadata', maxConnections: MANY, valueType: 'json' }],
   },
+  llmChat: {
+    inputs: singleIn(),
+    outputs: [...singleOut(), { id: 'answer', label: '回答', maxConnections: MANY, valueType: 'string' }],
+  },
   guiAgentActionParser: {
     inputs: singleIn(),
     outputs: singleOut(),

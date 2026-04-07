@@ -60,6 +60,7 @@ pub enum NodeKind {
     SystemOpenSettings,
     GuiAgent,
     GuiAgentActionParser,
+    LlmChat,
     Condition,
     Loop,
     WhileLoop,

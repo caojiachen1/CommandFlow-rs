@@ -215,6 +215,7 @@ const workflowNodeKinds = [
   "runCommand",
   "guiAgent",
   "guiAgentActionParser",
+  "llmChat",
   "condition",
   "loop",
   "whileLoop",

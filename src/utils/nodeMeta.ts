@@ -1189,6 +1189,43 @@ finished(content='xxx') # Use escape characters \\', backslash+double-quote, and
       },
     ],
   },
+  llmChat: {
+    label: 'LLM 对话',
+    description: '发送文字输入到 LLM 并获取回答。',
+    defaultParams: {
+      llmPresetId: '',
+      prompt: '',
+      systemPrompt: '你是一个有用的助手。',
+      outputVar: 'llm_answer',
+    },
+    fields: [
+      {
+        key: 'llmPresetId',
+        label: 'LLM 预设',
+        type: 'select',
+        options: [],
+        description: '在设置里维护 LLM 预设，这里仅选择预设。',
+      },
+      {
+        key: 'prompt',
+        label: '输入文字',
+        type: 'text',
+        placeholder: '输入你想问的问题，支持 {varName} 变量注入',
+      },
+      {
+        key: 'systemPrompt',
+        label: '系统提示词',
+        type: 'text',
+        placeholder: '例如：你是一个翻译专家',
+      },
+      {
+        key: 'outputVar',
+        label: '输出变量名',
+        type: 'string',
+        placeholder: 'llm_answer',
+      },
+    ],
+  },
   guiAgentActionParser: {
     label: 'GUI Agent 元数据解析',
     description: '解析 GUI Agent metadata，并按选定动作输出结构化字段。',

@@ -25,7 +25,7 @@ export interface BackendWorkflowGraph {
   edges: BackendWorkflowEdge[]
 }
 
-const resolveGuiAgentPresetParams = (params: Record<string, unknown>): Record<string, unknown> => {
+const resolveLlmPresetParams = (params: Record<string, unknown>): Record<string, unknown> => {
   const presetId = typeof params.llmPresetId === 'string' ? params.llmPresetId : ''
   if (!presetId) return params
 
@@ -49,7 +49,10 @@ export const toBackendGraph = (file: WorkflowFile): BackendWorkflowGraph => ({
     kind: node.data.kind,
     position_x: node.position.x,
     position_y: node.position.y,
-    params: node.data.kind === 'guiAgent' ? resolveGuiAgentPresetParams(node.data.params) : node.data.params,
+    params:
+      node.data.kind === 'guiAgent' || node.data.kind === 'llmChat'
+        ? resolveLlmPresetParams(node.data.params)
+        : node.data.params,
   })),
   edges: file.graph.edges.map((edge) => ({
     id: edge.id,

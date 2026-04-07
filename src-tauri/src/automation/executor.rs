@@ -785,6 +785,10 @@ impl WorkflowExecutor {
                 set_node_output(ctx, node, "metadata", metadata);
                 Ok(NextDirective::Default)
             }
+            NodeKind::LlmChat => {
+                execute_llm_chat(node, ctx, on_log, should_cancel).await?;
+                Ok(NextDirective::Default)
+            }
             NodeKind::GuiAgentActionParser => {
                 execute_gui_agent_action_parser(node, ctx, on_log)?;
                 Ok(NextDirective::Default)
@@ -4740,6 +4744,116 @@ enum GuiAgentAction {
 struct GuiAgentHistoryTurn {
     image_data_url: String,
     assistant_output: String,
+}
+
+async fn execute_llm_chat(
+    node: &WorkflowNode,
+    ctx: &mut ExecutionContext,
+    on_log: &mut impl FnMut(&str, String),
+    should_cancel: &impl Fn() -> bool,
+) -> CommandResult<()> {
+    if should_cancel() {
+        return Err(CommandFlowError::Canceled);
+    }
+
+    let base_url = get_string(node, "baseUrl", "https://api.openai.com");
+    let api_key = get_string(node, "apiKey", "");
+    let model = get_string(node, "model", "gpt-4o");
+    let system_prompt_template = get_string(node, "systemPrompt", "");
+    let prompt_template = get_string(node, "prompt", "");
+    let output_var = get_string(node, "outputVar", "");
+
+    if base_url.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' LLM Chat baseUrl cannot be empty",
+            node.id
+        )));
+    }
+
+    let system_prompt = resolve_text_template(&system_prompt_template, &ctx.variables);
+    let prompt = resolve_text_template(&prompt_template, &ctx.variables);
+
+    if prompt.trim().is_empty() {
+        return Err(CommandFlowError::Validation(format!(
+            "node '{}' prompt cannot be empty",
+            node.id
+        )));
+    }
+
+    let endpoint = resolve_chat_endpoint(&base_url);
+    let client = reqwest::Client::new();
+
+    let mut messages = Vec::new();
+    if !system_prompt.is_empty() {
+        messages.push(serde_json::json!({
+            "role": "system",
+            "content": system_prompt
+        }));
+    }
+    messages.push(serde_json::json!({
+        "role": "user",
+        "content": prompt
+    }));
+
+    let request_body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+    });
+
+    on_log(
+        "info",
+        format!(
+            "LLM Chat 节点 '{}' 开始请求 (模型: {}, 端点: {})",
+            node.label, model, endpoint
+        ),
+    );
+
+    let mut request = client
+        .post(&endpoint)
+        .header(CONTENT_TYPE, "application/json")
+        .json(&request_body);
+
+    if !api_key.trim().is_empty() {
+        request = request.header(AUTHORIZATION, format!("Bearer {}", api_key));
+    }
+
+    let response = request.send().await.map_err(|e| {
+        CommandFlowError::Automation(format!("LLM Chat request failed: {}", e))
+    })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(CommandFlowError::Automation(format!(
+            "LLM Chat API error (status {}): {}",
+            status,
+            error_text
+        )));
+    }
+
+    let response_json: Value = response.json().await.map_err(|e| {
+        CommandFlowError::Automation(format!("Failed to parse LLM Chat response: {}", e))
+    })?;
+
+    let content = response_json["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    on_log(
+        "info",
+        format!("LLM Chat 节点 '{}' 请求成功，响应长度: {}", node.label, content.len()),
+    );
+
+    // 设置节点输出
+    set_node_output(ctx, node, "answer", Value::String(content.clone()));
+
+    // 如果指定了变量名，写入变量
+    if !output_var.trim().is_empty() {
+        ctx.variables.insert(output_var, Value::String(content));
+    }
+
+    Ok(())
 }
 
 async fn execute_gui_agent_action(

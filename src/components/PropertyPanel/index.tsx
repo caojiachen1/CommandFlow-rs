@@ -533,6 +533,19 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
   const renderField = (field: ParamField) => {
     if (!selectedNode) return null
     const currentValue = getResolvedFieldValue(field)
+
+    // 优先处理 LLM 预设字段，不分节点类型
+    if (field.key === 'llmPresetId') {
+      return (
+        <StyledSelect
+          value={String(currentValue ?? '')}
+          options={llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))}
+          onChange={(nextValue) => updateParam(field.key, nextValue)}
+          placeholder={llmPresets.length > 0 ? '请选择 LLM 预设' : '请先在设置中新增预设'}
+        />
+      )
+    }
+
     const isScreenshotSizeFieldDisabled =
       selectedNode.data.kind === 'screenshot' &&
       (field.key === 'startX' || field.key === 'startY' || field.key === 'width' || field.key === 'height') &&
@@ -561,17 +574,6 @@ export default function PropertyPanel({ expanded, onToggle }: PropertyPanelProps
     }
 
     if (field.type === 'select') {
-      if (selectedNode.data.kind === 'guiAgent' && field.key === 'llmPresetId') {
-        return (
-          <StyledSelect
-            value={String(currentValue ?? '')}
-            options={llmPresets.map((preset) => ({ label: preset.name, value: preset.id }))}
-            onChange={(nextValue) => updateParam(field.key, nextValue)}
-            placeholder={llmPresets.length > 0 ? '请选择 LLM 预设' : '请先在设置中新增预设'}
-          />
-        )
-      }
-
       if (selectedNode.data.kind === 'inputPresetReplay' && field.key === 'presetId') {
         return (
           <StyledSelect

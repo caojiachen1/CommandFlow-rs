@@ -55,6 +55,7 @@ export type ActionNodeKind =
   | 'runCommand'
   | 'guiAgent'
   | 'guiAgentActionParser'
+  | 'llmChat'
 export type ControlNodeKind = 'condition' | 'loop' | 'whileLoop' | 'imageMatch' | 'ocrMatch' | 'tryCatch'
 export type DataNodeKind = 'varDefine' | 'varSet' | 'varMath' | 'varGet' | 'constValue'
   | 'currentTime'
