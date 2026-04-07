@@ -24,12 +24,12 @@
 }
 
 .dark {
-  --cf-surface-0: #1b1b1f;
-  --cf-surface-1: #252526;
-  --cf-surface-2: #2d2d30;
-  --cf-surface-3: #313135;
-  --cf-border: #3f3f46;
-  --cf-border-strong: #56565f;
+  --cf-surface-0: #121212;
+  --cf-surface-1: #1f1f1f;
+  --cf-surface-2: #252526;
+  --cf-surface-3: #2d2d30;
+  --cf-border: #2f2f2f;
+  --cf-border-strong: #3f3f3f;
   --cf-text: #f3f3f3;
   --cf-text-muted: #c8c8c8;
   --cf-accent: #0f6cbd;

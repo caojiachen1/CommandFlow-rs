@@ -3155,7 +3155,7 @@ function App() {
             <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
             <div
               ref={rightPaneRef}
-              className="cf-window cf-pane flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/30 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/40"
+              className="cf-window cf-pane flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/50 backdrop-blur-md dark:border-neutral-800 dark:bg-[#1f1f1f]"
             >
               <div
                 className="flex min-h-[120px] flex-col border-b border-slate-200 dark:border-neutral-800"
