@@ -1957,7 +1957,7 @@ pub async fn set_background_mode(app: AppHandle, enabled: bool) -> Result<String
     let snapshot_mutex = window_snapshot_store();
 
     if enabled {
-        let compact_width = 640u32;
+        let compact_width = 700u32;
         let compact_height = 340u32;
 
         {
