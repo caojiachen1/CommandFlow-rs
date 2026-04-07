@@ -6,7 +6,7 @@ if not exist .\src-tauri\target\release\commandflow-rs.exe (
 if not exist devcert.pfx (
     echo Certificate not found. Generating and installing...
     winapp cert generate
-    winapp cert install .\devcert.pfx
+    sudo winapp cert install .\devcert.pfx
 )
 
 if exist msix rm -rf msix
