@@ -1,3 +1,10 @@
+@echo off
+where winapp >nul 2>&1
+if %errorlevel% neq 0 (
+    echo winapp command not found. Installing Microsoft.WinAppCli...
+    winget install Microsoft.WinAppCli --accept-source-agreements --accept-package-agreements
+)
+
 if not exist .\src-tauri\target\release\commandflow-rs.exe (
     echo Executable not found. Running build...
     npm run tauri build
