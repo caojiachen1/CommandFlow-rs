@@ -9,10 +9,10 @@ if not exist devcert.pfx (
     sudo winapp cert install .\devcert.pfx
 )
 
-if exist msix rm -rf msix
+if exist msix rmdir /s /q msix
 mkdir msix
 copy .\src-tauri\target\release\commandflow-rs.exe .\msix
 copy .\appxmanifest.xml .\msix
 xcopy /E /I .\icons .\msix\icons
 winapp pack .\msix --cert .\devcert.pfx
-rm -rf .\msix
+rmdir /s /q .\msix
