@@ -1,6 +1,10 @@
-# Linux 编译指南
+# Linux Build Guide
 
-## 系统依赖
+## System Requirements
+
+This guide requires Ubuntu 24.04 or later.
+
+## Dependencies
 
 ```bash
 sudo apt install \
@@ -20,20 +24,20 @@ sudo apt install \
   xdotool -y
 ```
 
-## 编译步骤
+## Build Steps
 
-### 开发模式
+### Development Mode
 
 ```bash
 npm run tauri dev
 ```
 
-### 发布构建
+### Release Build
 
 ```bash
 npm run tauri build
 ```
 
-## 说明
+## Notes
 
-> **注意**：当前 Linux 编译支持仅为占位实现，缺少实际功能实现。缺少系统操作相关的功能，后续将尽可能改善。
+> **Note**: Current Linux build support is only a placeholder implementation and lacks complete functionality. System operation features are still missing and will be improved over time.
