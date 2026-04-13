@@ -21,5 +21,6 @@ mkdir msix
 copy .\src-tauri\target\release\commandflow-rs.exe .\msix
 copy .\appxmanifest.xml .\msix
 xcopy /E /I .\icons .\msix\icons
+copy /Y .\src-tauri\icons\icon.ico .\msix\icons\icon.ico
 winapp pack .\msix --cert .\devcert.pfx
 rmdir /s /q .\msix
