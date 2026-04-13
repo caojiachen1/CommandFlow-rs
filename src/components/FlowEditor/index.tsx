@@ -204,7 +204,12 @@ const getClientPoint = (event: MouseEvent | TouchEvent) => {
   return { x: event.clientX, y: event.clientY }
 }
 
-function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
+interface FlowEditorProps {
+  onPaneClick?: () => void
+  onWorkflowFileDrop?: (files: File[]) => void | Promise<void>
+}
+
+function InnerFlowEditor({ onPaneClick, onWorkflowFileDrop }: FlowEditorProps) {
   const {
     nodes,
     edges,
@@ -416,13 +421,18 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
     const handleDragOver = (event: DragEvent) => {
       event.preventDefault()
       if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move'
+        event.dataTransfer.dropEffect = event.dataTransfer.files.length > 0 ? 'copy' : 'move'
       }
     }
 
     const handleDrop = (event: DragEvent) => {
       event.preventDefault()
       if (!event.dataTransfer) return
+
+      const droppedFiles = Array.from(event.dataTransfer.files)
+      if (droppedFiles.length > 0) {
+        return
+      }
 
       const rawKind =
         event.dataTransfer.getData('text/plain') ||
@@ -445,7 +455,7 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
       el.removeEventListener('dragover', handleDragOver)
       el.removeEventListener('drop', handleDrop)
     }
-  }, [reactFlow, addNode])
+  }, [reactFlow, addNode, onWorkflowFileDrop])
 
   useEffect(() => {
     const wrapper = wrapperRef.current
@@ -1093,11 +1103,11 @@ function InnerFlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
   )
 }
 
-export default function FlowEditor({ onPaneClick }: { onPaneClick?: () => void }) {
+export default function FlowEditor({ onPaneClick, onWorkflowFileDrop }: FlowEditorProps) {
   return (
     <section className="h-full flex-1 relative z-0">
       <ReactFlowProvider>
-        <InnerFlowEditor onPaneClick={onPaneClick} />
+        <InnerFlowEditor onPaneClick={onPaneClick} onWorkflowFileDrop={onWorkflowFileDrop} />
       </ReactFlowProvider>
     </section>
   )

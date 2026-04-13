@@ -6,11 +6,32 @@ pub mod input_recorder;
 pub mod secure_settings;
 pub mod workflow;
 
+use std::path::PathBuf;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+fn collect_startup_workflow_paths() -> Vec<String> {
+    std::env::args_os()
+        .skip(1)
+        .filter_map(|arg| {
+            let candidate = PathBuf::from(arg);
+            let extension = candidate.extension()?.to_str()?;
+            if !extension.eq_ignore_ascii_case("json") {
+                return None;
+            }
+
+            Some(candidate.to_string_lossy().to_string())
+        })
+        .collect()
+}
+
 pub fn run() {
+    let startup_workflow_paths = collect_startup_workflow_paths();
+    if !startup_workflow_paths.is_empty() {
+        commands::queue_pending_workflow_paths(startup_workflow_paths);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -67,6 +88,8 @@ pub fn run() {
             commands::start_package_workflow_as_exe,
             commands::save_workflow,
             commands::load_workflow,
+            commands::read_workflow_file_text,
+            commands::consume_pending_workflow_paths,
             commands::pick_coordinate,
             commands::get_cursor_position,
             commands::confirm_coordinate_pick,

@@ -16,7 +16,7 @@ import {
   webLightTheme,
 } from "@fluentui/react-components";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import FlowEditor from "./components/FlowEditor";
 import NodePanel from "./components/NodePanel";
 import Toolbar from "./components/Toolbar";
@@ -40,6 +40,7 @@ import { useShortcutBindings } from "./hooks/useShortcutBindings";
 import { listen } from "@tauri-apps/api/event";
 import {
   checkPackagingEnvironment,
+  consumePendingWorkflowPaths,
   getCursorPosition,
   type PackageBuildOptionsPayload,
   type PackagingEnvironmentReportPayload,
@@ -48,6 +49,7 @@ import {
   pickUiElement,
   pickCoordinate,
   playCompletionBeep,
+  readWorkflowFileTextFromSystemPath,
   runWorkflow,
   setBackgroundMode,
   startInputRecording,
@@ -1083,10 +1085,35 @@ function App() {
     await applyBackgroundMode(true);
   }, [applyBackgroundMode]);
 
-  const toDisplayFileName = (path: string) => {
+  const toDisplayFileName = useCallback((path: string) => {
     const segments = path.split(/[/\\]/);
     return segments[segments.length - 1] || "workflow.json";
-  };
+  }, []);
+
+  const importWorkflowFromText = useCallback(
+    (content: string, fileName: string, filePath: string | null) => {
+      const parsed: unknown = JSON.parse(content);
+
+      if (!isWorkflowFile(parsed)) {
+        throw new Error("文件格式不是有效的 CommandFlow 工作流 JSON。");
+      }
+
+      importWorkflow(parsed, fileName);
+      setLastFileName(fileName);
+      setLastFilePath(filePath);
+    },
+    [importWorkflow],
+  );
+
+  const openWorkflowFromSystemPath = useCallback(
+    async (path: string, successPrefix = "已打开工作流") => {
+      const content = await readWorkflowFileTextFromSystemPath(path);
+      const fileName = toDisplayFileName(path);
+      importWorkflowFromText(content, fileName, path);
+      addLog("success", `${successPrefix}：${fileName}`);
+    },
+    [addLog, importWorkflowFromText, toDisplayFileName],
+  );
 
   const toWorkflowPayload = () => {
     const file = exportWorkflow();
@@ -1131,17 +1158,7 @@ function App() {
     if (!selectedPath || Array.isArray(selectedPath)) return;
 
     try {
-      const content = await readTextFile(selectedPath);
-      const parsed: unknown = JSON.parse(content);
-
-      if (!isWorkflowFile(parsed)) {
-        throw new Error("文件格式不是有效的 CommandFlow 工作流 JSON。");
-      }
-
-      importWorkflow(parsed, toDisplayFileName(selectedPath));
-      setLastFileName(toDisplayFileName(selectedPath));
-      setLastFilePath(selectedPath);
-      addLog("success", `已打开工作流：${toDisplayFileName(selectedPath)}`);
+      await openWorkflowFromSystemPath(selectedPath);
     } catch (error) {
       addLog("error", `打开失败：${String(error)}`);
     }
@@ -1187,15 +1204,7 @@ function App() {
 
     try {
       const content = await file.text();
-      const parsed: unknown = JSON.parse(content);
-
-      if (!isWorkflowFile(parsed)) {
-        throw new Error("文件格式不是有效的 CommandFlow 工作流 JSON。");
-      }
-
-      importWorkflow(parsed, file.name);
-      setLastFileName(file.name);
-      setLastFilePath(null);
+      importWorkflowFromText(content, file.name, null);
       addLog("success", `已打开工作流：${file.name}`);
     } catch (error) {
       addLog("error", `打开失败：${String(error)}`);
@@ -1203,6 +1212,128 @@ function App() {
       event.target.value = "";
     }
   };
+
+  const readDroppedFileContent = useCallback(
+    async (file: File) => {
+      const nativePath = (file as File & { path?: string }).path;
+
+      if (isTauriRuntime && typeof nativePath === "string" && nativePath) {
+        return readWorkflowFileTextFromSystemPath(nativePath);
+      }
+
+      return file.text();
+    },
+    [isTauriRuntime],
+  );
+
+  const handleWorkflowFilesDropped = useCallback(
+    async (files: File[]) => {
+      const workflowFiles = files.filter((file) =>
+        file.name.trim().toLowerCase().endsWith(".json"),
+      );
+
+      if (workflowFiles.length === 0) {
+        addLog("warn", "仅支持拖入 .json 工作流文件。");
+        return;
+      }
+
+      if (workflowFiles.length > 1) {
+        addLog("warn", `检测到 ${workflowFiles.length} 个文件，已自动打开第一个。`);
+      }
+
+      const selectedFile = workflowFiles[0];
+      const nativePathCandidate = (selectedFile as File & { path?: string }).path;
+      const nativePath =
+        typeof nativePathCandidate === "string" && nativePathCandidate.trim().length > 0
+          ? nativePathCandidate
+          : null;
+
+      try {
+        const content = await readDroppedFileContent(selectedFile);
+        const fileName = selectedFile.name || "workflow.json";
+        importWorkflowFromText(content, fileName, nativePath);
+        addLog("success", `已拖拽打开工作流：${fileName}`);
+      } catch (error) {
+        addLog("error", `拖拽打开失败：${String(error)}`);
+      }
+    },
+    [addLog, importWorkflowFromText, readDroppedFileContent],
+  );
+
+  useEffect(() => {
+    const handleWindowDragOver = (event: DragEvent) => {
+      if (!event.dataTransfer || event.dataTransfer.files.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+    };
+
+    const handleWindowDrop = (event: DragEvent) => {
+      if (!event.dataTransfer || event.dataTransfer.files.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const droppedFiles = Array.from(event.dataTransfer.files);
+      const workflowFiles = droppedFiles.filter((file) =>
+        file.name.trim().toLowerCase().endsWith(".json"),
+      );
+
+      if (workflowFiles.length > 0) {
+        void handleWorkflowFilesDropped(workflowFiles);
+      }
+    };
+
+    window.addEventListener("dragover", handleWindowDragOver, true);
+    window.addEventListener("drop", handleWindowDrop, true);
+
+    return () => {
+      window.removeEventListener("dragover", handleWindowDragOver, true);
+      window.removeEventListener("drop", handleWindowDrop, true);
+    };
+  }, [handleWorkflowFilesDropped]);
+
+  useEffect(() => {
+    if (!isTauriRuntime) {
+      return;
+    }
+
+    let disposed = false;
+
+    void (async () => {
+      try {
+        const pendingPaths = await consumePendingWorkflowPaths();
+        if (disposed || pendingPaths.length === 0) {
+          return;
+        }
+
+        await openWorkflowFromSystemPath(
+          pendingPaths[0],
+          "已根据启动参数打开工作流",
+        );
+
+        if (!disposed && pendingPaths.length > 1) {
+          addLog(
+            "warn",
+            `启动参数包含 ${pendingPaths.length} 个工作流文件，当前仅自动打开第一个。`,
+          );
+        }
+      } catch (error) {
+        if (!disposed) {
+          addLog("warn", `读取启动工作流参数失败：${String(error)}`);
+        }
+      }
+    })();
+
+    return () => {
+      disposed = true;
+    };
+  }, [addLog, isTauriRuntime, openWorkflowFromSystemPath]);
 
   const runSingleStep = useCallback(async () => {
     if (running) {
@@ -2557,7 +2688,7 @@ function App() {
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#202020] text-slate-900 selection:bg-cyan-100 dark:bg-[#202020] dark:text-slate-100 dark:selection:bg-cyan-900/30">
       {!backgroundMode && (
-        <header className="relative z-[100] flex h-8 shrink-0 items-center justify-between border-b border-[#2f2f2f] bg-[#1f1f1f]/95 px-3 text-[#cccccc] backdrop-blur-xl dark:border-[#2f2f2f] dark:bg-[#1f1f1f]/95">
+        <header className="relative z-[100] flex h-8 shrink-0 items-center justify-between border-b border-[#2f2f2f] bg-[rgb(32,32,32)] px-3 text-[#cccccc] backdrop-blur-xl dark:border-[#2f2f2f] dark:bg-[rgb(32,32,32)]">
           <div
             className="flex items-center gap-1 text-[12px]"
             ref={menuRef}
@@ -3152,7 +3283,10 @@ function App() {
                 显示工具箱
               </button>
             )}
-            <FlowEditor onPaneClick={handleFlowEditorPaneClick} />
+            <FlowEditor
+              onPaneClick={handleFlowEditorPaneClick}
+              onWorkflowFileDrop={handleWorkflowFilesDropped}
+            />
             <div
               ref={rightPaneRef}
               className="cf-window cf-pane flex min-h-0 flex-col border-l border-slate-200 bg-slate-50/50 backdrop-blur-md dark:border-neutral-800 dark:bg-[#1f1f1f]"

@@ -1,9 +1,9 @@
 use crate::automation::executor::WorkflowExecutor;
+use crate::automation::process;
 use crate::automation::screenshot;
 use crate::automation::start_menu;
 use crate::automation::uia;
 use crate::automation::window;
-use crate::automation::process;
 use crate::input_recorder;
 use crate::workflow::graph::WorkflowGraph;
 #[cfg(target_os = "windows")]
@@ -63,6 +63,47 @@ struct ExecutionControl {
 fn execution_control() -> &'static ExecutionControl {
     static EXECUTION_CONTROL: OnceLock<ExecutionControl> = OnceLock::new();
     EXECUTION_CONTROL.get_or_init(ExecutionControl::default)
+}
+
+fn pending_workflow_paths_store() -> &'static Mutex<Vec<String>> {
+    static PENDING_WORKFLOW_PATHS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    PENDING_WORKFLOW_PATHS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+pub fn queue_pending_workflow_paths<I>(paths: I)
+where
+    I: IntoIterator<Item = String>,
+{
+    let store = pending_workflow_paths_store();
+    let Ok(mut guard) = store.lock() else {
+        return;
+    };
+
+    for raw in paths {
+        let normalized = raw.trim();
+        if normalized.is_empty() {
+            continue;
+        }
+
+        if guard
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(normalized))
+        {
+            continue;
+        }
+
+        guard.push(normalized.to_string());
+    }
+}
+
+#[tauri::command]
+pub async fn consume_pending_workflow_paths() -> Result<Vec<String>, String> {
+    let store = pending_workflow_paths_store();
+    let mut guard = store
+        .lock()
+        .map_err(|_| "启动工作流路径状态锁已损坏。".to_string())?;
+
+    Ok(std::mem::take(&mut *guard))
 }
 
 #[cfg(target_os = "windows")]
@@ -441,6 +482,16 @@ pub async fn load_workflow(path: String) -> Result<WorkflowGraph, String> {
     Ok(graph)
 }
 
+#[tauri::command]
+pub async fn read_workflow_file_text(path: String) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("工作流文件路径不能为空。".to_string());
+    }
+
+    std::fs::read_to_string(trimmed).map_err(|error| error.to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PackageWorkflowResult {
     pub executable_path: String,
@@ -718,7 +769,11 @@ async fn package_workflow_job_inner(
     match result {
         Ok(mut packaged) => {
             if let Some(warning) = cleanup_warning {
-                let _ = writeln!(&mut packaged.build_output, "\n[cleanup-warning]\n{}", warning);
+                let _ = writeln!(
+                    &mut packaged.build_output,
+                    "\n[cleanup-warning]\n{}",
+                    warning
+                );
             }
             Ok(packaged)
         }

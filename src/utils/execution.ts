@@ -225,6 +225,22 @@ export const checkPackagingEnvironment = async (): Promise<PackagingEnvironmentR
   return invoke<PackagingEnvironmentReportPayload>('check_packaging_environment')
 }
 
+export const consumePendingWorkflowPaths = async (): Promise<string[]> => {
+  if (!isTauriRuntime()) {
+    return []
+  }
+
+  return invoke<string[]>('consume_pending_workflow_paths')
+}
+
+export const readWorkflowFileTextFromSystemPath = async (path: string): Promise<string> => {
+  if (!isTauriRuntime()) {
+    throw new Error('当前为浏览器预览模式，无法读取系统工作流文件。')
+  }
+
+  return invoke<string>('read_workflow_file_text', { path })
+}
+
 export const stopWorkflow = async (): Promise<string> => {
   if (!isTauriRuntime()) {
     return '当前为浏览器预览模式，未连接 Tauri 后端。'
